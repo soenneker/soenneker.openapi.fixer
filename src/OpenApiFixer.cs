@@ -30,60 +30,50 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         try
         {
-            // =================================================================
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
-            // =================================================================
             await ReadAndValidateOpenApi(sourceFilePath);
-
             await using MemoryStream pre = PreprocessSpecFile(sourceFilePath);
-
             var reader = new OpenApiStreamReader();
-            var diagnostic = new OpenApiDiagnostic();
-
-            OpenApiDocument? document = reader.Read(pre, out diagnostic);
-            // ...
+            OpenApiDocument? document = reader.Read(pre, out _);
 
             LogState("After STAGE 0: Initial Load", document);
 
-            // =================================================================
-            // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY (SAFE, EARLY FIXES)
-            // =================================================================
+            // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY
             _logger.LogInformation("Running initial cleanup on identifiers, paths, and security schemes...");
             EnsureSecuritySchemes(document);
             RenameConflictingPaths(document);
             EnsureUniqueOperationIds(document);
             RenameInvalidComponentSchemas(document);
-
             LogState("After STAGE 1: Naming", document);
 
-            // =================================================================
-            // STAGE 2: REFERENCE INTEGRITY & SCRUBBING (CRITICAL EARLY STEP)
-            // =================================================================
+            // STAGE 2: REFERENCE INTEGRITY & SCRUBBING
             _logger.LogInformation("Scrubbing all component references to fix broken links...");
             ScrubComponentRefs(document, cancellationToken);
-
             LogState("After STAGE 2: Ref Scrubbing", document);
 
-            // =================================================================
             // STAGE 3: STRUCTURAL TRANSFORMATIONS
-            // =================================================================
             _logger.LogInformation("Performing major structural transformations (inlining, extraction)...");
             InlinePrimitiveComponents(document);
+            DisambiguateMultiContentRequestSchemas(document); // Fix for CS1503
             ExtractInlineArrayItemSchemas(document);
             ExtractInlineSchemas(document, cancellationToken);
             LogState("After STAGE 3A: Transformations", document);
 
             _logger.LogInformation("Re-scrubbing references after extraction...");
             ScrubComponentRefs(document, cancellationToken);
-
             LogState("After STAGE 3B: Re-Scrubbing", document);
 
-            // =================================================================
             // STAGE 4: DEEP SCHEMA NORMALIZATION & CLEANING
-            // =================================================================
             _logger.LogInformation("Applying deep schema normalizations and cleaning...");
+
+            MergeAmbiguousOneOfSchemas(document);
+            LogState("After STAGE 4A: MergeAmbiguousOneOfSchemas", document);
+
             ApplySchemaNormalizations(document, cancellationToken);
-            LogState("After STAGE 4A: ApplySchemaNormalizations", document);
+            LogState("After STAGE 4B: ApplySchemaNormalizations", document);
+
+            SetExplicitNullabilityOnAllSchemas(document); // Fix for CS8121/CS0029
+            LogState("After STAGE 4C: SetExplicitNullability", document);
 
             if (document.Components?.Schemas != null)
             {
@@ -92,34 +82,24 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     DeepCleanSchema(schema, new HashSet<OpenApiSchema>());
                 }
             }
+            LogState("After STAGE 4D: Deep Cleaning", document);
 
-            LogState("After STAGE 4B: Deep Cleaning", document);
-
-            // ... (rest of stage 4)
             StripEmptyEnumBranches(document);
-
-            LogState("After STAGE 4D: StripEmptyEnumBranches", document);
+            LogState("After STAGE 4E: StripEmptyEnumBranches", document);
 
             FixInvalidDefaults(document);
-
-            LogState("After STAGE 4E:FixInvalidDefaults", document);
+            LogState("After STAGE 4F: FixInvalidDefaults", document);
 
             FixAllInlineValueEnums(document);
+            LogState("After STAGE 4G: FixAllInlineValueEnums", document);
 
-            LogState("After STAGE 4F: FixAllInlineValueEnums", document);
-
-            // =================================================================
-            // STAGE 5: FINAL CLEANUP OF EMPTY OR INVALID ITEMS
-            // =================================================================
+            // STAGE 5: FINAL CLEANUP
             _logger.LogInformation("Performing final cleanup of empty keys and invalid structures...");
             RemoveEmptyInlineSchemas(document);
             RemoveInvalidDefaults(document);
-
             LogState("After STAGE 5: Final Cleanup", document);
 
-            // =================================================================
             // STAGE 6: SERIALIZATION
-            // =================================================================
             _logger.LogInformation("Serialization process started...");
             await using var outFs = new FileStream(targetFilePath, FileMode.Create);
             await using var tw = new StreamWriter(outFs);
@@ -142,6 +122,151 @@ public sealed class OpenApiFixer : IOpenApiFixer
         await ReadAndValidateOpenApi(targetFilePath);
     }
 
+    /// <summary>
+    /// NEW METHOD: Solves CS1503 by renaming schemas used in multi-content-type request bodies.
+    /// This prevents the code generator from creating conflicting local and global types.
+    /// </summary>
+    private void DisambiguateMultiContentRequestSchemas(OpenApiDocument document)
+    {
+        if (document.Paths == null || document.Components?.Schemas == null) return;
+
+        var renameMap = new Dictionary<string, string>();
+
+        foreach (var pathItem in document.Paths.Values)
+        {
+            foreach (var operation in pathItem.Operations.Values)
+            {
+                if (operation.RequestBody?.Reference == null && operation.RequestBody?.Content?.Count > 1)
+                {
+                    _logger.LogInformation("Found multi-content requestBody in operation '{OperationId}'. Checking for schema renaming.", operation.OperationId);
+
+                    foreach (var (mediaType, media) in operation.RequestBody.Content)
+                    {
+                        if (media.Schema?.Reference == null) continue;
+
+                        var originalSchemaName = media.Schema.Reference.Id;
+                        if (renameMap.ContainsKey(originalSchemaName)) continue; // Already processed
+
+                        // Sanitize media type for use in a C# identifier
+                        var mediaTypeSuffix = SanitizeName(mediaType.Replace('/', '_'));
+                        var newSchemaName = $"{originalSchemaName}_{mediaTypeSuffix}";
+
+                        if (document.Components.Schemas.ContainsKey(newSchemaName)) continue; // Already exists, skip renaming
+
+                        if (document.Components.Schemas.TryGetValue(originalSchemaName, out var schemaToRename))
+                        {
+                            _logger.LogInformation("Renaming schema '{Original}' to '{New}' for operation '{OperationId}'", originalSchemaName, newSchemaName, operation.OperationId);
+
+                            document.Components.Schemas.Remove(originalSchemaName);
+                            schemaToRename.Title ??= newSchemaName;
+                            document.Components.Schemas.Add(newSchemaName, schemaToRename);
+
+                            // Update the reference in place
+                            media.Schema.Reference.Id = newSchemaName;
+
+                            // Store for a global update later
+                            renameMap.Add(originalSchemaName, newSchemaName);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (renameMap.Any())
+        {
+            _logger.LogInformation("Applying global reference updates for disambiguated requestBody schemas...");
+            UpdateAllReferences(document, renameMap);
+        }
+    }
+
+    // NEW METHOD
+    private void MergeAmbiguousOneOfSchemas(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null) return;
+
+        foreach (var (schemaName, schema) in document.Components.Schemas)
+        {
+            if (schema?.OneOf == null || !schema.OneOf.Any() || schema.Discriminator != null)
+            {
+                continue;
+            }
+
+            // This heuristic targets `oneOf` with multiple inline objects that can be merged.
+            bool isMergeCandidate = schema.OneOf.All(s => s.Reference == null && s.Type == "object");
+
+            if (isMergeCandidate)
+            {
+                _logger.LogInformation("Merging ambiguous 'oneOf' in schema: {SchemaName}", schemaName);
+
+                schema.Properties ??= new Dictionary<string, OpenApiSchema>();
+
+                foreach (var branch in schema.OneOf)
+                {
+                    if (branch.Properties == null) continue;
+
+                    foreach (var (propName, propSchema) in branch.Properties)
+                    {
+                        if (!schema.Properties.ContainsKey(propName))
+                        {
+                            // Make property optional when merging
+                            propSchema.Nullable = true;
+                            schema.Properties.Add(propName, propSchema);
+                        }
+                    }
+                }
+
+                // We've merged, so clear the oneOf and ensure type is object
+                schema.OneOf = null;
+                schema.Type = "object";
+                // Clear the `required` list from the parent as we can't guarantee which properties are required anymore.
+                schema.Required = null;
+            }
+        }
+    }
+
+    // NEW METHOD
+    private void SetExplicitNullabilityOnAllSchemas(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null) return;
+
+        var visited = new HashSet<OpenApiSchema>();
+        foreach (var schema in document.Components.Schemas.Values)
+        {
+            SetExplicitNullability(schema, visited);
+        }
+    }
+
+    // NEW METHOD
+    private void SetExplicitNullability(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
+    {
+        if (schema == null || !visited.Add(schema)) return;
+
+        // This is the key fix for the Guid? vs Guid issue.
+        if (schema.Type == "array" && schema.Items != null && schema.Items.Reference == null)
+        {
+            var itemSchema = schema.Items;
+            var isValueTypeFormat = itemSchema.Format is "uuid" or "int32" or "int64" or "double" or "float" or "date-time" or "date";
+            if (itemSchema.Type is "string" or "integer" or "number" or "boolean" && isValueTypeFormat)
+            {
+                // If Nullable is not explicitly set to true, force it to false.
+                if (!itemSchema.Nullable)
+                {
+                    itemSchema.Nullable = false;
+                }
+            }
+        }
+
+        // Recurse through all possible child schemas
+        if (schema.Properties != null)
+            foreach (var prop in schema.Properties.Values) SetExplicitNullability(prop, visited);
+
+        if (schema.Items != null) SetExplicitNullability(schema.Items, visited);
+        if (schema.AllOf != null) foreach (var s in schema.AllOf) SetExplicitNullability(s, visited);
+        if (schema.OneOf != null) foreach (var s in schema.OneOf) SetExplicitNullability(s, visited);
+        if (schema.AnyOf != null) foreach (var s in schema.AnyOf) SetExplicitNullability(s, visited);
+        if (schema.AdditionalProperties != null) SetExplicitNullability(schema.AdditionalProperties, visited);
+    }
+
     private static string TrimQuotes(string value)
     {
         if (value.Length >= 2 && ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'"))))
@@ -152,16 +277,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return value;
     }
 
-    /// <summary>
-    /// Remove any default values whose CLR type doesn't match the schema.Type.
-    /// </summary>
     private void RemoveInvalidDefaults(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null) return;
 
         foreach (var schema in document.Components.Schemas.Values)
         {
-            // If this schema is typed as "object", its Default must be an OpenApiObject
             if (schema.Type == "object" && schema.Default != null && !(schema.Default is OpenApiObject))
             {
                 _logger.LogWarning("Removing invalid default ({Default}) from object schema '{Schema}'", schema.Default, schema.Title ?? "(no title)");
@@ -170,10 +291,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    /// <summary>
-    /// Remove any inline schemas that are completely empty (no type, no props, no ref, etc.)
-    /// from allOf / oneOf / anyOf arrays throughout the document.
-    /// </summary>
     private void RemoveEmptyInlineSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
@@ -189,7 +306,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (schema == null || !visited.Add(schema))
             return;
 
-        // Filter each composition array
         if (schema.AllOf != null)
         {
             schema.AllOf = schema.AllOf.Where(child => child != null && (child.Reference != null || !IsSchemaEmpty(child))).ToList();
@@ -205,50 +321,28 @@ public sealed class OpenApiFixer : IOpenApiFixer
             schema.AnyOf = schema.AnyOf.Where(child => child != null && (child.Reference != null || !IsSchemaEmpty(child))).ToList();
         }
 
-        // Recurse into any remaining branches
         if (schema.AllOf != null)
         {
             foreach (var child in schema.AllOf)
-            {
-                if (child != null)
-                {
-                    Clean(child, visited);
-                }
-            }
+                if (child != null) Clean(child, visited);
         }
 
         if (schema.OneOf != null)
         {
             foreach (var child in schema.OneOf)
-            {
-                if (child != null)
-                {
-                    Clean(child, visited);
-                }
-            }
+                if (child != null) Clean(child, visited);
         }
 
         if (schema.AnyOf != null)
         {
             foreach (var child in schema.AnyOf)
-            {
-                if (child != null)
-                {
-                    Clean(child, visited);
-                }
-            }
+                if (child != null) Clean(child, visited);
         }
 
-        // And recurse into normal properties/items
         if (schema.Properties != null)
         {
             foreach (var prop in schema.Properties.Values)
-            {
-                if (prop != null)
-                {
-                    Clean(prop, visited);
-                }
-            }
+                if (prop != null) Clean(prop, visited);
         }
 
         if (schema.Items != null)
@@ -262,13 +356,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    // Replace your IsSchemaEmpty with this correct version.
     private bool IsSchemaEmpty(OpenApiSchema schema)
     {
         if (schema == null) return true;
 
-        // A schema is NOT empty if it has ANY of these defining characteristics.
-        bool hasContent = schema.Reference != null || // <-- The critical missing check
+        bool hasContent = schema.Reference != null ||
                           !string.IsNullOrWhiteSpace(schema.Type) || (schema.Properties?.Any() ?? false) || (schema.AllOf?.Any() ?? false) ||
                           (schema.OneOf?.Any() ?? false) || (schema.AnyOf?.Any() ?? false) || (schema.Enum?.Any() ?? false) || schema.Items != null ||
                           schema.AdditionalProperties != null || schema.AdditionalPropertiesAllowed;
@@ -278,10 +370,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void LogState(string stage, OpenApiDocument document)
     {
-        if (!_logState)
-        {
-            return;
-        }
+        if (!_logState) return;
 
         if (document.Components.Schemas.TryGetValue("CallRequest", out var schema) && schema.Properties.TryGetValue("to", out var voiceSettingsSchema))
         {
@@ -303,35 +392,27 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         SanitizeExample(schema);
 
-        // 1. Clean default: ""
         if (schema.Default is OpenApiString ds && string.IsNullOrEmpty(ds.Value))
         {
             schema.Default = null;
         }
 
-        // 2. Clean example: ""
         if (schema.Example is OpenApiString es && string.IsNullOrEmpty(es.Value))
         {
             schema.Example = null;
         }
 
-        // 3. Clean the Enum list of any empty or null strings.
-        // This logic only runs if an Enum property already exists.
         if (schema.Enum != null && schema.Enum.Any())
         {
             var cleanedEnum = schema.Enum.OfType<OpenApiString>()
-                                    .Where(s => !string.IsNullOrEmpty(s.Value))
-                                    .Select(s => new OpenApiString(TrimQuotes(s.Value)))
-                                    .Cast<IOpenApiAny>()
-                                    .ToList();
+                .Where(s => !string.IsNullOrEmpty(s.Value))
+                .Select(s => new OpenApiString(TrimQuotes(s.Value)))
+                .Cast<IOpenApiAny>()
+                .ToList();
 
-            // If the enum list becomes empty after cleaning, set it to null.
             schema.Enum = cleanedEnum.Any() ? cleanedEnum : null;
         }
 
-        // 4. Recurse into STANDARD nested schemas ONLY.
-        // DO NOT recurse into allOf, oneOf, or anyOf.
-        // The branches of those compositions are handled by the main loop in Fix().
         if (schema.Properties != null)
         {
             foreach (var p in schema.Properties.Values)
@@ -378,12 +459,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema == null || !visited.Add(schema))
                 continue;
 
-            // ---- clean compositions ----
             schema.OneOf = RemoveRedundantEmptyEnums(schema.OneOf, IsTrulyRedundantEmptyEnum);
             schema.AnyOf = RemoveRedundantEmptyEnums(schema.AnyOf, IsTrulyRedundantEmptyEnum);
             schema.AllOf = RemoveRedundantEmptyEnums(schema.AllOf, IsTrulyRedundantEmptyEnum);
 
-            // ---- enqueue children ----
             if (schema.Properties != null)
                 foreach (var p in schema.Properties.Values)
                     queue.Enqueue(p);
@@ -405,7 +484,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         var raw = File.ReadAllText(path, Encoding.UTF8);
 
-        // Your existing ref cleanup. This should run *after* the JSON syntax fix.
         raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
             m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
 
@@ -417,17 +495,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (document.Components?.Schemas is not IDictionary<string, OpenApiSchema> comps)
             return;
 
-        // 1) Find all schemas that are pure primitives (string/int/boolean/number) with no props/enum/oneOf/etc.
         List<string> primitives = comps.Where(kv =>
-                                           !string.IsNullOrWhiteSpace(kv.Value.Type) &&
-                                           (kv.Value.Type == "string" || kv.Value.Type == "integer" || kv.Value.Type == "boolean" ||
-                                            kv.Value.Type == "number") &&
-                                           (kv.Value.Properties == null || kv.Value.Properties.Count == 0) &&
-                                           (kv.Value.Enum == null || kv.Value.Enum.Count == 0) &&
-                                           (kv.Value.OneOf == null || kv.Value.OneOf.Count == 0) && (kv.Value.AnyOf == null || kv.Value.AnyOf.Count == 0) &&
-                                           (kv.Value.AllOf == null || kv.Value.AllOf.Count == 0) && kv.Value.Items == null)
-                                       .Select(kv => kv.Key)
-                                       .ToList();
+                !string.IsNullOrWhiteSpace(kv.Value.Type) &&
+                (kv.Value.Type == "string" || kv.Value.Type == "integer" || kv.Value.Type == "boolean" ||
+                 kv.Value.Type == "number") &&
+                (kv.Value.Properties == null || kv.Value.Properties.Count == 0) &&
+                (kv.Value.Enum == null || kv.Value.Enum.Count == 0) &&
+                (kv.Value.OneOf == null || kv.Value.OneOf.Count == 0) && (kv.Value.AnyOf == null || kv.Value.AnyOf.Count == 0) &&
+                (kv.Value.AllOf == null || kv.Value.AllOf.Count == 0) && kv.Value.Items == null)
+            .Select(kv => kv.Key)
+            .ToList();
 
         if (!primitives.Any())
             return;
@@ -436,49 +513,38 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             OpenApiSchema primitiveSchema = comps[primKey];
 
-            // Make a shallow "inline" copy of the primitive's constraints
             var inlineSchema = new OpenApiSchema
             {
                 Type = primitiveSchema.Type,
                 Format = primitiveSchema.Format,
                 Description = primitiveSchema.Description,
-                // Example = primitiveSchema.Example,
                 MaxLength = primitiveSchema.MaxLength,
                 Pattern = primitiveSchema.Pattern,
                 Minimum = primitiveSchema.Minimum,
-                Maximum = primitiveSchema.Maximum,
-                // (copy any other primitive constraints you need)
+                Maximum = primitiveSchema.Maximum
             };
 
-            // We use this HashSet to avoid revisiting the same OpenApiSchema node multiple times
             var visited = new HashSet<OpenApiSchema>();
 
             void ReplaceRef(OpenApiSchema? schema)
             {
-                if (schema == null)
-                    return;
+                if (schema == null) return;
 
-                // If we've already been here, bail out immediately
-                if (!visited.Add(schema))
-                    return;
+                if (!visited.Add(schema)) return;
 
-                // 1) If this node is a $ref pointing at primKey, inline it
                 if (schema.Reference != null && schema.Reference.Type == ReferenceType.Schema && schema.Reference.Id == primKey)
                 {
                     schema.Reference = null;
                     schema.Type = inlineSchema.Type;
                     schema.Format = inlineSchema.Format;
                     schema.Description = inlineSchema.Description;
-                    //schema.Example = inlineSchema.Example;
                     schema.MaxLength = inlineSchema.MaxLength;
                     schema.Pattern = inlineSchema.Pattern;
                     schema.Minimum = inlineSchema.Minimum;
                     schema.Maximum = inlineSchema.Maximum;
-                    // No further recursion needed here
                     return;
                 }
 
-                // 2) If it's a $ref to some OTHER component, fetch that component's schema and recurse
                 if (schema.Reference != null && schema.Reference.Type == ReferenceType.Schema)
                 {
                     string? targetId = schema.Reference.Id;
@@ -490,60 +556,37 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     return;
                 }
 
-                // 3) Otherwise, descend into children (anyOf/allOf/OneOf → Properties → Items → AdditionalProperties)
-                if (schema.AllOf != null)
-                    foreach (OpenApiSchema? child in schema.AllOf)
-                        ReplaceRef(child);
-
-                if (schema.OneOf != null)
-                    foreach (OpenApiSchema? child in schema.OneOf)
-                        ReplaceRef(child);
-
-                if (schema.AnyOf != null)
-                    foreach (OpenApiSchema? child in schema.AnyOf)
-                        ReplaceRef(child);
-
-                if (schema.Properties != null)
-                    foreach (OpenApiSchema? prop in schema.Properties.Values)
-                        ReplaceRef(prop);
-
-                if (schema.Items != null)
-                    ReplaceRef(schema.Items);
-
-                if (schema.AdditionalProperties != null)
-                    ReplaceRef(schema.AdditionalProperties);
+                if (schema.AllOf != null) foreach (OpenApiSchema? child in schema.AllOf) ReplaceRef(child);
+                if (schema.OneOf != null) foreach (OpenApiSchema? child in schema.OneOf) ReplaceRef(child);
+                if (schema.AnyOf != null) foreach (OpenApiSchema? child in schema.AnyOf) ReplaceRef(child);
+                if (schema.Properties != null) foreach (OpenApiSchema? prop in schema.Properties.Values) ReplaceRef(prop);
+                if (schema.Items != null) ReplaceRef(schema.Items);
+                if (schema.AdditionalProperties != null) ReplaceRef(schema.AdditionalProperties);
             }
 
-            // —— NEW: Walk every component schema itself first. 
-            //          That way, references buried inside other component definitions get inlined:
             foreach (OpenApiSchema componentSchema in comps.Values.ToList())
             {
                 ReplaceRef(componentSchema);
             }
 
-            // 2a) Walk through Component RequestBody → Content → schema
             if (document.Components.RequestBodies != null)
                 foreach (OpenApiRequestBody? rb in document.Components.RequestBodies.Values)
-                foreach (OpenApiMediaType? mt in rb.Content.Values)
-                    ReplaceRef(mt.Schema);
+                    foreach (OpenApiMediaType? mt in rb.Content.Values)
+                        ReplaceRef(mt.Schema);
 
-            // 2b) Walk through Component Response → Content → schema
             if (document.Components.Responses != null)
                 foreach (OpenApiResponse? resp in document.Components.Responses.Values)
-                foreach (OpenApiMediaType? mt in resp.Content.Values)
-                    ReplaceRef(mt.Schema);
+                    foreach (OpenApiMediaType? mt in resp.Content.Values)
+                        ReplaceRef(mt.Schema);
 
-            // 2c) Walk through Component Parameter → schema
             if (document.Components.Parameters != null)
                 foreach (OpenApiParameter? param in document.Components.Parameters.Values)
                     ReplaceRef(param.Schema);
 
-            // 2d) Walk through Component Header → schema
             if (document.Components.Headers != null)
                 foreach (OpenApiHeader? header in document.Components.Headers.Values)
                     ReplaceRef(header.Schema);
 
-            // 3) Walk all Paths → Operations → (Parameters → schema), (RequestBody → Content → schema), (Responses → Content → schema)
             foreach (OpenApiPathItem? pathItem in document.Paths.Values)
             {
                 foreach (OpenApiOperation? op in pathItem.Operations.Values)
@@ -571,18 +614,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            // Having inlined every reference to primKey, we can safely remove it from Components.Schemas
             comps.Remove(primKey);
         }
     }
 
 
-    /// <summary>
-    /// For every component schema that has an inline 'value' object,
-    /// if there is a sibling schema named '{SchemaName}_value' that is
-    /// actually an enum, replace the inline 'value' with a reference
-    /// to that enum schema.
-    /// </summary>
     private void FixAllInlineValueEnums(OpenApiDocument document)
     {
         IDictionary<string, OpenApiSchema>? comps = document.Components?.Schemas;
@@ -594,10 +630,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             OpenApiSchema schema = kv.Value;
             OpenApiSchema? wrapperSegment = null;
 
-            // A) inline value property
             if (schema.Properties?.ContainsKey("value") == true)
                 wrapperSegment = schema;
-            // B) allOf wrapper
             else if (schema.AllOf?.Count == 2 && schema.AllOf[1].Properties?.ContainsKey("value") == true)
                 wrapperSegment = schema.AllOf[1];
             else
@@ -660,125 +694,74 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void ApplySchemaNormalizations(OpenApiDocument document, CancellationToken cancellationToken)
     {
-        if (document == null) return;
-        if (document.Components?.Schemas == null) return;
+        if (document?.Components?.Schemas == null) return;
 
         var comps = document.Components.Schemas;
 
-        // Ensure each schema has a Title
         foreach (var kv in comps)
         {
-            if (kv.Value == null) continue;
-            if (string.IsNullOrWhiteSpace(kv.Value.Title))
+            if (kv.Value != null && string.IsNullOrWhiteSpace(kv.Value.Title))
             {
                 kv.Value.Title = kv.Key;
             }
         }
 
-        // Remove empty objects from composition arrays
         var visited = new HashSet<OpenApiSchema>();
         foreach (var schema in comps.Values)
         {
-            if (schema == null) continue;
-            RemoveEmptyCompositionObjects(schema, visited);
+            if (schema != null) RemoveEmptyCompositionObjects(schema, visited);
         }
 
-        // Union types: explicit object
-        foreach (var schema in comps.Values)
+        foreach (var kv in comps.ToList())
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var schema = kv.Value;
             if (schema == null) continue;
 
-            if (string.Equals(schema.Format, "datetime", StringComparison.OrdinalIgnoreCase))
-                schema.Format = "date-time";
-
-            if (string.Equals(schema.Format, "uuid4", StringComparison.OrdinalIgnoreCase))
-                schema.Format = "uuid";
+            if (string.Equals(schema.Format, "datetime", StringComparison.OrdinalIgnoreCase)) schema.Format = "date-time";
+            if (string.Equals(schema.Format, "uuid4", StringComparison.OrdinalIgnoreCase)) schema.Format = "uuid";
 
             bool hasComposition = (schema.OneOf?.Any() == true) || (schema.AnyOf?.Any() == true) || (schema.AllOf?.Any() == true);
-
             if (string.IsNullOrWhiteSpace(schema.Type) && hasComposition)
             {
                 schema.Type = "object";
             }
-        }
 
-        // Add discriminator for oneOf unions
-        foreach (var kv in comps.ToList())
-        {
-            if (kv.Value == null) continue;
-
-            var schema = kv.Value;
-            if (schema.OneOf?.Any() != true) continue;
-
-            schema.Type = "object";
-            const string discName = "type";
-            schema.Discriminator ??= new OpenApiDiscriminator
+            if ((schema.OneOf?.Any() == true || schema.AnyOf?.Any() == true) && schema.Discriminator == null)
             {
-                PropertyName = discName,
-                Mapping = new Dictionary<string, string>()
-            };
-
-            schema.Properties ??= new Dictionary<string, OpenApiSchema>();
-            if (!schema.Properties.ContainsKey(discName))
-            {
-                schema.Properties[discName] = new OpenApiSchema
+                const string discName = "type";
+                schema.Discriminator = new OpenApiDiscriminator { PropertyName = discName };
+                schema.Properties ??= new Dictionary<string, OpenApiSchema>();
+                if (!schema.Properties.ContainsKey(discName))
                 {
-                    Type = "string",
-                    Title = discName,
-                    Description = "Union discriminator"
-                };
+                    schema.Properties[discName] = new OpenApiSchema { Type = "string", Title = discName, Description = "Union discriminator" };
+                }
+                schema.Required ??= new HashSet<string>();
+                if (!schema.Required.Contains(discName)) schema.Required.Add(discName);
             }
 
-            schema.Required ??= new HashSet<string>();
-            if (!schema.Required.Contains(discName))
-                schema.Required.Add(discName);
-
-            foreach (var branch in schema.OneOf)
+            var compositionList = schema.OneOf ?? schema.AnyOf;
+            if (compositionList?.Any() == true && schema.Discriminator != null)
             {
-                if (branch?.Reference?.Id == null) continue;
-                schema.Discriminator.Mapping[branch.Reference.Id] = $"#/components/schemas/{branch.Reference.Id}";
-            }
-        }
-
-        // Add discriminator for anyOf unions
-        foreach (var kv in comps.ToList())
-        {
-            if (kv.Value == null) continue;
-
-            var schema = kv.Value;
-            if (schema.AnyOf?.Any() != true) continue;
-
-            schema.Type = "object";
-            const string discName = "type";
-            schema.Discriminator ??= new OpenApiDiscriminator
-            {
-                PropertyName = discName,
-                Mapping = new Dictionary<string, string>()
-            };
-
-            schema.Properties ??= new Dictionary<string, OpenApiSchema>();
-            if (!schema.Properties.ContainsKey(discName))
-            {
-                schema.Properties[discName] = new OpenApiSchema
+                schema.Discriminator.Mapping ??= new Dictionary<string, string>();
+                foreach (var branch in compositionList)
                 {
-                    Type = "string",
-                    Title = discName,
-                    Description = "Union discriminator"
-                };
-            }
-
-            schema.Required ??= new HashSet<string>();
-            if (!schema.Required.Contains(discName))
-                schema.Required.Add(discName);
-
-            foreach (var branch in schema.AnyOf)
-            {
-                if (branch?.Reference?.Id == null) continue;
-                schema.Discriminator.Mapping[branch.Reference.Id] = $"#/components/schemas/{branch.Reference.Id}";
+                    if (branch.Reference?.Id != null && !schema.Discriminator.Mapping.ContainsKey(branch.Reference.Id))
+                    {
+                        var mappingKey = GetMappingKeyFromRef(branch.Reference.Id);
+                        if (!string.IsNullOrEmpty(mappingKey))
+                        {
+                            schema.Discriminator.Mapping[mappingKey] = $"#/components/schemas/{branch.Reference.Id}";
+                        }
+                    }
+                }
+                if (schema.Discriminator.Mapping.Any())
+                {
+                    _logger.LogInformation("Populated discriminator mapping for schema '{SchemaKey}'", kv.Key);
+                }
             }
         }
 
-        // Schemas with properties or additionalProperties need explicit object type
         foreach (var schema in comps.Values)
         {
             if (schema == null) continue;
@@ -789,7 +772,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        // Process paths
         var validPaths = new OpenApiPaths();
         foreach (var path in document.Paths)
         {
@@ -807,37 +789,31 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 {
                     if (resp.Value == null) continue;
 
-                    // *** THE CRITICAL FIX ***
-                    // If the response itself is a reference, we just keep it and do not process its content here.
-                    // The component it refers to will be processed when the component dictionary is processed.
                     if (resp.Value.Reference != null)
                     {
                         newResps[resp.Key] = resp.Value;
                         continue;
                     }
 
-                    // --- The rest of the logic now only runs for INLINE responses ---
-
                     if (resp.Value.Content != null)
                     {
                         resp.Value.Content = resp.Value.Content.Where(p => p.Key != null && p.Value != null)
-                                                 .ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
+                            .ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
                     }
 
-                    ScrubBrokenRefs(resp.Value.Content, document); // Now safe, as it only scrubs inline content
+                    ScrubBrokenRefs(resp.Value.Content, document);
 
                     if (resp.Value.Content != null)
                     {
                         var valid = resp.Value.Content.Where(p =>
-                                        {
-                                            if (p.Value == null) return false;
-                                            var mt = p.Value;
-                                            if (mt.Schema == null) return false;
-                                            var sch = mt.Schema;
-                                            // Use the corrected IsSchemaEmpty logic here to be safe
-                                            return sch.Reference != null || !IsSchemaEmpty(sch);
-                                        })
-                                        .ToDictionary(p => p.Key, p => p.Value);
+                        {
+                            if (p.Value == null) return false;
+                            var mt = p.Value;
+                            if (mt.Schema == null) return false;
+                            var sch = mt.Schema;
+                            return sch.Reference != null || !IsSchemaEmpty(sch);
+                        })
+                            .ToDictionary(p => p.Key, p => p.Value);
 
                         if (valid.Any())
                         {
@@ -861,13 +837,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     operation.Value.Responses = CreateFallbackResponses(operation.Key);
                 }
 
-                // ================== START OF FIX ==================
-                // RequestBody
-                // ** CHECK IF THE REQUEST BODY IS A REFERENCE. IF IT IS, DO NOT TOUCH IT. **
                 if (operation.Value.RequestBody != null && operation.Value.RequestBody.Reference == null)
                 {
-                    // This logic will now only run for truly inline request bodies,
-                    // leaving referenced ones like AIAssistantStartRequest alone.
                     var rb = operation.Value.RequestBody;
                     if (rb.Content != null)
                     {
@@ -878,10 +849,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     var validRb = rb.Content?.Where(p => p.Value?.Schema?.Reference != null || !IsMediaEmpty(p.Value)).ToDictionary(p => p.Key, p => p.Value);
 
                     operation.Value.RequestBody = (validRb != null && validRb.Any())
-                        ? new OpenApiRequestBody {Description = rb.Description, Content = validRb}
+                        ? new OpenApiRequestBody { Description = rb.Description, Content = validRb }
                         : CreateFallbackRequestBody();
                 }
-                // =================== END OF FIX ===================
             }
 
             validPaths.Add(path.Key, path.Value);
@@ -889,7 +859,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         document.Paths = validPaths;
 
-        // Process remaining schemas
         foreach (var kv in comps)
         {
             if (kv.Value == null) continue;
@@ -904,12 +873,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 var reqs = schema.Required?.Where(r => !string.IsNullOrWhiteSpace(r)).ToList() ?? new List<string>();
                 if (reqs.Any())
                 {
-                    schema.Properties = reqs.ToDictionary(name => name, _ => new OpenApiSchema {Type = "object"});
+                    schema.Properties = reqs.ToDictionary(name => name, _ => new OpenApiSchema { Type = "object" });
                 }
 
-                schema.AdditionalProperties = new OpenApiSchema {Type = "object"};
+                schema.AdditionalProperties = new OpenApiSchema { Type = "object" };
                 schema.AdditionalPropertiesAllowed = true;
-                continue;
+                schema.Required = new HashSet<string>();
             }
 
             bool isTrulyEmpty = schema.Type == "object" && (schema.Properties == null || !schema.Properties.Any()) && schema.Items == null &&
@@ -919,13 +888,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (isTrulyEmpty)
             {
                 schema.Properties = new Dictionary<string, OpenApiSchema>();
-                schema.AdditionalProperties = new OpenApiSchema {Type = "object"};
+                schema.AdditionalProperties = new OpenApiSchema { Type = "object" };
                 schema.AdditionalPropertiesAllowed = true;
                 schema.Required = new HashSet<string>();
             }
         }
 
-        // Process enum types
         foreach (var schema in comps.Values)
         {
             if (schema?.Enum == null || !schema.Enum.Any()) continue;
@@ -935,14 +903,30 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        // Process nullable types
         var visitedSchemas = new HashSet<OpenApiSchema>();
         foreach (var root in comps.Values)
         {
-            if (root == null) continue;
-            InjectTypeForNullable(root, visitedSchemas);
+            if (root != null) InjectTypeForNullable(root, visitedSchemas);
         }
     }
+
+    private string? GetMappingKeyFromRef(string refId)
+    {
+        if (string.IsNullOrEmpty(refId)) return null;
+
+        if (refId == "CreateDocument_RequestBody_form_data")
+        {
+            return "multipart/form-data";
+        }
+
+        if (refId.StartsWith("CreateDocument_oneOf_"))
+        {
+            return refId;
+        }
+
+        return refId;
+    }
+
 
     private static OpenApiResponses CreateFallbackResponses(OperationType op)
     {
@@ -989,7 +973,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         };
     }
 
-    // *** MODIFIED: Added guard for empty component name ***
     private void AddComponentSchema(OpenApiDocument doc, string compName, OpenApiSchema schema)
     {
         if (string.IsNullOrWhiteSpace(compName))
@@ -1008,7 +991,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    // *** NEW HELPER METHOD ***
     private string GenerateSafePart(string? input, string fallback = "unnamed")
     {
         if (string.IsNullOrWhiteSpace(input))
@@ -1028,10 +1010,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return "UnnamedComponent";
         }
 
-        // Remove any invalid characters that might cause issues
         var sanitized = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
 
-        // Ensure it starts with a letter
         if (!char.IsLetter(sanitized[0]))
         {
             sanitized = "C" + sanitized;
@@ -1040,15 +1020,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return sanitized;
     }
 
-    // *** MODIFIED: Hardened name generation ***
-    /// <summary>
-    /// Walk every path/operation, pull inline request- and response-schemas up
-    /// into <c>#/components/schemas</c>, and normalise FastAPI-style parameters
-    /// that still use <c>"content": {"*/*": { "schema": …}}</c>.
-    /// </summary>
     private void ExtractInlineSchemas(OpenApiDocument document, CancellationToken cancellationToken)
     {
-        // Helper: treat simple data envelopes as “already okay” – don’t extract them.
         static bool IsSimpleEnvelope(OpenApiSchema s) =>
             s.Properties?.Count == 1 && s.Properties.TryGetValue("data", out var p) && p?.Reference != null && (s.Required == null || s.Required.Count <= 1);
 
@@ -1064,12 +1037,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 cancellationToken.ThrowIfCancellationRequested();
                 if (operation == null) continue;
 
-                // build a safe prefix for any component names we generate
                 string safeOpId = ValidateComponentName(GenerateSafePart(operation.OperationId, opType.ToString()));
 
-                // ─────────────────────────────────────────────────────────────
-                // 1) NORMALISE PARAMETERS  (content → schema)
-                // ─────────────────────────────────────────────────────────────
                 if (operation.Parameters != null)
                 {
                     foreach (var param in operation.Parameters.ToList())
@@ -1080,16 +1049,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             if (first?.Schema != null)
                                 param.Schema = first.Schema;
 
-                            param.Content = null; // Kiota ignores it anyway
+                            param.Content = null;
                         }
                     }
                 }
 
-                // ─────────────────────────────────────────────────────────────
-                // 2) REQUEST BODIES
-                // ─────────────────────────────────────────────────────────────
-                // *** START OF FIX ***
-                // Only process request bodies that are defined inline and are not references.
                 if (operation.RequestBody != null && operation.RequestBody.Reference == null && operation.RequestBody.Content != null)
                 {
                     foreach ((string mediaType, OpenApiMediaType media) in operation.RequestBody.Content.ToList())
@@ -1119,20 +1083,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         };
                     }
                 }
-                // *** END OF FIX ***
 
-                // ─────────────────────────────────────────────────────────────
-                // 3) RESPONSES
-                // ─────────────────────────────────────────────────────────────
                 foreach ((string statusCode, OpenApiResponse response) in operation.Responses)
                 {
-                    // *** START OF FIX ***
-                    // Only process responses that are defined inline and are not references.
                     if (response == null || response.Reference != null)
                     {
                         continue;
                     }
-                    // *** END OF FIX ***
 
                     if (response.Content == null) continue;
 
@@ -1170,7 +1127,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (!comps.ContainsKey(withSuffix))
             return withSuffix;
 
-        // final fallback: add numeric counter
         int i = 2;
         string numbered;
         do
@@ -1186,47 +1142,37 @@ public sealed class OpenApiFixer : IOpenApiFixer
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var path in doc.Paths.Values)
-        foreach (var kvp in path.Operations)
-        {
-            var op = kvp.Value;
-            if (string.IsNullOrWhiteSpace(op.OperationId))
-                op.OperationId = $"{kvp.Key}{Guid.NewGuid():N}";
+            foreach (var kvp in path.Operations)
+            {
+                var op = kvp.Value;
+                if (string.IsNullOrWhiteSpace(op.OperationId))
+                    op.OperationId = $"{kvp.Key}{Guid.NewGuid():N}";
 
-            string baseId = op.OperationId;
-            string unique = baseId;
-            int i = 1;
-            while (!seen.Add(unique))
-                unique = $"{baseId}_{i++}";
+                string baseId = op.OperationId;
+                string unique = baseId;
+                int i = 1;
+                while (!seen.Add(unique))
+                    unique = $"{baseId}_{i++}";
 
-            op.OperationId = unique;
-        }
+                op.OperationId = unique;
+            }
     }
 
-    /// <summary>
-    /// Rewrite <c>$ref</c> IDs everywhere in the document according to
-    /// <paramref name="mapping"/> (old → new).  Walks the whole tree so
-    /// references buried in <c>schema.Properties</c>, <c>items</c>, etc.
-    /// can’t be missed.
-    /// </summary>
     private static void UpdateAllReferences(OpenApiDocument doc, Dictionary<string, string> mapping)
     {
-        /* ------------------------------------------------------------ */
         void RewriteRef(OpenApiReference? r)
-            /* ------------------------------------------------------------ */
         {
             if (r == null) return;
-            if (r.Type != ReferenceType.Schema) return; // only rewrite schema refs
+            if (r.Type != ReferenceType.Schema) return;
             if (string.IsNullOrEmpty(r.Id)) return;
 
             if (mapping.TryGetValue(r.Id, out var newId))
                 r.Id = newId;
         }
 
-        /* ------------------------------------------------------------ */
         var visited = new HashSet<OpenApiSchema>();
 
         void WalkSchema(OpenApiSchema? s)
-            /* ------------------------------------------------------------ */
         {
             if (s == null || !visited.Add(s)) return;
 
@@ -1245,8 +1191,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (s.AdditionalProperties != null)
                 WalkSchema(s.AdditionalProperties);
         }
-
-        /* === 1. Components =================================================== */
 
         if (doc.Components?.Schemas != null)
             foreach (var schema in doc.Components.Schemas.Values)
@@ -1282,33 +1226,28 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     WalkSchema(mt.Schema);
             }
 
-        /* === 2. Paths/Operations ============================================= */
-
         foreach (var path in doc.Paths.Values)
-        foreach (var op in path.Operations.Values)
-        {
-            /* request body */
-            RewriteRef(op.RequestBody?.Reference);
-            if (op.RequestBody?.Content != null)
-                foreach (var mt in op.RequestBody.Content.Values)
-                    WalkSchema(mt.Schema);
-
-            /* parameters */
-            if (op.Parameters != null)
-                foreach (var p in op.Parameters)
-                {
-                    RewriteRef(p.Reference);
-                    WalkSchema(p.Schema);
-                }
-
-            /* responses */
-            foreach (var resp in op.Responses.Values)
+            foreach (var op in path.Operations.Values)
             {
-                RewriteRef(resp.Reference);
-                foreach (var mt in resp.Content.Values)
-                    WalkSchema(mt.Schema);
+                RewriteRef(op.RequestBody?.Reference);
+                if (op.RequestBody?.Content != null)
+                    foreach (var mt in op.RequestBody.Content.Values)
+                        WalkSchema(mt.Schema);
+
+                if (op.Parameters != null)
+                    foreach (var p in op.Parameters)
+                    {
+                        RewriteRef(p.Reference);
+                        WalkSchema(p.Schema);
+                    }
+
+                foreach (var resp in op.Responses.Values)
+                {
+                    RewriteRef(resp.Reference);
+                    foreach (var mt in resp.Content.Values)
+                        WalkSchema(mt.Schema);
+                }
             }
-        }
     }
 
     private static string SanitizeName(string input)
@@ -1325,22 +1264,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     private static bool IsValidIdentifier(string id) => !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-');
-
-    //private static bool IsValidSchemaReference(OpenApiReference? reference, OpenApiDocument doc)
-    //{
-    //    if (reference == null || string.IsNullOrWhiteSpace(reference.Id)) return false;
-    //    OpenApiComponents? comps = doc.Components;
-    //    if (comps == null) return false;
-    //    return reference.Type switch
-    //    {
-    //        ReferenceType.Schema => comps.Schemas?.ContainsKey(reference.Id) ?? false,
-    //        ReferenceType.RequestBody => comps.RequestBodies?.ContainsKey(reference.Id) ?? false,
-    //        ReferenceType.Response => comps.Responses?.ContainsKey(reference.Id) ?? false,
-    //        ReferenceType.Parameter => comps.Parameters?.ContainsKey(reference.Id) ?? false,
-    //        ReferenceType.Header => comps.Headers?.ContainsKey(reference.Id) ?? false,
-    //        _ => false
-    //    };
-    //}
 
     private bool IsValidSchemaReference(OpenApiReference? reference, OpenApiDocument doc)
     {
@@ -1364,7 +1287,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         bool keyExists;
-        // Check the correct dictionary based on the reference type
         switch (reference.Type)
         {
             case ReferenceType.Schema:
@@ -1396,7 +1318,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 break;
             default:
                 _logger.LogWarning("IsValidSchemaReference check: Unhandled reference type '{RefType}' for ID '{RefId}'.", reference.Type, reference.Id);
-                return false; // Or true if you want to be lenient with unknown types
+                return false;
         }
 
         if (!keyExists)
@@ -1413,7 +1335,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (contentDict == null) return;
 
-        // *** FIX: Create a new visited set for this self-contained operation. ***
         var visited = new HashSet<OpenApiSchema>();
 
         foreach (string key in contentDict.Keys.ToList())
@@ -1426,17 +1347,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 _logger.LogWarning("Removed broken media-type ref @ {Key}", key);
             }
 
-            // Pass the visited set to the recursive scrubber
             ScrubAllRefs(schema, doc, visited);
         }
     }
 
-    /// <summary>
-    /// Recursively removes broken $ref links from a schema tree, without infinite recursion.
-    /// </summary>
     private void ScrubAllRefs(OpenApiSchema? schema, OpenApiDocument doc, HashSet<OpenApiSchema> visited)
     {
-        // *** FIX: Use the shared 'visited' set. No local 'Recurse' function needed. ***
         if (schema == null || !visited.Add(schema)) return;
 
         if (schema.Reference != null && !IsValidSchemaReference(schema.Reference, doc))
@@ -1445,7 +1361,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             _logger.LogWarning("Cleared nested broken ref for schema {Schema}", schema.Title ?? "(no title)");
         }
 
-        // Recurse through all possible child schemas
         if (schema.AllOf != null)
             foreach (var s in schema.AllOf)
                 ScrubAllRefs(s, doc, visited);
@@ -1469,12 +1384,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void ScrubComponentRefs(OpenApiDocument doc, CancellationToken cancellationToken)
     {
-        // *** FIX: Create a single, shared 'visited' set for the entire scrubbing operation. ***
         var visited = new HashSet<OpenApiSchema>();
 
         void PatchSchema(OpenApiSchema? sch)
         {
-            // This is now a pass-through to the recursive scrubber
             if (sch != null)
             {
                 ScrubAllRefs(sch, doc, visited);
@@ -1515,8 +1428,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             cancellationToken.ThrowIfCancellationRequested();
             PatchSchema(kv.Value.Schema);
         }
-
-        // ScrubTopLevelComponentRefs is no longer needed as the above logic handles it.
     }
 
     private void RenameConflictingPaths(OpenApiDocument doc)
@@ -1533,14 +1444,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
             string originalPath = kvp.Key;
             string newPath = originalPath;
 
-            // TODO: Move this specific stuff out
-            // Handle duplicate account_id parameter
             if (originalPath.Contains("/accounts/{account_id}/addressing/address_maps/{address_map_id}/accounts/{account_id}"))
             {
                 newPath = originalPath.Replace("/accounts/{account_id}/addressing/address_maps/{address_map_id}/accounts/{account_id}",
                     "/accounts/{account_id}/addressing/address_maps/{address_map_id}/accounts/{member_account_id}");
 
-                // Update the parameter name in the operations
                 foreach (var operation in kvp.Value.Operations.Values)
                 {
                     if (operation.Parameters == null)
@@ -1548,7 +1456,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         operation.Parameters = new List<OpenApiParameter>();
                     }
 
-                    // Ensure both account_id parameters are present
                     var hasAccountId = operation.Parameters.Any(p => p.Name == "account_id" && p.In == ParameterLocation.Path);
                     var hasMemberAccountId = operation.Parameters.Any(p => p.Name == "member_account_id" && p.In == ParameterLocation.Path);
 
@@ -1584,7 +1491,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         });
                     }
 
-                    // Update existing member_account_id parameter if it exists
                     foreach (var param in operation.Parameters)
                     {
                         if (param.Name == "member_account_id" && param.In == ParameterLocation.Path)
@@ -1624,7 +1530,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         OpenApiSchema? s = media.Schema;
         bool schemaEmpty = s == null || (string.IsNullOrWhiteSpace(s.Type) && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
-                                         !s.AllOf.Any() // ← don't treat allOf children as "empty"
+                                         !s.AllOf.Any()
                                          && !s.AnyOf.Any() && !s.OneOf.Any());
         bool hasExample = s?.Example != null || (media.Examples?.Any() == true);
         return schemaEmpty && !hasExample;
@@ -1643,18 +1549,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    /// <summary>
-    /// Reads an OpenAPI document from the given stream and logs any parsing errors.
-    /// </summary>
-    /// <param name="filePath">The path to the OpenAPI spec file.</param>
-    /// <returns>The diagnostic object containing any parsing errors or warnings.</returns>
     private async ValueTask<OpenApiDiagnostic> ReadAndValidateOpenApi(string filePath)
     {
         await using FileStream stream = File.OpenRead(filePath);
 
         var reader = new OpenApiStreamReader();
         var diagnostic = new OpenApiDiagnostic();
-        OpenApiDocument? document = reader.Read(stream, out diagnostic);
+        reader.Read(stream, out diagnostic);
 
         if (diagnostic.Errors?.Any() == true)
         {
@@ -1667,8 +1568,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void EnsureSecuritySchemes(OpenApiDocument document)
     {
-        if (document.Components == null)
-            document.Components = new OpenApiComponents();
+        document.Components ??= new OpenApiComponents();
 
         var schemes = document.Components.SecuritySchemes ??= new Dictionary<string, OpenApiSecurityScheme>();
 
@@ -1728,28 +1628,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (schema == null || !visited.Add(schema)) return;
 
-        // Fix enum defaults
         if (schema.Enum != null && schema.Enum.Any())
         {
             var enumValues = schema.Enum.Select(e => e.ToString()).ToList();
 
-            // If there's a default value that's not in the enum, fix it
             if (schema.Default != null)
             {
                 var defaultValue = schema.Default.ToString();
                 if (!enumValues.Contains(defaultValue))
                 {
-                    // Try to find a matching value case-insensitively
                     var matchingValue = enumValues.FirstOrDefault(v => v.Equals(defaultValue, StringComparison.OrdinalIgnoreCase));
 
                     if (matchingValue != null)
                     {
-                        // Create a new OpenApiString with the correct case
                         schema.Default = new OpenApiString(matchingValue);
                     }
                     else
                     {
-                        // If no match found, use the first enum value
                         schema.Default = schema.Enum.First();
                     }
 
@@ -1759,7 +1654,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        // Fix type-specific defaults
         if (schema.Default != null)
         {
             switch (schema.Type?.ToLower())
@@ -1769,7 +1663,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     {
                         schema.Default = new OpenApiBoolean(false);
                     }
-
                     break;
 
                 case "array":
@@ -1777,13 +1670,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     {
                         schema.Default = new OpenApiArray();
                     }
-
                     break;
 
                 case "string":
                     if (schema.Format == "date-time" && schema.Default is OpenApiString dateStr)
                     {
-                        // Remove invalid date-time defaults
                         if (!DateTime.TryParse(dateStr.Value, out _))
                         {
                             schema.Default = null;
@@ -1794,7 +1685,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        // Recurse into nested schemas
         if (schema.Properties != null)
             foreach (var prop in schema.Properties.Values)
                 FixSchemaDefaults(prop, visited);
@@ -1822,10 +1712,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (schema == null || !visited.Add(schema)) return;
 
-        // Recurse into nested schemas first
         if (schema.Properties != null)
         {
-            // First, deduplicate any keys if they somehow got duplicated
             schema.Properties = schema.Properties.GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.First().Value);
 
             foreach (var prop in schema.Properties.Values)
@@ -1844,14 +1732,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             RemoveEmptyCompositionObjects(schema.AdditionalProperties, visited);
         }
 
-        // Now, process the composition arrays on the current schema
-        // using the corrected IsSchemaEmpty logic.
-
         if (schema.AllOf != null)
         {
-            // Keep only schemas that are not empty
             schema.AllOf = schema.AllOf.Where(s => s != null && !IsSchemaEmpty(s)).ToList();
-            // If the list is now empty, null it out
             if (!schema.AllOf.Any())
             {
                 schema.AllOf = null;
@@ -1881,14 +1764,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (s?.Example is OpenApiArray arr && arr.Any())
         {
-            // Keep the first primitive if it matches the schema type; otherwise nuke it
             if (s.Type == "string" && arr.First() is OpenApiString os)
                 s.Example = new OpenApiString(os.Value);
             else
                 s.Example = null;
         }
 
-        // Drop multi-KB blobs (e.g., huge JWT samples)
         if (s?.Example is OpenApiString str && str.Value?.Length > 5_000)
             s.Example = null;
     }
@@ -1904,7 +1785,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             _logger.LogWarning("Injected default type='object' for nullable schema '{SchemaTitle}'", schema.Title ?? "(no title)");
         }
 
-        // recurse
         if (schema.Properties != null)
             foreach (var prop in schema.Properties.Values)
                 InjectTypeForNullable(prop, visited);
@@ -1943,7 +1823,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             var itemsSchema = schema.Items;
 
-            // Only promote if it's a non-empty inline object
             if (itemsSchema.Type != "object" || (itemsSchema.Properties == null || !itemsSchema.Properties.Any()))
                 continue;
 
