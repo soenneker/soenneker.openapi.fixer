@@ -54,7 +54,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // STAGE 3: STRUCTURAL TRANSFORMATIONS
             _logger.LogInformation("Performing major structural transformations (inlining, extraction)...");
             InlinePrimitiveComponents(document);
-            DisambiguateMultiContentRequestSchemas(document); // Fix for CS1503
+            DisambiguateMultiContentRequestSchemas(document);
             ExtractInlineArrayItemSchemas(document);
             ExtractInlineSchemas(document, cancellationToken);
             LogState("After STAGE 3A: Transformations", document);
@@ -72,7 +72,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ApplySchemaNormalizations(document, cancellationToken);
             LogState("After STAGE 4B: ApplySchemaNormalizations", document);
 
-            SetExplicitNullabilityOnAllSchemas(document); // Fix for CS8121/CS0029
+            SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
             LogState("After STAGE 4C: SetExplicitNullability", document);
 
             if (document.Components?.Schemas != null)
@@ -122,10 +122,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         await ReadAndValidateOpenApi(targetFilePath);
     }
 
-    /// <summary>
-    /// NEW METHOD: Solves CS1503 by renaming schemas used in multi-content-type request bodies.
-    /// This prevents the code generator from creating conflicting local and global types.
-    /// </summary>
     private void DisambiguateMultiContentRequestSchemas(OpenApiDocument document)
     {
         if (document.Paths == null || document.Components?.Schemas == null) return;
@@ -147,11 +143,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         var originalSchemaName = media.Schema.Reference.Id;
                         if (renameMap.ContainsKey(originalSchemaName)) continue; // Already processed
 
-                        // Sanitize media type for use in a C# identifier
                         var mediaTypeSuffix = SanitizeName(mediaType.Replace('/', '_'));
                         var newSchemaName = $"{originalSchemaName}_{mediaTypeSuffix}";
 
-                        if (document.Components.Schemas.ContainsKey(newSchemaName)) continue; // Already exists, skip renaming
+                        if (document.Components.Schemas.ContainsKey(newSchemaName)) continue;
 
                         if (document.Components.Schemas.TryGetValue(originalSchemaName, out var schemaToRename))
                         {
@@ -161,10 +156,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             schemaToRename.Title ??= newSchemaName;
                             document.Components.Schemas.Add(newSchemaName, schemaToRename);
 
-                            // Update the reference in place
                             media.Schema.Reference.Id = newSchemaName;
 
-                            // Store for a global update later
                             renameMap.Add(originalSchemaName, newSchemaName);
                         }
                     }
@@ -179,7 +172,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    // NEW METHOD
     private void MergeAmbiguousOneOfSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null) return;
@@ -191,7 +183,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
-            // This heuristic targets `oneOf` with multiple inline objects that can be merged.
             bool isMergeCandidate = schema.OneOf.All(s => s.Reference == null && s.Type == "object");
 
             if (isMergeCandidate)
@@ -208,23 +199,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     {
                         if (!schema.Properties.ContainsKey(propName))
                         {
-                            // Make property optional when merging
                             propSchema.Nullable = true;
                             schema.Properties.Add(propName, propSchema);
                         }
                     }
                 }
 
-                // We've merged, so clear the oneOf and ensure type is object
                 schema.OneOf = null;
                 schema.Type = "object";
-                // Clear the `required` list from the parent as we can't guarantee which properties are required anymore.
                 schema.Required = null;
             }
         }
     }
 
-    // NEW METHOD
+    /// <summary>
+    /// REVISED METHOD: This now recursively traverses the entire schema tree and applies
+    /// non-nullable defaults to any property that represents a C# value type.
+    /// </summary>
     private void SetExplicitNullabilityOnAllSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null) return;
@@ -232,41 +223,46 @@ public sealed class OpenApiFixer : IOpenApiFixer
         var visited = new HashSet<OpenApiSchema>();
         foreach (var schema in document.Components.Schemas.Values)
         {
-            SetExplicitNullability(schema, visited);
+            SetExplicitNullabilityRecursive(schema, visited);
         }
     }
 
-    // NEW METHOD
-    private void SetExplicitNullability(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
+    private void SetExplicitNullabilityRecursive(OpenApiSchema? schema, HashSet<OpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema)) return;
 
-        // This is the key fix for the Guid? vs Guid issue.
-        if (schema.Type == "array" && schema.Items != null && schema.Items.Reference == null)
+        // If nullable is NOT explicitly set to true, we will force it to false for types
+        // that map to C# value types. This is the key to solving the Guid? vs Guid issue.
+        if (!schema.Nullable)
         {
-            var itemSchema = schema.Items;
-            var isValueTypeFormat = itemSchema.Format is "uuid" or "int32" or "int64" or "double" or "float" or "date-time" or "date";
-            if (itemSchema.Type is "string" or "integer" or "number" or "boolean" && isValueTypeFormat)
+            bool isValueType = schema.Type switch
             {
-                // If Nullable is not explicitly set to true, force it to false.
-                if (!itemSchema.Nullable)
-                {
-                    itemSchema.Nullable = false;
-                }
+                "integer" => true,
+                "number" => true,
+                "boolean" => true,
+                // Only consider strings with specific formats as value types
+                "string" => schema.Format is "uuid" or "date" or "date-time" or "byte" or "binary",
+                _ => false
+            };
+
+            if (isValueType)
+            {
+                schema.Nullable = false;
             }
         }
 
         // Recurse through all possible child schemas
         if (schema.Properties != null)
-            foreach (var prop in schema.Properties.Values) SetExplicitNullability(prop, visited);
+            foreach (var prop in schema.Properties.Values) SetExplicitNullabilityRecursive(prop, visited);
 
-        if (schema.Items != null) SetExplicitNullability(schema.Items, visited);
-        if (schema.AllOf != null) foreach (var s in schema.AllOf) SetExplicitNullability(s, visited);
-        if (schema.OneOf != null) foreach (var s in schema.OneOf) SetExplicitNullability(s, visited);
-        if (schema.AnyOf != null) foreach (var s in schema.AnyOf) SetExplicitNullability(s, visited);
-        if (schema.AdditionalProperties != null) SetExplicitNullability(schema.AdditionalProperties, visited);
+        if (schema.Items != null) SetExplicitNullabilityRecursive(schema.Items, visited);
+        if (schema.AllOf != null) foreach (var s in schema.AllOf) SetExplicitNullabilityRecursive(s, visited);
+        if (schema.OneOf != null) foreach (var s in schema.OneOf) SetExplicitNullabilityRecursive(s, visited);
+        if (schema.AnyOf != null) foreach (var s in schema.AnyOf) SetExplicitNullabilityRecursive(s, visited);
+        if (schema.AdditionalProperties != null) SetExplicitNullabilityRecursive(schema.AdditionalProperties, visited);
     }
 
+    // ... all other methods remain the same as in the previous response ...
     private static string TrimQuotes(string value)
     {
         if (value.Length >= 2 && ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'"))))
