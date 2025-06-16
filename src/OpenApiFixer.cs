@@ -59,6 +59,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineSchemas(document, cancellationToken);
             LogState("After STAGE 3A: Transformations", document);
 
+            _logger.LogInformation("Pruning untyped shadow properties that break Kiota...");
+            RemoveShadowingUntypedProperties(document);
+            LogState("After STAGE 3C: RemoveShadowingUntypedProperties", document);
+
             _logger.LogInformation("Re-scrubbing references after extraction...");
             ScrubComponentRefs(document, cancellationToken);
             LogState("After STAGE 3B: Re-Scrubbing", document);
@@ -1764,6 +1768,76 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (schema.AnyOf != null)
             foreach (var s in schema.AnyOf)
                 FixSchemaDefaults(s, visited);
+    }
+
+    /// <summary>
+    /// Removes "shadow" properties that are declared twice through allOf –
+    /// once without a type and once with a concrete schema –
+    /// leaving only the typed version so generators (Kiota, NSwag, …)
+    /// don't fall back to UntypedNode/Json.
+    /// </summary>
+    private void RemoveShadowingUntypedProperties(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null) return;
+        var comps = document.Components.Schemas;
+
+        // Dereference helper -----------------------------------------------------
+        static OpenApiSchema Resolve(OpenApiSchema s,
+                                     IDictionary<string, OpenApiSchema> pool) =>
+            (s.Reference?.Type == ReferenceType.Schema &&
+             pool.TryGetValue(s.Reference.Id, out var target))
+                ? target
+                : s;
+
+        // "Is this property definition essentially 'empty'?"
+        static bool IsUntyped(OpenApiSchema s) =>
+            string.IsNullOrWhiteSpace(s.Type) &&
+            s.Reference == null &&
+            (s.Enum == null || s.Enum.Count == 0) &&
+            (s.OneOf == null || s.OneOf.Count == 0) &&
+            (s.AnyOf == null || s.AnyOf.Count == 0) &&
+            (s.AllOf == null || s.AllOf.Count == 0) &&
+            s.Items == null &&
+            s.AdditionalProperties == null;
+
+        foreach (var parentSchema in comps.Values)
+        {
+            if (parentSchema.AllOf == null || parentSchema.AllOf.Count < 2) continue;
+
+            // Build map: propertyName -> list of (declaringSchema, propSchema)
+            var dupMap = new Dictionary<string, List<(OpenApiSchema Host, OpenApiSchema Prop)>>();
+
+            foreach (var part in parentSchema.AllOf)
+            {
+                var resolved = Resolve(part, comps);
+                if (resolved.Properties == null) continue;
+
+                foreach (var (propName, propSchema) in resolved.Properties)
+                {
+                    dupMap.TryAdd(propName, new());
+                    dupMap[propName].Add((resolved, propSchema));
+                }
+            }
+
+            // Resolve conflicts ---------------------------------------------------
+            foreach (var (propName, decls) in dupMap)
+            {
+                var typed = decls.Where(d => !IsUntyped(d.Prop)).ToList();
+                var untyped = decls.Where(d => IsUntyped(d.Prop)).ToList();
+
+                if (typed.Any() && untyped.Any())
+                {
+                    foreach (var (host, _) in untyped)
+                    {
+                        host.Properties.Remove(propName);
+                        host.Required?.Remove(propName);
+                        _logger.LogInformation(
+                            "Removed untyped duplicate of property '{Prop}' from schema '{Schema}'",
+                            propName, host.Title ?? "(unnamed)");
+                    }
+                }
+            }
+        }
     }
 
     private void RemoveEmptyCompositionObjects(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
