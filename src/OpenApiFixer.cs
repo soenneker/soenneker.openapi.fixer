@@ -66,13 +66,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // STAGE 4: DEEP SCHEMA NORMALIZATION & CLEANING
             _logger.LogInformation("Applying deep schema normalizations and cleaning...");
 
-            MergeAmbiguousOneOfSchemas(document);
-            LogState("After STAGE 4A: MergeAmbiguousOneOfSchemas", document);
+           // MergeAmbiguousOneOfSchemas(document);
+           LogState("After STAGE 4A: MergeAmbiguousOneOfSchemas", document);
 
             ApplySchemaNormalizations(document, cancellationToken);
             LogState("After STAGE 4B: ApplySchemaNormalizations", document);
 
-            SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
+            //SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
             LogState("After STAGE 4C: SetExplicitNullability", document);
 
             if (document.Components?.Schemas != null)
@@ -493,8 +493,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         var raw = File.ReadAllText(path, Encoding.UTF8);
 
-        raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
-            m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
+        //raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
+        //    m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
 
         return new MemoryStream(Encoding.UTF8.GetBytes(raw));
     }
@@ -504,24 +504,30 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (document.Components?.Schemas is not IDictionary<string, OpenApiSchema> comps)
             return;
 
-        List<string> primitives = comps.Where(kv =>
-                                           !string.IsNullOrWhiteSpace(kv.Value.Type) &&
-                                           (kv.Value.Type == "string" || kv.Value.Type == "integer" || kv.Value.Type == "boolean" ||
-                                            kv.Value.Type == "number") &&
-                                           (kv.Value.Properties == null || kv.Value.Properties.Count == 0) &&
-                                           (kv.Value.Enum == null || kv.Value.Enum.Count == 0) &&
-                                           (kv.Value.OneOf == null || kv.Value.OneOf.Count == 0) && (kv.Value.AnyOf == null || kv.Value.AnyOf.Count == 0) &&
-                                           (kv.Value.AllOf == null || kv.Value.AllOf.Count == 0) && kv.Value.Items == null)
-                                       .Select(kv => kv.Key)
-                                       .ToList();
+        // 1. Identify pure‐primitive schemas
+        var primitives = comps
+            .Where(kv =>
+                !string.IsNullOrWhiteSpace(kv.Value.Type)
+                && (kv.Value.Type == "string" || kv.Value.Type == "integer"
+                    || kv.Value.Type == "boolean" || kv.Value.Type == "number")
+                && (kv.Value.Properties?.Count ?? 0) == 0
+                && (kv.Value.Enum?.Count ?? 0) == 0
+                && (kv.Value.OneOf?.Count ?? 0) == 0
+                && (kv.Value.AnyOf?.Count ?? 0) == 0
+                && (kv.Value.AllOf?.Count ?? 0) == 0
+                && kv.Value.Items == null
+            )
+            .Select(kv => kv.Key)
+            .ToList();
 
         if (!primitives.Any())
             return;
 
-        foreach (string primKey in primitives)
+        foreach (var primKey in primitives)
         {
-            OpenApiSchema primitiveSchema = comps[primKey];
+            var primitiveSchema = comps[primKey];
 
+            // Build an inline copy of its constraints
             var inlineSchema = new OpenApiSchema
             {
                 Type = primitiveSchema.Type,
@@ -535,14 +541,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             var visited = new HashSet<OpenApiSchema>();
 
+            // Recursively replace schema.$ref → inlineSchema
             void ReplaceRef(OpenApiSchema? schema)
             {
-                if (schema == null) return;
+                if (schema == null || !visited.Add(schema)) return;
 
-                if (!visited.Add(schema)) return;
-
-                if (schema.Reference != null && schema.Reference.Type == ReferenceType.Schema && schema.Reference.Id == primKey)
+                if (schema.Reference != null
+                 && schema.Reference.Type == ReferenceType.Schema
+                 && schema.Reference.Id == primKey)
                 {
+                    // remove the ref and copy inline constraints
                     schema.Reference = null;
                     schema.Type = inlineSchema.Type;
                     schema.Format = inlineSchema.Format;
@@ -554,87 +562,95 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     return;
                 }
 
-                if (schema.Reference != null && schema.Reference.Type == ReferenceType.Schema)
-                {
-                    string? targetId = schema.Reference.Id;
-                    if (document.Components.Schemas.TryGetValue(targetId, out OpenApiSchema? targetSchema))
-                    {
-                        ReplaceRef(targetSchema);
-                    }
-
-                    return;
-                }
-
-                if (schema.AllOf != null)
-                    foreach (OpenApiSchema? child in schema.AllOf)
-                        ReplaceRef(child);
-                if (schema.OneOf != null)
-                    foreach (OpenApiSchema? child in schema.OneOf)
-                        ReplaceRef(child);
-                if (schema.AnyOf != null)
-                    foreach (OpenApiSchema? child in schema.AnyOf)
-                        ReplaceRef(child);
+                // dive into composite schemas
+                if (schema.AllOf != null) foreach (var c in schema.AllOf) ReplaceRef(c);
+                if (schema.OneOf != null) foreach (var c in schema.OneOf) ReplaceRef(c);
+                if (schema.AnyOf != null) foreach (var c in schema.AnyOf) ReplaceRef(c);
                 if (schema.Properties != null)
-                    foreach (OpenApiSchema? prop in schema.Properties.Values)
+                    foreach (var prop in schema.Properties.Values)
                         ReplaceRef(prop);
                 if (schema.Items != null) ReplaceRef(schema.Items);
                 if (schema.AdditionalProperties != null) ReplaceRef(schema.AdditionalProperties);
             }
 
-            foreach (OpenApiSchema componentSchema in comps.Values.ToList())
+            // Handle inlining a parameter $ref → copy its fields, then ReplaceRef(schema)
+            void InlineParameter(OpenApiParameter param)
             {
-                ReplaceRef(componentSchema);
+                if (param.Reference != null
+                 && param.Reference.Type == ReferenceType.Parameter
+                 && document.Components.Parameters.TryGetValue(param.Reference.Id, out var compParam))
+                {
+                    // inline the parameter definition
+                    param.Reference = null;
+                    param.Name = compParam.Name;
+                    param.In = compParam.In;
+                    param.Required = compParam.Required;
+                    param.Description = param.Description ?? compParam.Description;
+                    param.Schema = compParam.Schema is not null
+                                        ? new OpenApiSchema(compParam.Schema)
+                                        : null;
+                }
+
+                if (param.Schema != null)
+                    ReplaceRef(param.Schema);
             }
 
+            // 2. Replace refs in component schemas
+            foreach (var cs in comps.Values.ToList())
+                ReplaceRef(cs);
+
+            // 3. Replace refs in request‐bodies
             if (document.Components.RequestBodies != null)
-                foreach (OpenApiRequestBody? rb in document.Components.RequestBodies.Values)
-                foreach (OpenApiMediaType? mt in rb.Content.Values)
-                    ReplaceRef(mt.Schema);
+                foreach (var rb in document.Components.RequestBodies.Values)
+                    foreach (var mt in rb.Content.Values)
+                        ReplaceRef(mt.Schema);
 
+            // 4. Replace refs in responses
             if (document.Components.Responses != null)
-                foreach (OpenApiResponse? resp in document.Components.Responses.Values)
-                foreach (OpenApiMediaType? mt in resp.Content.Values)
-                    ReplaceRef(mt.Schema);
+                foreach (var resp in document.Components.Responses.Values)
+                    foreach (var mt in resp.Content.Values)
+                        ReplaceRef(mt.Schema);
 
-            if (document.Components.Parameters != null)
-                foreach (OpenApiParameter? param in document.Components.Parameters.Values)
-                    ReplaceRef(param.Schema);
-
+            // 5. Replace refs in headers
             if (document.Components.Headers != null)
-                foreach (OpenApiHeader? header in document.Components.Headers.Values)
-                    ReplaceRef(header.Schema);
+                foreach (var hdr in document.Components.Headers.Values)
+                    ReplaceRef(hdr.Schema);
 
-            foreach (OpenApiPathItem? pathItem in document.Paths.Values)
+            // 6. Inline component‐level parameters
+            if (document.Components.Parameters != null)
+                foreach (var compParam in document.Components.Parameters.Values)
+                    InlineParameter(compParam);
+
+            // 7. Inline path‐level and operation‐level parameters
+            foreach (var pathItem in document.Paths.Values)
             {
-                foreach (OpenApiOperation? op in pathItem.Operations.Values)
+                // path‐level
+                if (pathItem.Parameters != null)
+                    foreach (var p in pathItem.Parameters)
+                        InlineParameter(p);
+
+                // each operation
+                foreach (var op in pathItem.Operations.Values)
                 {
                     if (op.Parameters != null)
-                    {
-                        foreach (OpenApiParameter? p in op.Parameters)
-                            ReplaceRef(p.Schema);
-                    }
+                        foreach (var p in op.Parameters)
+                            InlineParameter(p);
 
                     if (op.RequestBody?.Content != null)
-                    {
-                        foreach (OpenApiMediaType? mt in op.RequestBody.Content.Values)
+                        foreach (var mt in op.RequestBody.Content.Values)
                             ReplaceRef(mt.Schema);
-                    }
 
-                    foreach (OpenApiResponse? resp in op.Responses.Values)
-                    {
+                    foreach (var resp in op.Responses.Values)
                         if (resp.Content != null)
-                        {
-                            foreach (OpenApiMediaType? mt in resp.Content.Values)
+                            foreach (var mt in resp.Content.Values)
                                 ReplaceRef(mt.Schema);
-                        }
-                    }
                 }
             }
 
+            // 8. Finally, remove the now‐inlined component
             comps.Remove(primKey);
         }
     }
-
 
     private void FixAllInlineValueEnums(OpenApiDocument document)
     {
