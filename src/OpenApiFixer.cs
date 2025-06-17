@@ -59,9 +59,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineSchemas(document, cancellationToken);
             LogState("After STAGE 3A: Transformations", document);
 
-            _logger.LogInformation("Pruning untyped shadow properties that break Kiota...");
+
+            _logger.LogInformation("Removing shadowed untyped properties…");
             RemoveShadowingUntypedProperties(document);
-            LogState("After STAGE 3C: RemoveShadowingUntypedProperties", document);
+            RemoveRedundantDerivedValue(document);
 
             _logger.LogInformation("Re-scrubbing references after extraction...");
             ScrubComponentRefs(document, cancellationToken);
@@ -87,6 +88,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
 
+
+
             LogState("After STAGE 4D: Deep Cleaning", document);
 
             StripEmptyEnumBranches(document);
@@ -98,10 +101,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
             FixAllInlineValueEnums(document);
             LogState("After STAGE 4G: FixAllInlineValueEnums", document);
 
+            //  _logger.LogInformation("Pruning duplicate properties across allOf fragments…");
+            // DeduplicatePropertiesAcrossContainerAndAllOf(document);
+
+
             // STAGE 5: FINAL CLEANUP
             _logger.LogInformation("Performing final cleanup of empty keys and invalid structures...");
             RemoveEmptyInlineSchemas(document);
             RemoveInvalidDefaults(document);
+
             LogState("After STAGE 5: Final Cleanup", document);
 
             // STAGE 6: SERIALIZATION
@@ -125,6 +133,194 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         await ReadAndValidateOpenApi(targetFilePath);
+    }
+
+    private void RemoveRedundantDerivedValue(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null) return;
+        var pool = doc.Components.Schemas;
+
+        // ------------- local helpers ------------------------------------------
+        static OpenApiSchema Resolve(OpenApiSchema s, IDictionary<string, OpenApiSchema> p)
+            => (s.Reference?.Type == ReferenceType.Schema && p.TryGetValue(s.Reference.Id, out var t)) ? t : s;
+
+        static bool IsWellDefined(OpenApiSchema s) =>
+            !string.IsNullOrWhiteSpace(s.Type) ||
+            s.Reference != null ||
+            (s.Enum?.Count ?? 0) > 0 ||
+            (s.Items != null) ||
+            (s.AllOf?.Count ?? 0) > 0 ||
+            (s.OneOf?.Count ?? 0) > 0 ||
+            (s.AnyOf?.Count ?? 0) > 0;
+
+        // ------------- main pass ----------------------------------------------
+        foreach (var container in pool.Values)
+        {
+            if (container.AllOf is not { Count: > 1 }) continue;
+
+            // find the FIRST fragment (base or earlier override) that has a well-defined `value`
+            OpenApiSchema? firstValueOwner = null;
+            foreach (var frag in container.AllOf.Select(f => Resolve(f, pool)))
+            {
+                if (frag.Properties != null &&
+                    frag.Properties.TryGetValue("value", out var prop) &&
+                    IsWellDefined(prop))
+                {
+                    firstValueOwner = frag;
+                    break;
+                }
+            }
+            if (firstValueOwner == null) continue;   // nobody defines `value` in a useful way
+
+            // remove *every* later override of `value`
+            bool afterFirst = false;
+            foreach (var frag in container.AllOf.Select(f => Resolve(f, pool)))
+            {
+                if (frag == firstValueOwner)
+                {
+                    afterFirst = true;   // start skipping after this fragment
+                    continue;
+                }
+
+                if (!afterFirst) continue;
+
+                if (frag.Properties != null && frag.Properties.Remove("value"))
+                {
+                    frag.Required?.Remove("value");
+                    _logger.LogInformation(
+                        "Removed redundant derived 'value' from schema '{Derived}' (base already defines it)",
+                        container.Title ?? container.Reference?.Id ?? "(unnamed)");
+                }
+            }
+        }
+    }
+
+    private void RemoveShadowingUntypedProperties(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null) return;
+        var pool = doc.Components.Schemas;
+
+        static OpenApiSchema Resolve(OpenApiSchema s, IDictionary<string, OpenApiSchema> p)
+            => (s.Reference?.Type == ReferenceType.Schema && p.TryGetValue(s.Reference.Id, out var t)) ? t : s;
+
+        static bool IsUntyped(OpenApiSchema s) =>
+            string.IsNullOrWhiteSpace(s.Type) &&
+            s.Reference == null &&
+            (s.Enum?.Count ?? 0) == 0 &&
+            (s.Items == null) &&
+            (s.AllOf?.Count ?? 0) == 0 &&
+            (s.OneOf?.Count ?? 0) == 0 &&
+            (s.AnyOf?.Count ?? 0) == 0;
+
+        foreach (var container in pool.Values)
+        {
+
+            // Need: at least one $ref fragment  +  one inline fragment with properties
+            if (container.AllOf == null) continue;
+
+            var baseFrag = container.AllOf.FirstOrDefault(f => f.Reference?.Type == ReferenceType.Schema);
+            var overrideFrag = container.AllOf.FirstOrDefault(f => f.Properties?.Count > 0);
+
+            if (baseFrag == null || overrideFrag == null) continue;
+
+            var baseSchema = Resolve(baseFrag, pool);
+            if (baseSchema.Properties == null) continue;
+
+            foreach (var (propName, childProp) in overrideFrag.Properties)
+            {
+                if (!baseSchema.Properties.TryGetValue(propName, out var baseProp)) continue;
+
+                bool childConcrete = !IsUntyped(childProp);
+                bool baseIsBare = IsUntyped(baseProp);
+
+                if (baseIsBare)
+                {
+                    baseSchema.Properties.Remove(propName);
+                    baseSchema.Required?.Remove(propName);
+                    _logger.LogInformation(
+                        "Removed untyped shadowed property '{Prop}' from base schema '{Base}' (overridden in '{Child}')",
+                        propName,
+                        baseSchema.Title ?? baseSchema.Reference?.Id ?? "(unnamed)",
+                        container.Title ?? "(unnamed)");
+                }
+            }
+        }
+    }
+
+    private void DeduplicatePropertiesAcrossContainerAndAllOf(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null) return;
+        var pool = doc.Components.Schemas;
+
+        // local helpers ----------------------------------------------------------
+        static OpenApiSchema Resolve(OpenApiSchema s,
+                                     IDictionary<string, OpenApiSchema> p)
+            => (s.Reference?.Type == ReferenceType.Schema &&
+                p.TryGetValue(s.Reference.Id, out var t))
+               ? t
+               : s;
+
+        static bool IsUntyped(OpenApiSchema s) =>
+            string.IsNullOrWhiteSpace(s.Type) &&
+            s.Reference == null &&
+            (s.Enum?.Count ?? 0) == 0 &&
+            (s.Items == null) &&
+            (s.AllOf?.Count ?? 0) == 0 &&
+            (s.OneOf?.Count ?? 0) == 0 &&
+            (s.AnyOf?.Count ?? 0) == 0;
+
+        static int Specificity(OpenApiSchema s)
+            // bigger ⇒ “better” ⇒ keep
+            => (s.Reference == null ? 2 : 0) +   // inline beats $ref
+               (IsUntyped(s) ? 0 : 4) +   // typed beats untyped
+               (s.Enum?.Count > 0 ? 1 : 0) +
+               (s.Items != null ? 1 : 0) +
+               (s.OneOf?.Count > 0 ? 1 : 0) +
+               (s.AnyOf?.Count > 0 ? 1 : 0) +
+               (s.AllOf?.Count > 0 ? 1 : 0);
+
+        // -----------------------------------------------------------------------
+        foreach (var container in pool.Values)
+        {
+            if (container.AllOf == null || container.AllOf.Count == 0)
+                continue;
+
+            // 1. Build a list of *all* property occurrences
+            var occurrences = new Dictionary<string, List<(OpenApiSchema host, OpenApiSchema prop)>>();
+
+            // container’s own properties
+            if (container.Properties != null)
+                foreach (var kv in container.Properties)
+                {
+                    occurrences.TryAdd(kv.Key, new());
+                    occurrences[kv.Key].Add((container, kv.Value));
+                }
+
+            // every fragment
+            foreach (var frag in container.AllOf.Select(f => Resolve(f, pool)))
+            {
+                if (frag.Properties == null) continue;
+                foreach (var kv in frag.Properties)
+                {
+                    occurrences.TryAdd(kv.Key, new());
+                    occurrences[kv.Key].Add((frag, kv.Value));
+                }
+            }
+
+            // 2. For every duplicated property keep one, drop the rest
+            foreach (var (propName, occ) in occurrences.Where(k => k.Value.Count > 1))
+            {
+                var winner = occ.OrderByDescending(o => Specificity(o.prop))
+                                .First();
+
+                foreach (var (host, _) in occ)
+                {
+                    if (host == winner.host) continue;
+                    host.Properties!.Remove(propName);
+                    host.Required?.Remove(propName);
+                }
+            }
+        }
     }
 
     private void DisambiguateMultiContentRequestSchemas(OpenApiDocument document)
@@ -385,14 +581,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (!_logState) return;
 
-        if (document.Components.Schemas.TryGetValue("CallRequest", out var schema) && schema.Properties.TryGetValue("to", out var voiceSettingsSchema))
+        if (document.Components.Schemas.TryGetValue("zones_base", out var schema) && schema.Properties.TryGetValue("value", out var voiceSettingsSchema))
         {
-            int count = voiceSettingsSchema.OneOf?.Count ?? 0;
-            _logger.LogWarning("DEBUG >>> STAGE: {Stage} -- voice_settings.oneOf count is: {Count}", stage, count);
+            _logger.LogWarning("DEBUG >>> STAGE: zones_base.value count is FOUND");
         }
         else
         {
-            _logger.LogWarning("DEBUG >>> STAGE: {Stage} -- AIAssistantStartRequest or voice_settings not found.", stage);
+            _logger.LogWarning("DEBUG >>> STAGE: zones_base value not found.", stage);
         }
     }
 
@@ -1771,70 +1966,68 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     /// <summary>
-    /// Removes "shadow" properties that are declared twice through allOf –
-    /// once without a type and once with a concrete schema –
-    /// leaving only the typed version so generators (Kiota, NSwag, …)
-    /// don't fall back to UntypedNode/Json.
+    /// Removes any duplicate property that appears more than once
+    /// across the fragments of an allOf.  Preference order:
+    ///   1. keep the *typed* copy that appears first
+    ///   2. drop every other occurrence – typed or untyped
+    /// This guarantees that the final composed model contains
+    /// exactly one property with a given name.
     /// </summary>
-    private void RemoveShadowingUntypedProperties(OpenApiDocument document)
+    private void DeduplicateAllOfProperties(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null) return;
-        var comps = document.Components.Schemas;
+        var pool = document.Components.Schemas;
 
-        // Dereference helper -----------------------------------------------------
-        static OpenApiSchema Resolve(OpenApiSchema s,
-                                     IDictionary<string, OpenApiSchema> pool) =>
-            (s.Reference?.Type == ReferenceType.Schema &&
-             pool.TryGetValue(s.Reference.Id, out var target))
-                ? target
-                : s;
+        static OpenApiSchema Resolve(OpenApiSchema s, IDictionary<string, OpenApiSchema> p)
+            => (s.Reference?.Type == ReferenceType.Schema && p.TryGetValue(s.Reference.Id, out var t)) ? t : s;
 
-        // "Is this property definition essentially 'empty'?"
         static bool IsUntyped(OpenApiSchema s) =>
             string.IsNullOrWhiteSpace(s.Type) &&
             s.Reference == null &&
-            (s.Enum == null || s.Enum.Count == 0) &&
-            (s.OneOf == null || s.OneOf.Count == 0) &&
-            (s.AnyOf == null || s.AnyOf.Count == 0) &&
-            (s.AllOf == null || s.AllOf.Count == 0) &&
-            s.Items == null &&
-            s.AdditionalProperties == null;
+            (s.Enum?.Count ?? 0) == 0 &&
+            (s.OneOf?.Count ?? 0) == 0 &&
+            (s.AnyOf?.Count ?? 0) == 0 &&
+            (s.AllOf?.Count ?? 0) == 0 &&
+            s.Items == null && s.AdditionalProperties == null;
 
-        foreach (var parentSchema in comps.Values)
+        foreach (var container in pool.Values)
         {
-            if (parentSchema.AllOf == null || parentSchema.AllOf.Count < 2) continue;
+            if (container.AllOf == null || container.AllOf.Count < 2) continue;
 
-            // Build map: propertyName -> list of (declaringSchema, propSchema)
-            var dupMap = new Dictionary<string, List<(OpenApiSchema Host, OpenApiSchema Prop)>>();
+            // property → list of occurrences [(host, schema)]
+            var map = new Dictionary<string, List<(OpenApiSchema Host, OpenApiSchema Prop)>>();
 
-            foreach (var part in parentSchema.AllOf)
+            foreach (var frag in container.AllOf.Select(f => Resolve(f, pool)))
             {
-                var resolved = Resolve(part, comps);
-                if (resolved.Properties == null) continue;
-
-                foreach (var (propName, propSchema) in resolved.Properties)
+                if (frag.Properties == null) continue;
+                foreach (var kv in frag.Properties)
                 {
-                    dupMap.TryAdd(propName, new());
-                    dupMap[propName].Add((resolved, propSchema));
+                    map.TryAdd(kv.Key, new());
+                    map[kv.Key].Add((frag, kv.Value));
                 }
             }
 
-            // Resolve conflicts ---------------------------------------------------
-            foreach (var (propName, decls) in dupMap)
+            foreach (var (propName, occ) in map)
             {
-                var typed = decls.Where(d => !IsUntyped(d.Prop)).ToList();
-                var untyped = decls.Where(d => IsUntyped(d.Prop)).ToList();
+                if (occ.Count < 2) continue;          // no duplication
 
-                if (typed.Any() && untyped.Any())
+                // keep the first *typed* copy if any, otherwise the very first
+                var survivor = occ.FirstOrDefault(o => !IsUntyped(o.Prop));
+
+                if (survivor.Host is null)          // `default((...))` has Host == null and Prop == null
                 {
-                    foreach (var (host, _) in untyped)
-                    {
-                        host.Properties.Remove(propName);
-                        host.Required?.Remove(propName);
-                        _logger.LogInformation(
-                            "Removed untyped duplicate of property '{Prop}' from schema '{Schema}'",
-                            propName, host.Title ?? "(unnamed)");
-                    }
+                    survivor = occ.First();         // we know `occ` has at least one element
+                }
+
+                // drop everything else
+                foreach (var (host, _) in occ)
+                {
+                    if (host == survivor.Host) continue;
+                    host.Properties.Remove(propName);
+                    host.Required?.Remove(propName);
+                    _logger.LogInformation(
+                        "Removed duplicate '{Prop}' from schema '{Schema}'",
+                        propName, host.Title ?? "(unnamed)");
                 }
             }
         }
@@ -1984,4 +2177,5 @@ public sealed class OpenApiFixer : IOpenApiFixer
             document.Components.Schemas[key] = val;
         }
     }
+
 }
