@@ -901,31 +901,49 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void RenameInvalidComponentSchemas(OpenApiDocument document)
     {
-        IDictionary<string, OpenApiSchema>? schemas = document.Components?.Schemas;
-        if (schemas == null) return;
+        var schemas = document.Components?.Schemas;
+        if (schemas == null)
+            return;
 
         var mapping = new Dictionary<string, string>();
-        foreach (string key in schemas.Keys.ToList())
+        var existingKeys = new HashSet<string>(schemas.Keys, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var key in schemas.Keys.ToList())
         {
             if (!IsValidIdentifier(key))
             {
-                string newKey = SanitizeName(key);
-                if (string.IsNullOrWhiteSpace(newKey) || schemas.ContainsKey(newKey))
-                    newKey = $"{newKey}_{Guid.NewGuid():N}";
+                string baseName = SanitizeName(key);
+
+                // Fallback to "Schema" if sanitization fails
+                if (string.IsNullOrWhiteSpace(baseName))
+                    baseName = "Schema";
+
+                string newKey = baseName;
+                int i = 1;
+
+                // Ensure uniqueness deterministically
+                while (existingKeys.Contains(newKey))
+                {
+                    newKey = $"{baseName}_{i++}";
+                }
+
                 mapping[key] = newKey;
+                existingKeys.Add(newKey);
             }
         }
 
         foreach ((string oldKey, string newKey) in mapping)
         {
-            OpenApiSchema schema = schemas[oldKey];
+            var schema = schemas[oldKey];
             schemas.Remove(oldKey);
+
             if (string.IsNullOrWhiteSpace(schema.Title))
                 schema.Title = newKey;
+
             schemas[newKey] = schema;
         }
 
-        if (mapping.Any())
+        if (mapping.Count > 0)
             UpdateAllReferences(document, mapping);
     }
 
@@ -1402,31 +1420,46 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (OpenApiPathItem? path in doc.Paths.Values)
+        foreach (var (pathKey, pathItem) in doc.Paths)
         {
-            foreach (KeyValuePair<OperationType, OpenApiOperation> kvp in path.Operations)
+            foreach (var (method, operation) in pathItem.Operations)
             {
-                OpenApiOperation op = kvp.Value;
-
-                if (string.IsNullOrWhiteSpace(op.OperationId))
+                if (string.IsNullOrWhiteSpace(operation.OperationId))
                 {
-                    op.OperationId = $"{kvp.Key}{Guid.NewGuid():N}";
-                    _logger.LogDebug($"Generated missing OperationId: {op.OperationId}");
+                    // Deterministic base name: e.g., "get_/users/{id}"
+                    string baseId = $"{method.ToString().ToLowerInvariant()}_{pathKey.Trim('/')}"
+                                    .Replace("/", "_")
+                                    .Replace("{", "")
+                                    .Replace("}", "")
+                                    .Replace("-", "_");
+
+                    string uniqueId = baseId;
+                    int i = 1;
+
+                    while (!seen.Add(uniqueId))
+                    {
+                        uniqueId = $"{baseId}_{i++}";
+                    }
+
+                    operation.OperationId = uniqueId;
+                    _logger.LogDebug($"Assigned deterministic OperationId: {operation.OperationId}");
                 }
-
-                string baseId = op.OperationId;
-                string unique = baseId;
-                int i = 1;
-
-                while (!seen.Add(unique))
+                else
                 {
-                    unique = $"{baseId}_{i++}";
-                }
+                    string baseId = operation.OperationId;
+                    string unique = baseId;
+                    int i = 1;
 
-                if (op.OperationId != unique)
-                {
-                    _logger.LogDebug($"Renaming duplicate OperationId from '{op.OperationId}' to '{unique}'");
-                    op.OperationId = unique;
+                    while (!seen.Add(unique))
+                    {
+                        unique = $"{baseId}_{i++}";
+                    }
+
+                    if (operation.OperationId != unique)
+                    {
+                        _logger.LogDebug($"Renaming duplicate OperationId from '{operation.OperationId}' to '{unique}'");
+                        operation.OperationId = unique;
+                    }
                 }
             }
         }
