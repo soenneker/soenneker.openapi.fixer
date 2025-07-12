@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System.Collections.Generic;
 using System.Linq;
 
