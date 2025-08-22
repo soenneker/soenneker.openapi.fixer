@@ -43,6 +43,6 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.8" />
-        <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.24" />
+        <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.25" />
     </ItemGroup>
 </Project>
