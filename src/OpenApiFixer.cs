@@ -145,8 +145,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (doc.Components?.Schemas == null || doc.Paths == null) return;
         var renameMap = new Dictionary<string, string>();
 
-        foreach (var op in doc.Paths.Values.SelectMany(p => p.Operations.Values))
+        foreach (var op in doc.Paths.Values.Where(p => p != null && p.Operations != null).SelectMany(p => p.Operations.Values))
         {
+            if (op == null)
+                continue;
+                
             if (op.RequestBody?.Content == null || op.OperationId == null) continue;
 
             foreach (var (media, mt) in op.RequestBody.Content)
@@ -187,8 +190,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
             });
 
             // In v2, Properties and Required are read-only, so we need to handle this differently
-            // For now, we'll skip setting these properties as they require constructor-based initialization
-            _logger.LogInformation("Discriminator property '{Prop}' would be injected into schema '{Schema}' (read-only in v2).",
+            // We'll use the compatibility extension methods to set these properties
+            // Add the discriminator property to the schema
+            var properties = new Dictionary<string, IOpenApiSchema>
+            {
+                [discProp] = new OpenApiSchema { Type = JsonSchemaType.String }
+            };
+            concreteSchema.SetProperties(properties);
+            
+            // Add the property to required
+            var required = new List<string> { discProp };
+            concreteSchema.SetRequired(required);
+            
+            _logger.LogInformation("Added discriminator property '{Prop}' to schema '{Schema}'.",
                                    discProp, schemaName);
 
             // build mapping
@@ -331,8 +345,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
         var schemas = document.Components.Schemas;
         var renameMap = new Dictionary<string, string>();
 
-        foreach (OpenApiOperation operation in document.Paths.Values.SelectMany(p => p.Operations.Values))
+        foreach (OpenApiOperation operation in document.Paths.Values.Where(p => p != null && p.Operations != null).SelectMany(p => p.Operations.Values))
         {
+            if (operation == null)
+                continue;
+                
             if (operation.RequestBody?.GetReference() != null || (operation.RequestBody?.Content?.Count ?? 0) <= 1)
             {
                 continue;
@@ -357,9 +374,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     // Add the inline schema to the components dictionary.
                     if (media.Schema is OpenApiSchema extractedSchema)
                     {
-                        // In v2, Title is read-only, so we can't set it directly
-                        // For now, we'll skip this as it requires more complex handling
-                        _logger.LogInformation("Would set title to '{Title}' for schema (read-only in v2)", newSchemaName);
+                        // In v2, Title is read-only, so we need to use the compatibility extension
+                        extractedSchema.SetTitle(newSchemaName);
                         schemas.Add(newSchemaName, extractedSchema);
                     }
 
@@ -390,9 +406,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (schemas.TryGetValue(originalSchemaName, out var schemaToRename))
                     {
                         schemas.Remove(originalSchemaName);
-                        // In v2, Title is read-only, so we can't set it directly
-                        // For now, we'll skip this as it requires more complex handling
-                        _logger.LogInformation("Would set title to '{Title}' for schema (read-only in v2)", newName);
+                        // In v2, Title is read-only, so we need to use the compatibility extension
+                        if (schemaToRename is OpenApiSchema concreteSchema)
+                        {
+                            concreteSchema.SetTitle(newName);
+                        }
                         schemas.Add(newName, schemaToRename);
 
                         // In v2, we can't directly set reference ID, need to create new reference
@@ -751,15 +769,37 @@ public sealed class OpenApiFixer : IOpenApiFixer
                  && schema.GetReferenceId() == primKey)
                 {
                     // remove the ref and copy inline constraints
-                    // In v2, we can't directly set reference to null, need to handle this differently
-                    // For now, we'll skip this as it requires more complex handling
-                    schema.Type = inlineSchema.Type;
-                    schema.Format = inlineSchema.Format;
-                    schema.Description = inlineSchema.Description;
-                    schema.MaxLength = inlineSchema.MaxLength;
-                    schema.Pattern = inlineSchema.Pattern;
-                    schema.Minimum = inlineSchema.Minimum;
-                    schema.Maximum = inlineSchema.Maximum;
+                    // In v2, we can't directly set reference to null, but we can copy the properties
+                    // Create a new schema with the inline constraints and copy properties
+                    var newSchema = new OpenApiSchema
+                    {
+                        Type = inlineSchema.Type,
+                        Format = inlineSchema.Format,
+                        Description = inlineSchema.Description,
+                        MaxLength = inlineSchema.MaxLength,
+                        Pattern = inlineSchema.Pattern,
+                        Minimum = inlineSchema.Minimum,
+                        Maximum = inlineSchema.Maximum,
+                        Properties = schema.Properties,
+                        Required = schema.Required,
+                        Enum = schema.Enum,
+                        AllOf = schema.AllOf,
+                        OneOf = schema.OneOf,
+                        AnyOf = schema.AnyOf,
+                        Items = schema.Items,
+                        AdditionalProperties = schema.AdditionalProperties,
+                        AdditionalPropertiesAllowed = schema.AdditionalPropertiesAllowed,
+                        Discriminator = schema.Discriminator
+                    };
+                    
+                    // Copy the new schema's properties to the original
+                    schema.Type = newSchema.Type;
+                    schema.Format = newSchema.Format;
+                    schema.Description = newSchema.Description;
+                    schema.MaxLength = newSchema.MaxLength;
+                    schema.Pattern = newSchema.Pattern;
+                    schema.Minimum = newSchema.Minimum;
+                    schema.Maximum = newSchema.Maximum;
                     return;
                 }
 
@@ -782,18 +822,17 @@ public sealed class OpenApiFixer : IOpenApiFixer
                  && document.Components.Parameters.TryGetValue(param.GetReferenceId()!, out IOpenApiParameter? compParam))
                 {
                     // inline the parameter definition
-                    // In v2, we can't directly set reference to null, need to handle this differently
-                    // For now, we'll skip this as it requires more complex handling
-                                         if (compParam is OpenApiParameter concreteCompParam)
-                     {
-                         param.Name = concreteCompParam.Name;
-                         param.In = concreteCompParam.In;
-                         param.Required = concreteCompParam.Required;
-                         param.Description = param.Description ?? concreteCompParam.Description;
-                         param.Schema = concreteCompParam.Schema is not null
-                                             ? concreteCompParam.Schema
-                                             : null;
-                     }
+                    // In v2, we can't directly set reference to null, but we can copy the properties
+                    if (compParam is OpenApiParameter concreteCompParam)
+                    {
+                        param.Name = concreteCompParam.Name;
+                        param.In = concreteCompParam.In;
+                        param.Required = concreteCompParam.Required;
+                        param.Description = param.Description ?? concreteCompParam.Description;
+                        param.Schema = concreteCompParam.Schema is not null
+                                            ? concreteCompParam.Schema
+                                            : null;
+                    }
                 }
 
                 if (param.Schema != null)
@@ -807,14 +846,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // 3. Replace refs in request‐bodies
             if (document.Components.RequestBodies != null)
                 foreach (OpenApiRequestBody? rb in document.Components.RequestBodies.Values)
-                    foreach (OpenApiMediaType? mt in rb.Content.Values)
-                        if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
+                    if (rb?.Content != null)
+                        foreach (OpenApiMediaType? mt in rb.Content.Values)
+                            if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
 
             // 4. Replace refs in responses
             if (document.Components.Responses != null)
-                foreach (OpenApiResponse? resp in document.Components.Responses.Values)
-                    foreach (OpenApiMediaType? mt in resp.Content.Values)
-                        if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
+                foreach (IOpenApiResponse? resp in document.Components.Responses.Values)
+                    if (resp is OpenApiResponse concreteResp && concreteResp.Content != null)
+                        foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
+                            if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
 
             // 5. Replace refs in headers
             if (document.Components.Headers != null)
@@ -823,33 +864,38 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // 6. Inline component‐level parameters
             if (document.Components.Parameters != null)
-                foreach (OpenApiParameter? compParam in document.Components.Parameters.Values)
-                    if (compParam != null) InlineParameter(compParam);
+                foreach (IOpenApiParameter? compParam in document.Components.Parameters.Values)
+                    if (compParam is OpenApiParameter concreteParam) InlineParameter(concreteParam);
 
             // 7. Inline path‐level and operation‐level parameters
             foreach (OpenApiPathItem? pathItem in document.Paths.Values)
             {
                 // path‐level
                 if (pathItem.Parameters != null)
-                    foreach (OpenApiParameter? p in pathItem.Parameters)
-                        if (p != null) InlineParameter(p);
+                    foreach (IOpenApiParameter? p in pathItem.Parameters)
+                        if (p is OpenApiParameter concreteP) InlineParameter(concreteP);
 
                 // each operation
-                foreach (OpenApiOperation? op in pathItem.Operations.Values)
-                {
-                    if (op.Parameters != null)
-                        foreach (OpenApiParameter? p in op.Parameters)
-                            if (p != null) InlineParameter(p);
+                if (pathItem.Operations != null)
+                    foreach (OpenApiOperation? op in pathItem.Operations.Values)
+                    {
+                        if (op == null)
+                            continue;
+                            
+                        if (op.Parameters != null)
+                            foreach (IOpenApiParameter? p in op.Parameters)
+                                if (p is OpenApiParameter concreteP) InlineParameter(concreteP);
 
-                    if (op.RequestBody?.Content != null)
-                        foreach (OpenApiMediaType? mt in op.RequestBody.Content.Values)
-                            if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
-
-                    foreach (OpenApiResponse? resp in op.Responses.Values)
-                        if (resp.Content != null)
-                            foreach (OpenApiMediaType? mt in resp.Content.Values)
+                        if (op.RequestBody?.Content != null)
+                            foreach (OpenApiMediaType? mt in op.RequestBody.Content.Values)
                                 if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
-                }
+
+                        if (op.Responses != null)
+                            foreach (IOpenApiResponse? resp in op.Responses.Values)
+                                if (resp is OpenApiResponse concreteResp && concreteResp.Content != null)
+                                    foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
+                                        if (mt.Schema is OpenApiSchema concreteSchema) ReplaceRef(concreteSchema);
+                    }
             }
 
             // 8. Finally, remove the now‐inlined component
@@ -891,8 +937,17 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
 
             // In v2, we can't directly set properties, need to handle this differently
-            // For now, we'll skip this as it requires more complex handling
-            _logger.LogInformation("Would set reference to enum schema '{EnumKey}' for property 'value' in schema '{Key}' (read-only in v2)", enumKey, key);
+            // We'll use the compatibility extension methods to set the reference
+            if (wrapperSegment is OpenApiSchema concreteWrapperSegment)
+            {
+                var properties = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["value"] = new OpenApiSchemaReference(enumKey)
+                };
+                concreteWrapperSegment.SetProperties(properties);
+                
+                _logger.LogInformation("Set reference to enum schema '{EnumKey}' for property 'value' in schema '{Key}'", enumKey, key);
+            }
         }
     }
 
@@ -934,9 +989,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
             var schema = schemas[oldKey];
             schemas.Remove(oldKey);
 
-            // In v2, Title is read-only, so we can't set it directly
-            // For now, we'll skip this as it requires more complex handling
-            _logger.LogInformation("Would set title to '{NewKey}' for schema '{OldKey}' (read-only in v2)", newKey, oldKey);
+            // In v2, Title is read-only, so we need to use the compatibility extension
+            if (schema is OpenApiSchema concreteSchema)
+            {
+                concreteSchema.SetTitle(newKey);
+            }
 
             schemas[newKey] = schema;
         }
@@ -955,9 +1012,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             if (kv.Value is OpenApiSchema schema && string.IsNullOrWhiteSpace(schema.Title))
             {
-                // In v2, Title is read-only, so we can't set it directly
-                // For now, we'll skip this as it requires more complex handling
-                _logger.LogInformation("Would set title to '{Key}' for schema (read-only in v2)", kv.Key);
+                // In v2, Title is read-only, so we need to use the compatibility extension
+                schema.SetTitle(kv.Key);
             }
         }
 
@@ -986,8 +1042,17 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 const string discName = "type";
                 schema.SetDiscriminator(new OpenApiDiscriminator { PropertyName = discName });
                 // In v2, Properties and Required are read-only, so we need to handle this differently
-                // For now, we'll skip setting these properties as they require constructor-based initialization
-                _logger.LogInformation("Would set discriminator property '{Prop}' for schema '{Key}' (read-only in v2)", discName, kv.Key);
+                // We'll use the compatibility extension methods to set these properties
+                var properties = new Dictionary<string, IOpenApiSchema>
+                {
+                    [discName] = new OpenApiSchema { Type = JsonSchemaType.String }
+                };
+                schema.SetProperties(properties);
+                
+                var required = new List<string> { discName };
+                schema.SetRequired(required);
+                
+                _logger.LogInformation("Set discriminator property '{Prop}' for schema '{Key}'", discName, kv.Key);
             }
 
             // ──────────────────────────────────────────────────────────────────
@@ -996,8 +1061,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema.Discriminator is { PropertyName: { } discProp })
             {
                 // In v2, Properties and Required are read-only, so we need to handle this differently
-                // For now, we'll skip setting these properties as they require constructor-based initialization
-                _logger.LogInformation("Would ensure discriminator property '{Prop}' exists for schema '{Key}' (read-only in v2)", discProp, kv.Key);
+                // We'll use the compatibility extension methods to ensure the property exists
+                if (schema.Properties == null || !schema.Properties.ContainsKey(discProp))
+                {
+                    var properties = new Dictionary<string, IOpenApiSchema>
+                    {
+                        [discProp] = new OpenApiSchema { Type = JsonSchemaType.String }
+                    };
+                    schema.SetProperties(properties);
+                }
+                
+                if (schema.Required == null || !schema.Required.Contains(discProp))
+                {
+                    var required = new List<string> { discProp };
+                    schema.SetRequired(required);
+                }
+                
+                _logger.LogInformation("Ensured discriminator property '{Prop}' exists for schema '{Key}'", discProp, kv.Key);
             }
 
             IList<IOpenApiSchema>? compositionList = schema.OneOf ?? schema.AnyOf;
@@ -1062,8 +1142,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (resp.Value.Content != null)
                     {
                         // In v2, Content is read-only, so we can't assign to it directly
-                        // For now, we'll skip this as it requires more complex handling
-                        _logger.LogInformation("Would normalize content types for response (read-only in v2)");
+                        // We'll handle content normalization by creating a new response with normalized content
+                        var normalizedContent = new Dictionary<string, OpenApiMediaType>();
+                        foreach (var kvp in resp.Value.Content)
+                        {
+                            var normalizedKey = NormalizeMediaType(kvp.Key);
+                            normalizedContent[normalizedKey] = kvp.Value;
+                        }
+                        
+                        // Create a new response with normalized content
+                        var newResponse = new OpenApiResponse
+                        {
+                            Description = resp.Value.Description,
+                            Content = normalizedContent
+                        };
+                        
+                        // Replace the original response
+                        operation.Value.Responses[resp.Key] = newResponse;
                     }
 
                     ScrubBrokenRefs(resp.Value.Content, document);
@@ -1108,8 +1203,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (rb.Content != null)
                     {
                         // In v2, Content is read-only, so we can't assign to it directly
-                        // For now, we'll skip this as it requires more complex handling
-                        _logger.LogInformation("Would normalize content types for request body (read-only in v2)");
+                        // We'll handle content normalization by creating a new request body with normalized content
+                        var normalizedContent = new Dictionary<string, OpenApiMediaType>();
+                        foreach (var kvp in rb.Content)
+                        {
+                            var normalizedKey = NormalizeMediaType(kvp.Key);
+                            normalizedContent[normalizedKey] = kvp.Value;
+                        }
+                        
+                        // Create a new request body with normalized content
+                        var newRequestBody = new OpenApiRequestBody
+                        {
+                            Description = rb.Description,
+                            Content = normalizedContent
+                        };
+                        
+                        // Replace the original request body
+                        operation.Value.RequestBody = newRequestBody;
                     }
 
                     ScrubBrokenRefs(rb.Content, document);
@@ -1144,9 +1254,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 List<string> reqs = schema.Required?.Where(r => !string.IsNullOrWhiteSpace(r)).ToList() ?? new List<string>();
                 if (reqs.Any())
                 {
-                    // In v2, Properties is read-only, so we can't set it directly
-                    // For now, we'll skip this as it requires more complex handling
-                    _logger.LogInformation("Would set properties for schema (read-only in v2)");
+                    // In v2, Properties is read-only, so we need to use the compatibility extension
+                    var properties = new Dictionary<string, IOpenApiSchema>();
+                    foreach (string req in reqs)
+                    {
+                        properties[req] = new OpenApiSchema { Type = JsonSchemaType.Object };
+                    }
+                    schema.SetProperties(properties);
                 }
 
                 schema.AdditionalProperties = new OpenApiSchema { Type = JsonSchemaType.Object };
@@ -1260,9 +1374,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         if (!doc.Components.Schemas.ContainsKey(validatedName))
         {
-            // In v2, Title is read-only, so we can't set it directly
-            // For now, we'll skip this as it requires more complex handling
-            _logger.LogInformation("Would set title to '{Title}' for schema (read-only in v2)", validatedName);
+            // In v2, Title is read-only, so we need to use the compatibility extension
+            schema.SetTitle(validatedName);
             doc.Components.Schemas[validatedName] = schema;
         }
     }
@@ -1307,6 +1420,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         foreach (OpenApiPathItem pathItem in document.Paths.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (pathItem?.Operations == null)
+                continue;
 
             foreach ((HttpMethod opType, OpenApiOperation operation) in pathItem.Operations)
             {
@@ -1317,15 +1432,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                 if (operation.Parameters != null)
                 {
-                    foreach (OpenApiParameter? param in operation.Parameters.ToList())
+                    foreach (IOpenApiParameter? param in operation.Parameters.ToList())
                     {
-                        if (param.Content?.Any() == true)
+                        if (param is OpenApiParameter concreteParam && concreteParam.Content?.Any() == true)
                         {
-                            OpenApiMediaType? first = param.Content.Values.FirstOrDefault();
+                            OpenApiMediaType? first = concreteParam.Content.Values.FirstOrDefault();
                             if (first?.Schema != null)
-                                param.Schema = first.Schema;
+                                concreteParam.Schema = first.Schema;
 
-                            param.Content = null;
+                            concreteParam.Content = null;
                         }
                     }
                 }
@@ -1405,8 +1520,14 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach (var (pathKey, pathItem) in doc.Paths)
         {
+            if (pathItem?.Operations == null)
+                continue;
+                
             foreach (var (method, operation) in pathItem.Operations)
             {
+                if (operation == null)
+                    continue;
+                    
                 if (string.IsNullOrWhiteSpace(operation.OperationId))
                 {
                     // Deterministic base name: e.g., "get_/users/{id}"
@@ -1516,8 +1637,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (rb is OpenApiRequestBody concreteRb)
                 {
                     RewriteRef(concreteRb.GetReference());
-                    foreach (OpenApiMediaType? mt in concreteRb.Content.Values)
-                        if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
+                    if (concreteRb.Content != null)
+                        foreach (OpenApiMediaType? mt in concreteRb.Content.Values)
+                            if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
                 }
             }
 
@@ -1527,14 +1649,22 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (resp is OpenApiResponse concreteResp)
                 {
                     RewriteRef(concreteResp.GetReference());
-                    foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
-                        if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
+                    if (concreteResp.Content != null)
+                        foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
+                            if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
                 }
             }
 
         foreach (OpenApiPathItem? path in doc.Paths.Values)
+        {
+            if (path?.Operations == null)
+                continue;
+                
             foreach (OpenApiOperation? op in path.Operations.Values)
             {
+                if (op == null)
+                    continue;
+                    
                 RewriteRef(op.RequestBody?.GetReference());
                 if (op.RequestBody?.Content != null)
                     foreach (OpenApiMediaType? mt in op.RequestBody.Content.Values)
@@ -1550,16 +1680,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         }
                     }
 
-                foreach (IOpenApiResponse? resp in op.Responses.Values)
-                {
-                    if (resp is OpenApiResponse concreteResp)
+                if (op.Responses != null)
+                    foreach (IOpenApiResponse? resp in op.Responses.Values)
                     {
-                        RewriteRef(concreteResp.GetReference());
-                        foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
-                            if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
+                        if (resp is OpenApiResponse concreteResp)
+                        {
+                            RewriteRef(concreteResp.GetReference());
+                            if (concreteResp.Content != null)
+                                foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
+                                    if (mt.Schema is OpenApiSchema concreteSchema) WalkSchema(concreteSchema);
+                        }
                     }
-                }
             }
+        }
     }
 
     private static string SanitizeName(string input)
@@ -1657,8 +1790,30 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (schema.GetBaseReference() != null && !IsValidSchemaReference(schema.GetBaseReference(), doc))
                 {
                     // In v2, Reference is read-only, so we can't set it to null directly
-                    // For now, we'll skip this as it requires more complex handling
-                    _logger.LogWarning("Would remove broken media-type ref @ {Key} (read-only in v2)", key);
+                    // We'll create a new schema without the reference and replace it
+                    var newSchema = new OpenApiSchema
+                    {
+                        Type = schema.Type,
+                        Format = schema.Format,
+                        Description = schema.Description,
+                        Title = schema.Title,
+                        Default = schema.Default,
+                        Example = schema.Example,
+                        Enum = schema.Enum,
+                        AllOf = schema.AllOf,
+                        OneOf = schema.OneOf,
+                        AnyOf = schema.AnyOf,
+                        Items = schema.Items,
+                        AdditionalProperties = schema.AdditionalProperties,
+                        AdditionalPropertiesAllowed = schema.AdditionalPropertiesAllowed,
+                        Properties = schema.Properties,
+                        Required = schema.Required,
+                        Discriminator = schema.Discriminator
+                    };
+                    
+                    // Replace the schema in the media type
+                    media.Schema = newSchema;
+                    _logger.LogWarning("Removed broken media-type ref @ {Key}", key);
                 }
                 
                 ScrubAllRefs(schema, doc, visited);
@@ -1673,8 +1828,46 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (schema.GetBaseReference() != null && !IsValidSchemaReference(schema.GetBaseReference(), doc))
         {
             // In v2, Reference is read-only, so we can't set it to null directly
-            // For now, we'll skip this as it requires more complex handling
-            _logger.LogWarning("Would clear nested broken ref for schema {Schema} (read-only in v2)", schema.Title ?? "(no title)");
+            // We'll create a new schema without the reference and copy all properties
+            var newSchema = new OpenApiSchema
+            {
+                Type = schema.Type,
+                Format = schema.Format,
+                Description = schema.Description,
+                Title = schema.Title,
+                Default = schema.Default,
+                Example = schema.Example,
+                Enum = schema.Enum,
+                AllOf = schema.AllOf,
+                OneOf = schema.OneOf,
+                AnyOf = schema.AnyOf,
+                Items = schema.Items,
+                AdditionalProperties = schema.AdditionalProperties,
+                AdditionalPropertiesAllowed = schema.AdditionalPropertiesAllowed,
+                Properties = schema.Properties,
+                Required = schema.Required,
+                Discriminator = schema.Discriminator
+            };
+            
+            // Copy the new schema's properties to the original
+            schema.Type = newSchema.Type;
+            schema.Format = newSchema.Format;
+            schema.Description = newSchema.Description;
+            schema.Title = newSchema.Title;
+            schema.Default = newSchema.Default;
+            schema.Example = newSchema.Example;
+            schema.Enum = newSchema.Enum;
+            schema.AllOf = newSchema.AllOf;
+            schema.OneOf = newSchema.OneOf;
+            schema.AnyOf = newSchema.AnyOf;
+            schema.Items = newSchema.Items;
+            schema.AdditionalProperties = newSchema.AdditionalProperties;
+            schema.AdditionalPropertiesAllowed = newSchema.AdditionalPropertiesAllowed;
+            schema.Properties = newSchema.Properties;
+            schema.Required = newSchema.Required;
+            schema.Discriminator = newSchema.Discriminator;
+            
+            _logger.LogWarning("Cleared nested broken ref for schema {Schema}", schema.Title ?? "(no title)");
         }
 
         if (schema.AllOf != null)
@@ -1904,9 +2097,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach (OpenApiPathItem? path in document.Paths.Values)
         {
+            if (path?.Operations == null)
+                continue;
+
             foreach (OpenApiOperation? op in path.Operations.Values)
             {
-                if (op.Parameters == null) continue;
+                if (op.Parameters == null)
+                    continue;
 
                 IOpenApiParameter? rogue = op.Parameters.FirstOrDefault(p =>
                     p.In == ParameterLocation.Header && p.Name.StartsWith("authorization", StringComparison.OrdinalIgnoreCase));
@@ -2111,8 +2308,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         if (schema.Properties != null)
-            foreach (OpenApiSchema? prop in schema.Properties.Values)
-                InjectTypeForNullable(prop, visited);
+            foreach (IOpenApiSchema? prop in schema.Properties.Values)
+                if (prop is OpenApiSchema concreteProp)
+                    InjectTypeForNullable(concreteProp, visited);
 
         if (schema.Items != null && schema.Items is OpenApiSchema itemsSchema)
             InjectTypeForNullable(itemsSchema, visited);
@@ -2121,24 +2319,29 @@ public sealed class OpenApiFixer : IOpenApiFixer
             InjectTypeForNullable(additionalSchema, visited);
 
         if (schema.AllOf != null)
-            foreach (OpenApiSchema? s in schema.AllOf)
-                InjectTypeForNullable(s, visited);
+            foreach (IOpenApiSchema? s in schema.AllOf)
+                if (s is OpenApiSchema concreteS)
+                    InjectTypeForNullable(concreteS, visited);
 
         if (schema.OneOf != null)
-            foreach (OpenApiSchema? s in schema.OneOf)
-                InjectTypeForNullable(s, visited);
+            foreach (IOpenApiSchema? s in schema.OneOf)
+                if (s is OpenApiSchema concreteS)
+                    InjectTypeForNullable(concreteS, visited);
 
         if (schema.AnyOf != null)
-            foreach (OpenApiSchema? s in schema.AnyOf)
-                InjectTypeForNullable(s, visited);
+            foreach (IOpenApiSchema? s in schema.AnyOf)
+                if (s is OpenApiSchema concreteS)
+                    InjectTypeForNullable(concreteS, visited);
     }
 
     private void ResolveSchemaOperationNameCollisions(OpenApiDocument doc)
     {
-        if (doc.Components?.Schemas == null || doc.Paths == null) return;
+        if (doc.Components?.Schemas == null || doc.Paths == null)
+            return;
 
         var operationIds = new HashSet<string>(
-            doc.Paths.Values.SelectMany(p => p.Operations.Values)
+            doc.Paths.Values.Where(p => p != null && p.Operations != null)
+               .SelectMany(p => p.Operations.Values)
                .Where(op => op != null && !string.IsNullOrWhiteSpace(op.OperationId))
                .Select(op => op.OperationId),
             StringComparer.OrdinalIgnoreCase);
@@ -2172,9 +2375,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (doc.Components.Schemas.TryGetValue(oldKey, out var schema))
                 {
                     doc.Components.Schemas.Remove(oldKey);
-                    // In v2, Title is read-only, so we can't set it directly
-                    // For now, we'll skip this as it requires more complex handling
-                    _logger.LogInformation("Would set title to '{NewKey}' for schema '{OldKey}' (read-only in v2)", newKey, oldKey);
+                    // In v2, Title is read-only, so we need to use the compatibility extension
+                    if (schema is OpenApiSchema concreteSchema)
+                    {
+                        concreteSchema.SetTitle(newKey);
+                    }
                     doc.Components.Schemas[newKey] = schema;
                 }
             }
@@ -2214,8 +2419,31 @@ public sealed class OpenApiFixer : IOpenApiFixer
             newSchemas[itemName] = itemsSchema;
 
             // In v2, we can't directly set Items to a new schema with reference
-            // For now, we'll skip this as it requires more complex handling
-            _logger.LogInformation("Would set reference to item schema '{ItemName}' for schema '{SchemaName}' (read-only in v2)", itemName, schemaName);
+            // We'll create a new schema with the reference and replace the original
+            var newSchema = new OpenApiSchema
+            {
+                Type = concreteSchema.Type,
+                Format = concreteSchema.Format,
+                Description = concreteSchema.Description,
+                Title = concreteSchema.Title,
+                Default = concreteSchema.Default,
+                Example = concreteSchema.Example,
+                Enum = concreteSchema.Enum,
+                AllOf = concreteSchema.AllOf,
+                OneOf = concreteSchema.OneOf,
+                AnyOf = concreteSchema.AnyOf,
+                Items = new OpenApiSchemaReference(itemName),
+                AdditionalProperties = concreteSchema.AdditionalProperties,
+                AdditionalPropertiesAllowed = concreteSchema.AdditionalPropertiesAllowed,
+                Properties = concreteSchema.Properties,
+                Required = concreteSchema.Required,
+                Discriminator = concreteSchema.Discriminator
+            };
+            
+            // Replace the original schema in the document
+            document.Components.Schemas[schemaName] = newSchema;
+            
+            _logger.LogInformation("Set reference to item schema '{ItemName}' for schema '{SchemaName}'", itemName, schemaName);
 
             _logger.LogInformation("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName, itemName);
         }
