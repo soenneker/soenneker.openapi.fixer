@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../Samples/OpenAPI.NET"
+		}
+	],
+	"settings": {}
+}

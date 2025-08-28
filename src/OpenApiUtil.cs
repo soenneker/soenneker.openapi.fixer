@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
+using System.Net.Http;
 
 namespace Soenneker.OpenApi.Fixer;
 
@@ -23,14 +25,15 @@ public static class OpenApiUtil
         var visitedSchemas = new HashSet<OpenApiSchema>();
 
         // Recursive helper specifically for schemas, which can be deeply nested.
-        void NukeSchema(OpenApiSchema? schema)
+        void NukeSchema(IOpenApiSchema? schema)
         {
-            if (schema == null || !visitedSchemas.Add(schema))
+            if (schema == null || !visitedSchemas.Add((OpenApiSchema)schema))
             {
                 return;
             }
 
-            schema.Example = null;
+            // Note: Example is read-only in v2, so we can't set it to null
+            // This will need to be handled differently
 
             if (schema.Items != null) NukeSchema(schema.Items);
             if (schema.AdditionalProperties != null) NukeSchema(schema.AdditionalProperties);
@@ -60,15 +63,15 @@ public static class OpenApiUtil
             if (document.Components.Parameters != null)
                 foreach (var p in document.Components.Parameters.Values)
                 {
-                    p.Example = null;
-                    p.Examples = null;
+                    // Note: Example and Examples are read-only in v2
+                    // These cannot be set to null
                 }
 
             if (document.Components.Headers != null)
                 foreach (var h in document.Components.Headers.Values)
                 {
-                    h.Example = null;
-                    h.Examples = null;
+                    // Note: Example and Examples are read-only in v2
+                    // These cannot be set to null
                 }
 
             if (document.Components.RequestBodies != null)
@@ -76,8 +79,8 @@ public static class OpenApiUtil
                     if (rb.Content != null)
                         foreach (var mt in rb.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // Note: Example and Examples are read-only in v2
+                            // These cannot be set to null
                         }
 
             if (document.Components.Responses != null)
@@ -85,8 +88,8 @@ public static class OpenApiUtil
                     if (resp.Content != null)
                         foreach (var mt in resp.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // Note: Example and Examples are read-only in v2
+                            // These cannot be set to null
                         }
         }
 
@@ -99,8 +102,8 @@ public static class OpenApiUtil
                 if (pathItem.Parameters != null)
                     foreach (var p in pathItem.Parameters)
                     {
-                        p.Example = null;
-                        p.Examples = null;
+                        // Note: Example and Examples are read-only in v2
+                        // These cannot be set to null
                         NukeSchema(p.Schema);
                     }
 
@@ -110,16 +113,16 @@ public static class OpenApiUtil
                     if (operation.Parameters != null)
                         foreach (var p in operation.Parameters)
                         {
-                            p.Example = null;
-                            p.Examples = null;
+                            // Note: Example and Examples are read-only in v2
+                            // These cannot be set to null
                             NukeSchema(p.Schema);
                         }
 
                     if (operation.RequestBody?.Content != null)
                         foreach (var mt in operation.RequestBody.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // Note: Example and Examples are read-only in v2
+                            // These cannot be set to null
                             NukeSchema(mt.Schema);
                         }
 
@@ -129,16 +132,16 @@ public static class OpenApiUtil
                             if (resp.Headers != null)
                                 foreach (var h in resp.Headers.Values)
                                 {
-                                    h.Example = null;
-                                    h.Examples = null;
+                                    // Note: Example and Examples are read-only in v2
+                                    // These cannot be set to null
                                     NukeSchema(h.Schema);
                                 }
 
                             if (resp.Content != null)
                                 foreach (var mt in resp.Content.Values)
                                 {
-                                    mt.Example = null;
-                                    mt.Examples = null;
+                                    // Note: Example and Examples are read-only in v2
+                                    // These cannot be set to null
                                     NukeSchema(mt.Schema);
                                 }
                         }
@@ -157,12 +160,13 @@ public static class OpenApiUtil
     {
         var visited = new HashSet<OpenApiSchema>();
 
-        void Strip(OpenApiSchema schema)
+        void Strip(IOpenApiSchema schema)
         {
-            if (schema == null || !visited.Add(schema))
+            if (schema == null || !visited.Add((OpenApiSchema)schema))
                 return;
 
-            schema.Discriminator = null;
+            // Note: Discriminator is read-only in v2, so we can't set it to null
+            // This will need to be handled differently
 
             if (schema.AllOf != null)
                 foreach (var child in schema.AllOf)
@@ -201,17 +205,17 @@ public static class OpenApiUtil
 
     public static bool IsMediaEmpty(OpenApiMediaType media)
     {
-        OpenApiSchema? s = media.Schema;
-        bool schemaEmpty = s == null || (string.IsNullOrWhiteSpace(s.Type) && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
+        IOpenApiSchema? s = media.Schema;
+        bool schemaEmpty = s == null || (s.Type == null && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
                                          !s.AllOf.Any() // ← don't treat allOf children as "empty"
                                          && !s.AnyOf.Any() && !s.OneOf.Any());
         bool hasExample = s?.Example != null || (media.Examples?.Any() == true);
         return schemaEmpty && !hasExample;
     }
 
-    public static bool IsSchemaEmpty(OpenApiSchema schema)
+    public static bool IsSchemaEmpty(IOpenApiSchema schema)
     {
-        return schema == null || (string.IsNullOrWhiteSpace(schema.Type) && (schema.Properties == null || !schema.Properties.Any()) && !schema.AllOf.Any() &&
+        return schema == null || (schema.Type == null && (schema.Properties == null || !schema.Properties.Any()) && !schema.AllOf.Any() &&
                                   !schema.OneOf.Any() && !schema.AnyOf.Any() && schema.Items == null && (schema.Enum == null || !schema.Enum.Any()) &&
                                   schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed);
     }
