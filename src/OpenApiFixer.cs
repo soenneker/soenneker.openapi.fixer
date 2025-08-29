@@ -140,7 +140,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // STAGE 6: SERIALIZATION
             _logger.LogInformation("Serialization process started...");
-            string json = await document!.SerializeAsync(OpenApiSpecVersion.OpenApi3_0, OpenApiConstants.Json);
+            
+            // Final cleanup before serialization
+            CleanDocumentForSerialization(document!);
+            
+            string json = await document!.SerializeAsync(OpenApiSpecVersion.OpenApi3_0, OpenApiConstants.Json, cancellationToken: cancellationToken);
+            
+            // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
+            json = FixJsonBooleanValues(json);
+            
             await File.WriteAllTextAsync(targetFilePath, json, cancellationToken);
 
             _logger.LogInformation($"Cleaned OpenAPI spec saved to {targetFilePath}");
@@ -2287,6 +2295,212 @@ public sealed class OpenApiFixer : IOpenApiFixer
             string msgs = string.Join("; ", diagnostics.Errors.Select(e => e.Message));
             _logger.LogWarning($"OpenAPI parsing errors in {Path.GetFileName(filePath)}: {msgs}");
         }
+    }
+
+    private void CleanDocumentForSerialization(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null) return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+        foreach (IOpenApiSchema? schema in document.Components.Schemas.Values)
+        {
+            CleanSchemaForSerialization(schema, visited);
+        }
+    }
+
+    private void CleanSchemaForSerialization(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
+    {
+        if (schema == null || !visited.Add(schema)) return;
+
+        if (schema is not OpenApiSchema concreteSchema) return;
+
+        // Cast to concrete type to modify read-only properties
+        var schemaToModify = concreteSchema;
+
+        // Clean enum values
+        if (schema.Enum != null && schema.Enum.Any())
+        {
+            var cleanedEnum = new List<JsonNode>();
+            foreach (var enumValue in schema.Enum)
+            {
+                if (enumValue is JsonValue jsonValue)
+                {
+                    // Ensure the value is valid JSON
+                    try
+                    {
+                        var valueKind = jsonValue.GetValueKind();
+                        if (valueKind == JsonValueKind.String)
+                        {
+                            var stringValue = jsonValue.GetValue<string>();
+                            if (stringValue != null)
+                            {
+                                // Remove any control characters that could cause JSON serialization issues
+                                var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+                                cleanedEnum.Add(JsonValue.Create(cleanedString));
+                            }
+                        }
+                        else
+                        {
+                            cleanedEnum.Add(enumValue);
+                        }
+                    }
+                    catch
+                    {
+                        // Skip invalid enum values
+                        _logger.LogWarning("Removing invalid enum value from schema");
+                    }
+                }
+                else
+                {
+                    cleanedEnum.Add(enumValue);
+                }
+            }
+            schemaToModify.Enum = cleanedEnum.Any() ? cleanedEnum : null;
+        }
+
+        // Clean default values
+        if (schema.Default != null)
+        {
+            try
+            {
+                if (schema.Default is JsonValue jsonValue)
+                {
+                    var valueKind = jsonValue.GetValueKind();
+                    if (valueKind == JsonValueKind.String)
+                    {
+                        var stringValue = jsonValue.GetValue<string>();
+                        if (stringValue != null)
+                        {
+                            // Remove any control characters that could cause JSON serialization issues
+                            var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+                            schemaToModify.Default = JsonValue.Create(cleanedString);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Remove invalid default values
+                _logger.LogWarning("Removing invalid default value from schema");
+                schemaToModify.Default = null;
+            }
+        }
+
+        // Clean example values
+        if (schema.Example != null)
+        {
+            try
+            {
+                if (schema.Example is JsonValue jsonValue)
+                {
+                    var valueKind = jsonValue.GetValueKind();
+                    if (valueKind == JsonValueKind.String)
+                    {
+                        var stringValue = jsonValue.GetValue<string>();
+                        if (stringValue != null)
+                        {
+                            // Remove any control characters that could cause JSON serialization issues
+                            var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+                            schemaToModify.Example = JsonValue.Create(cleanedString);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Remove invalid example values
+                _logger.LogWarning("Removing invalid example value from schema");
+                schemaToModify.Example = null;
+            }
+        }
+
+        // Clean description
+        if (!string.IsNullOrEmpty(schema.Description))
+        {
+            // Remove any control characters that could cause JSON serialization issues
+            schemaToModify.Description = new string(schema.Description.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+        }
+
+        // Clean title
+        if (!string.IsNullOrEmpty(schema.Title))
+        {
+            // Remove any control characters that could cause JSON serialization issues
+            schemaToModify.Title = new string(schema.Title.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+        }
+
+        // Recursively clean nested schemas
+        if (schema.Properties != null)
+        {
+            foreach (var property in schema.Properties.Values)
+            {
+                CleanSchemaForSerialization(property, visited);
+            }
+        }
+
+        if (schema.Items != null)
+        {
+            CleanSchemaForSerialization(schema.Items, visited);
+        }
+
+        if (schema.AllOf != null)
+        {
+            foreach (var allOfSchema in schema.AllOf)
+            {
+                CleanSchemaForSerialization(allOfSchema, visited);
+            }
+        }
+
+        if (schema.OneOf != null)
+        {
+            foreach (var oneOfSchema in schema.OneOf)
+            {
+                CleanSchemaForSerialization(oneOfSchema, visited);
+            }
+        }
+
+        if (schema.AnyOf != null)
+        {
+            foreach (var anyOfSchema in schema.AnyOf)
+            {
+                CleanSchemaForSerialization(anyOfSchema, visited);
+            }
+        }
+
+        if (schema.AdditionalProperties != null)
+        {
+            CleanSchemaForSerialization(schema.AdditionalProperties, visited);
+        }
+    }
+
+    private string FixJsonBooleanValues(string json)
+    {
+        // Replace Python-style boolean values with JSON boolean values
+        // This handles cases where the OpenAPI library produces True/False instead of true/false
+        
+        // Use regex to ensure we only replace boolean values, not strings that contain "True" or "False"
+        // This prevents accidentally replacing values in strings like "description": "This is True"
+        
+        // Replace : True with : true (with space)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @":\s*True\b", ": true");
+        // Replace : False with : false (with space)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @":\s*False\b", ": false");
+        
+        // Replace , True with , true (in arrays/objects)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @",\s*True\b", ", true");
+        // Replace , False with , false (in arrays/objects)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @",\s*False\b", ", false");
+        
+        // Replace [True with [true (start of array)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @"\[\s*True\b", "[true");
+        // Replace [False with [false (start of array)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @"\[\s*False\b", "[false");
+        
+        // Replace True] with true] (end of array)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @"\bTrue\s*\]", "true]");
+        // Replace False] with false] (end of array)
+        json = System.Text.RegularExpressions.Regex.Replace(json, @"\bFalse\s*\]", "false]");
+        
+        return json;
     }
 
     private void EnsureSecuritySchemes(OpenApiDocument document)

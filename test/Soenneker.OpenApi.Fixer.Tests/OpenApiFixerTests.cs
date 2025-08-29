@@ -29,7 +29,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, CancellationToken);
 
-       // await _util.ProcessKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", @"c:\telnyx\src", CancellationToken);
+        await _util.ProcessKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", @"c:\telnyx\src", CancellationToken);
     }
 
     //[LocalFact]
