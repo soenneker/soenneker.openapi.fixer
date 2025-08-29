@@ -129,6 +129,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             PromoteEnumBranchesUnderDiscriminator(document!);
             LogState("After STAGE 4H: PromoteEnumBranchesUnderDiscriminator", document!);
 
+            WrapEnumBranchesInCompositions(document!);
+            LogState("After STAGE 4H.1: WrapEnumBranchesInCompositions", document!);
+
             // Re-scrub references after creating new wrapper components
             ScrubComponentRefs(document!, cancellationToken);
             LogState("After STAGE 4I: Re-Scrub After Enum Promotion", document!);
@@ -145,6 +148,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
             
             // Fix discriminator mappings that reference non-existent or enum schemas
             FixDiscriminatorMappingsForEnums(document!);
+
+            // Fix properties declared as object that actually allOf an enum schema
+            FixEnumAllOfObjectPropertyMismatch(document!);
+
+            // Blanket safety: wrap any enum-like or primitive branches in unions so Kiota always sees classes
+            ComprehensiveEnumWrapperFix(document!);
+
+            // Replace $refs that drill into #/paths/.../examples/... with component schema refs
+            FixRefsPointingIntoPathsExamples(document!);
             
             // Final cleanup before serialization
             CleanDocumentForSerialization(document!);
@@ -1325,6 +1337,60 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
+    private void WrapEnumBranchesInCompositions(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas is not { } comps) return;
+
+        foreach (var (parentName, parent) in comps.ToList())
+        {
+            if (parent is not OpenApiSchema ps) continue;
+
+            void ProcessBranchList(IList<IOpenApiSchema>? branches)
+            {
+                if (branches is not { Count: > 0 }) return;
+                for (int i = 0; i < branches.Count; i++)
+                {
+                    var b = branches[i];
+
+                    string? refId = (b as OpenApiSchemaReference)?.Reference.Id;
+                    IOpenApiSchema resolved = b;
+                    if (refId != null && comps.TryGetValue(refId, out var compSchema))
+                        resolved = compSchema;
+
+                    if (resolved is OpenApiSchema rs && rs.Enum is { Count: > 0 } &&
+                        (rs.Type == null || (rs.Type != JsonSchemaType.Object && (rs.Properties == null || rs.Properties.Count == 0))))
+                    {
+                        var wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}_setting", "Wrapper");
+                        var wrapper = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.Object,
+                            Properties = new Dictionary<string, IOpenApiSchema>
+                            {
+                                ["value"] = refId is not null ? new OpenApiSchemaReference(refId) : rs
+                            },
+                            Required = new HashSet<string> { "value" }
+                        };
+
+                        comps[wrapperName] = wrapper;
+                        branches[i] = new OpenApiSchemaReference(wrapperName);
+
+                        if (ps.Discriminator?.Mapping is { } mapping && refId != null)
+                        {
+                            foreach (var k in mapping.Keys.ToList())
+                            {
+                                if (mapping[k].Reference.Id == refId)
+                                    mapping[k] = new OpenApiSchemaReference(wrapperName);
+                            }
+                        }
+                    }
+                }
+            }
+
+            ProcessBranchList(ps.OneOf);
+            ProcessBranchList(ps.AnyOf);
+            ProcessBranchList(ps.AllOf);
+        }
+    }
     private static string KeyForDiscriminator(IOpenApiSchema branch, string discProp, string fallback)
     {
         if (branch is OpenApiSchema bs && bs.Properties != null && bs.Properties.TryGetValue(discProp, out var dp) && dp is OpenApiSchema dps &&
@@ -2076,6 +2142,69 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
 
             ScrubAllRefs(schema, doc, visited);
+        }
+    }
+
+    /// <summary>
+    /// Replaces "$ref" values that incorrectly point into path example chains (e.g., "#/paths/.../examples/...")
+    /// with placeholder component schemas. This ensures all refs target valid component schemas.
+    /// </summary>
+    private void FixRefsPointingIntoPathsExamples(OpenApiDocument doc)
+    {
+        if (doc.Paths == null) return;
+
+        // Ensure components/schemas exists
+        doc.Components ??= new OpenApiComponents();
+        doc.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
+        var comps = doc.Components.Schemas;
+
+        // Create (or reuse) a generic placeholder schema
+        const string placeholderName = "ExamplePayload";
+        if (!comps.ContainsKey(placeholderName))
+        {
+            comps[placeholderName] = new OpenApiSchema
+            {
+                Type = JsonSchemaType.Object,
+                Description = "Placeholder schema for path example refs"
+            };
+        }
+
+        void FixMedia(OpenApiMediaType? media)
+        {
+            if (media?.Schema is OpenApiSchemaReference schemaRef)
+            {
+                var refPath = schemaRef.Reference.ReferenceV3;
+                if (!string.IsNullOrWhiteSpace(refPath) && refPath.StartsWith("#/paths/", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Retarget to placeholder
+                    media.Schema = new OpenApiSchemaReference(placeholderName);
+                }
+            }
+        }
+
+        foreach (var path in doc.Paths.Values)
+        {
+            if (path?.Operations == null) continue;
+            foreach (var op in path.Operations.Values)
+            {
+                // Request body
+                if (op.RequestBody?.Content != null)
+                {
+                    foreach (var mt in op.RequestBody.Content.Values)
+                        FixMedia(mt);
+                }
+
+                // Responses
+                if (op.Responses != null)
+                {
+                    foreach (var resp in op.Responses.Values)
+                    {
+                        if (resp?.Content == null) continue;
+                        foreach (var mt in resp.Content.Values)
+                            FixMedia(mt);
+                    }
+                }
+            }
         }
     }
 
@@ -2910,14 +3039,24 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static IOpenApiSchema MakeSchemaRef(string id) => new OpenApiSchemaReference(id);
 
-    private static bool IsEnumLike(IOpenApiSchema? s)
+    private static bool IsNonObjectLike(IOpenApiSchema? s)
     {
         if (s is null) return false;
+        if (s is not OpenApiSchema os) return false;
+
+        // Any non-object types should be wrapped (arrays, strings, numbers, booleans, integers)
+        if (os.Type == JsonSchemaType.Array || os.Type == JsonSchemaType.String || os.Type == JsonSchemaType.Integer ||
+            os.Type == JsonSchemaType.Number || os.Type == JsonSchemaType.Boolean)
+            return true;
+
         // Enum-only or effectively-enum (no object properties)
-        var hasEnum = s.Enum is { Count: > 0 };
-        var isNotObject = s.Type != JsonSchemaType.Object;
-        var hasNoProps = s.Properties is null || s.Properties.Count == 0;
-        return hasEnum && (isNotObject || hasNoProps);
+        var hasEnum = os.Enum is { Count: > 0 };
+        var isNotObject = os.Type != JsonSchemaType.Object;
+        var hasNoProps = os.Properties is null || os.Properties.Count == 0;
+        if (hasEnum && (isNotObject || hasNoProps)) return true;
+
+        // Objects without properties but without enum can remain as objects
+        return false;
     }
 
 
@@ -2975,7 +3114,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 var branchRefId = GetSchemaRefId(branch);
                 var resolved = Resolve(branch);
 
-                if (IsEnumLike(resolved))
+                if (IsNonObjectLike(resolved))
                 {
                     string baseName = branchRefId ?? $"{parentName}_Branch{i + 1}";
                     string wrapperName = ReserveUniqueSchemaName(comps, baseName, "Wrapper");
@@ -3049,6 +3188,56 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     /// <summary>
+    /// Scans component schemas and their properties for cases where a property declares type object
+    /// but the content is an enum via allOf → $ref to an enum schema. In those cases we drop the
+    /// misleading object type and reference the enum directly to avoid CodeEnum→CodeClass casts.
+    /// </summary>
+    private void FixEnumAllOfObjectPropertyMismatch(OpenApiDocument doc)
+    {
+        var comps = doc.Components?.Schemas;
+        if (comps is null || comps.Count == 0) return;
+
+        // Helper: determine if a referenced schema is an enum-like schema
+        bool IsEnumLike(IOpenApiSchema s)
+        {
+            if (s is OpenApiSchemaReference sr && sr.Reference.Id != null && comps.TryGetValue(sr.Reference.Id, out var target))
+                s = target;
+            if (s is not OpenApiSchema os) return false;
+            return os.Enum is { Count: > 0 } && (os.Type == null || os.Type == JsonSchemaType.String || os.Type == JsonSchemaType.Integer || os.Type == JsonSchemaType.Number);
+        }
+
+        foreach (var schema in comps.Values.OfType<OpenApiSchema>())
+        {
+            if (schema.Properties == null || schema.Properties.Count == 0) continue;
+
+            foreach (var key in schema.Properties.Keys.ToList())
+            {
+                var prop = schema.Properties[key];
+                if (prop is not OpenApiSchema ps) continue;
+
+                // Case: property says type object but has allOf with enum ref
+                if (ps.Type == JsonSchemaType.Object && ps.AllOf is { Count: > 0 })
+                {
+                    // If any allOf segment is enum-like, collapse property into that ref
+                    var enumRef = ps.AllOf.FirstOrDefault(IsEnumLike);
+                    if (enumRef != null)
+                    {
+                        // Replace property with the enum reference or resolved schema
+                        if (enumRef is OpenApiSchemaReference sref && sref.Reference.Id != null)
+                        {
+                            schema.Properties[key] = new OpenApiSchemaReference(sref.Reference.Id);
+                        }
+                        else
+                        {
+                            schema.Properties[key] = enumRef;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Comprehensive fix that handles ALL possible enum-like schemas in discriminator contexts.
     /// This is a catch-all method that ensures no enum-like schemas can cause Kiota cast errors.
     /// </summary>
@@ -3071,8 +3260,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 
                 if (targetId != null && comps.TryGetValue(targetId, out var targetSchema))
                 {
-                    // Check if the target schema is enum-like and needs wrapping
-                    if (IsEnumLike(targetSchema))
+                    // Check if the target schema is non-object-like and needs wrapping
+                    if (IsNonObjectLike(targetSchema))
                     {
                         string wrapperName = ReserveUniqueSchemaName(comps, targetId, "Wrapper");
                         
@@ -3120,25 +3309,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     resolvedSchema = resolved;
                 }
 
-                // Check if this branch is enum-like (including primitives)
+                // Check if this branch is non-object-like (enums, primitives, arrays)
                 bool needsWrapping = false;
                 
-                if (IsEnumLike(resolvedSchema))
+                if (IsNonObjectLike(resolvedSchema))
                 {
                     needsWrapping = true;
-                }
-                else if (resolvedSchema is OpenApiSchema concreteSchema)
-                {
-                    // Also check for primitive types that might not be caught by IsEnumLike
-                    var isPrimitive = concreteSchema.Type == JsonSchemaType.String || 
-                                     concreteSchema.Type == JsonSchemaType.Integer || 
-                                     concreteSchema.Type == JsonSchemaType.Number || 
-                                     concreteSchema.Type == JsonSchemaType.Boolean;
-                    
-                    if (isPrimitive)
-                    {
-                        needsWrapping = true;
-                    }
                 }
 
                 if (needsWrapping)

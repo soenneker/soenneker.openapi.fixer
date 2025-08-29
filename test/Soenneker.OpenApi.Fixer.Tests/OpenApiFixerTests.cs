@@ -1,6 +1,7 @@
 ﻿using Soenneker.Facts.Local;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Tests.FixturedUnit;
+using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -27,18 +28,20 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
 
+        File.Delete(fixedPath);
+
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, CancellationToken);
 
         await _util.ProcessKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", @"c:\telnyx\src", CancellationToken);
     }
 
-    //[LocalFact]
-    //public async ValueTask ProcessCloudflare()
-    //{
-    //    const string fixedPath = @"c:\cloudflare\spec3fixed.json";
+    [LocalFact]
+    public async ValueTask ProcessCloudflare()
+    {
+        const string fixedPath = @"c:\cloudflare\spec3fixed.json";
 
-    //    await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
+        await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
 
-    //    await _util.ProcessKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", @"c:\cloudflare\src", CancellationToken);
-    //}
+        await _util.ProcessKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", @"c:\cloudflare\src", CancellationToken);
+    }
 }
