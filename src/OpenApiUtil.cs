@@ -15,6 +15,7 @@ public static class OpenApiUtil
     /// This is the most direct and reliable approach for this complex document.
     /// </summary>
     /// <param name="document">The OpenAPI document to sanitize.</param>
+    /// <param name="logger">The logger instance for logging operations.</param>
     private static void NukeAllExamples(OpenApiDocument document, ILogger logger)
     {
         logger.LogInformation("--- Starting FINAL, BRUTE-FORCE ERASURE of all examples ---");
@@ -59,7 +60,8 @@ public static class OpenApiUtil
 
             if (document.Components.Schemas != null)
                 foreach (var schema in document.Components.Schemas.Values)
-                    NukeSchema(schema);
+                    if (schema != null)
+                        NukeSchema(schema);
 
             if (document.Components.Parameters != null)
                 foreach (var p in document.Components.Parameters.Values)
@@ -125,11 +127,14 @@ public static class OpenApiUtil
                             concreteParam.Example = null;
                             concreteParam.Examples = null;
                         }
-                        NukeSchema(p.Schema);
+                        if (p.Schema != null)
+                            NukeSchema(p.Schema);
                     }
 
                 // Clean items within each operation
-                foreach (var operation in pathItem.Operations.Values)
+                if (pathItem.Operations != null)
+                {
+                    foreach (var operation in pathItem.Operations.Values)
                 {
                     if (operation.Parameters != null)
                         foreach (var p in operation.Parameters)
@@ -140,7 +145,8 @@ public static class OpenApiUtil
                                 concreteParam.Example = null;
                                 concreteParam.Examples = null;
                             }
-                            NukeSchema(p.Schema);
+                            if (p.Schema != null)
+                                NukeSchema(p.Schema);
                         }
 
                     if (operation.RequestBody?.Content != null)
@@ -152,7 +158,8 @@ public static class OpenApiUtil
                                 concreteMediaType.Example = null;
                                 concreteMediaType.Examples = null;
                             }
-                            NukeSchema(mt.Schema);
+                            if (mt.Schema != null)
+                                NukeSchema(mt.Schema);
                         }
 
                     if (operation.Responses != null)
@@ -167,7 +174,8 @@ public static class OpenApiUtil
                                         concreteHeader.Example = null;
                                         concreteHeader.Examples = null;
                                     }
-                                    NukeSchema(h.Schema);
+                                    if (h.Schema != null)
+                                        NukeSchema(h.Schema);
                                 }
 
                             if (resp.Content != null)
@@ -179,9 +187,11 @@ public static class OpenApiUtil
                                         concreteMediaType.Example = null;
                                         concreteMediaType.Examples = null;
                                     }
-                                    NukeSchema(mt.Schema);
+                                    if (mt.Schema != null)
+                                        NukeSchema(mt.Schema);
                                 }
                         }
+                }
                 }
             }
         }
@@ -247,16 +257,16 @@ public static class OpenApiUtil
     {
         IOpenApiSchema? s = media.Schema;
         bool schemaEmpty = s == null || (s.Type == null && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
-                                         !s.AllOf.Any() // ← don't treat allOf children as "empty"
-                                         && !s.AnyOf.Any() && !s.OneOf.Any());
+                                         (s.AllOf == null || !s.AllOf.Any()) // ← don't treat allOf children as "empty"
+                                         && (s.AnyOf == null || !s.AnyOf.Any()) && (s.OneOf == null || !s.OneOf.Any()));
         bool hasExample = s?.Example != null || (media.Examples?.Any() == true);
         return schemaEmpty && !hasExample;
     }
 
     public static bool IsSchemaEmpty(IOpenApiSchema schema)
     {
-        return schema == null || (schema.Type == null && (schema.Properties == null || !schema.Properties.Any()) && !schema.AllOf.Any() &&
-                                  !schema.OneOf.Any() && !schema.AnyOf.Any() && schema.Items == null && (schema.Enum == null || !schema.Enum.Any()) &&
+        return schema == null || (schema.Type == null && (schema.Properties == null || !schema.Properties.Any()) && (schema.AllOf == null || !schema.AllOf.Any()) &&
+                                  (schema.OneOf == null || !schema.OneOf.Any()) && (schema.AnyOf == null || !schema.AnyOf.Any()) && schema.Items == null && (schema.Enum == null || !schema.Enum.Any()) &&
                                   schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed);
     }
 
