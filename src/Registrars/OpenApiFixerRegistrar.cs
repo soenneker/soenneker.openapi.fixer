@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.Utils.Process.Registrars;
 
 namespace Soenneker.OpenApi.Fixer.Registrars;
 
@@ -14,7 +15,7 @@ public static class OpenApiFixerRegistrar
     /// </summary>
     public static IServiceCollection AddOpenApiFixerAsSingleton(this IServiceCollection services)
     {
-        services.TryAddSingleton<IOpenApiFixer, OpenApiFixer>();
+        services.AddProcessUtilAsSingleton().TryAddSingleton<IOpenApiFixer, OpenApiFixer>();
 
         return services;
     }
@@ -24,7 +25,7 @@ public static class OpenApiFixerRegistrar
     /// </summary>
     public static IServiceCollection AddOpenApiFixerAsScoped(this IServiceCollection services)
     {
-        services.TryAddScoped<IOpenApiFixer, OpenApiFixer>();
+        services.AddProcessUtilAsScoped().TryAddScoped<IOpenApiFixer, OpenApiFixer>();
 
         return services;
     }
