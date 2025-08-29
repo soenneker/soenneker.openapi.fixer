@@ -155,11 +155,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Blanket safety: wrap any enum-like or primitive branches in unions so Kiota always sees classes
             ComprehensiveEnumWrapperFix(document!);
 
+            // Ensure discriminator holders (including nested additionalProperties) declare and require the discriminator property
+            _logger.LogInformation("Ensuring discriminator property is required on all schemas with a discriminator...");
+            EnsureDiscriminatorRequiredEverywhere(document!);
+
             // Replace $refs that drill into #/paths/.../examples/... with component schema refs
             FixRefsPointingIntoPathsExamples(document!);
             
+            // Remove empty-string enum values that cause empty child names in generators
+            StripEmptyStringEnumValues(document!);
+            
             // Final cleanup before serialization
             CleanDocumentForSerialization(document!);
+
+            // Run discriminator-required pass one last time to guarantee required flags are present
+            EnsureDiscriminatorRequiredEverywhere(document!);
             
             string json = await document!.SerializeAsync(OpenApiSpecVersion.OpenApi3_0, OpenApiConstants.Json, cancellationToken: cancellationToken);
             
@@ -1058,7 +1068,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         // Replace the reference with the inline schema
                         // We need to cast through IOpenApiSchema since T is constrained to it
                         collection[i] = (T) (IOpenApiSchema) inlineSchema;
-                        _logger.LogInformation("Replaced reference to '{PrimKey}' with inline schema", primKey);
+                        //_logger.LogInformation("Replaced reference to '{PrimKey}' with inline schema", primKey);
                     }
                     else if (collection[i] is OpenApiSchema concreteSchema)
                     {
@@ -3076,6 +3086,64 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     /// <summary>
+    /// Recursively traverses all component schemas and ensures that wherever a discriminator is present,
+    /// the discriminator property exists under properties and is marked as required.
+    /// This covers nested locations like properties, items, allOf/anyOf/oneOf, and additionalProperties.
+    /// </summary>
+    private static void EnsureDiscriminatorRequiredEverywhere(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema == null || !visited.Add(schema)) return;
+
+            if (schema is OpenApiSchema os && os.Discriminator != null)
+            {
+                EnsureDiscriminatorProperty(os);
+            }
+
+            if (schema.Properties != null)
+            {
+                foreach (var child in schema.Properties.Values)
+                    Visit(child);
+            }
+
+            if (schema.Items != null)
+                Visit(schema.Items);
+
+            if (schema.AdditionalProperties != null)
+                Visit(schema.AdditionalProperties);
+
+            if (schema.AllOf != null)
+            {
+                foreach (var s in schema.AllOf)
+                    Visit(s);
+            }
+
+            if (schema.AnyOf != null)
+            {
+                foreach (var s in schema.AnyOf)
+                    Visit(s);
+            }
+
+            if (schema.OneOf != null)
+            {
+                foreach (var s in schema.OneOf)
+                    Visit(s);
+            }
+        }
+
+        foreach (var root in doc.Components.Schemas.Values)
+        {
+            Visit(root);
+        }
+    }
+
+    /// <summary>
     /// Ensures that any discriminator mapping or union branch never points to an enum schema.
     /// If a target is an enum, we create an object wrapper and retarget both the branch and the mapping.
     /// This prevents Kiota CodeEnum→CodeClass cast crashes.
@@ -3099,8 +3167,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             var parent = kvp.Value;
             if (parent?.Discriminator is null) continue;
 
-            // Handle both oneOf and anyOf
-            var branches = parent.OneOf?.ToList() ?? parent.AnyOf?.ToList();
+            // Handle both oneOf and anyOf (mutate in place)
+            var branches = parent.OneOf ?? parent.AnyOf;
             if (branches is null || branches.Count == 0) continue;
 
             // Discriminator.mapping is string->OpenApiSchemaReference in v2.3
@@ -3155,20 +3223,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            // Write the possibly-updated branch list back
-            if (changedBranches)
-            {
-                if (parent.OneOf is { Count: > 0 })
-                {
-                    parent.OneOf.Clear();
-                    foreach (var b in branches) parent.OneOf.Add(b);
-                }
-                else if (parent.AnyOf is { Count: > 0 })
-                {
-                    parent.AnyOf.Clear();
-                    foreach (var b in branches) parent.AnyOf.Add(b);
-                }
-            }
+            // No reassignment needed; branches were mutated in place
 
             // Extra safety: ensure discriminator property is defined on the parent
             if (parent is OpenApiSchema concreteParent)
@@ -3292,7 +3347,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             var parent = kvp.Value;
             if (parent?.Discriminator is null) continue;
 
-            var branches = parent.OneOf?.ToList() ?? parent.AnyOf?.ToList();
+            var branches = parent.OneOf ?? parent.AnyOf;
             if (branches is null || branches.Count == 0) continue;
 
             bool changedBranches = false;
@@ -3359,20 +3414,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            // Write the possibly-updated branch list back
-            if (changedBranches)
-            {
-                if (parent.OneOf is { Count: > 0 })
-                {
-                    parent.OneOf.Clear();
-                    foreach (var b in branches) parent.OneOf.Add(b);
-                }
-                else if (parent.AnyOf is { Count: > 0 })
-                {
-                    parent.AnyOf.Clear();
-                    foreach (var b in branches) parent.AnyOf.Add(b);
-                }
-            }
+            // No reassignment needed; branches were mutated in place
 
             // Ensure discriminator property is defined on the parent
             if (parent is OpenApiSchema concreteParent)
@@ -3420,6 +3462,85 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (kvp.Value is OpenApiSchema schema)
             {
                 FixMalformedEnumValuesRecursive(schema, visited, comps);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recursively strips empty-string values from enums across the entire document (schemas, parameters, headers, etc.).
+    /// </summary>
+    private static void StripEmptyStringEnumValues(OpenApiDocument doc)
+    {
+        // Visit helper
+        var visited = new HashSet<OpenApiSchema>();
+
+        void VisitSchema(IOpenApiSchema? s)
+        {
+            if (s is not OpenApiSchema os) return;
+            if (!visited.Add(os)) return;
+
+            if (os.Enum != null && os.Enum.Count > 0)
+            {
+                bool changed = false;
+                var filtered = new List<JsonNode>();
+                foreach (var e in os.Enum)
+                {
+                    if (e is JsonValue jv && jv.TryGetValue<string>(out var str) && string.IsNullOrEmpty(str))
+                    {
+                        changed = true;
+                        continue;
+                    }
+                    filtered.Add(e);
+                }
+                if (changed)
+                {
+                    os.Enum.Clear();
+                    foreach (var e in filtered) os.Enum.Add(e);
+                }
+            }
+
+            if (os.Properties != null)
+                foreach (var child in os.Properties.Values) VisitSchema(child);
+            if (os.Items != null) VisitSchema(os.Items);
+            if (os.AdditionalProperties != null) VisitSchema(os.AdditionalProperties);
+            if (os.AllOf != null) foreach (var c in os.AllOf) VisitSchema(c);
+            if (os.AnyOf != null) foreach (var c in os.AnyOf) VisitSchema(c);
+            if (os.OneOf != null) foreach (var c in os.OneOf) VisitSchema(c);
+        }
+
+        // Components.Schemas
+        if (doc.Components?.Schemas != null)
+            foreach (var s in doc.Components.Schemas.Values) VisitSchema(s);
+
+        // Parameters
+        if (doc.Components?.Parameters != null)
+            foreach (var p in doc.Components.Parameters.Values)
+                if (p?.Schema != null) VisitSchema(p.Schema);
+
+        // Headers
+        if (doc.Components?.Headers != null)
+            foreach (var h in doc.Components.Headers.Values)
+                if (h?.Schema != null) VisitSchema(h.Schema);
+
+        // RequestBodies
+        if (doc.Components?.RequestBodies != null)
+        {
+            foreach (var rb in doc.Components.RequestBodies.Values)
+            {
+                if (rb?.Content == null) continue;
+                foreach (var mt in rb.Content.Values)
+                    if (mt?.Schema != null) VisitSchema(mt.Schema);
+            }
+        }
+
+        // Responses
+        if (doc.Components?.Responses != null)
+        {
+            foreach (var resp in doc.Components.Responses.Values)
+            {
+                if (resp?.Content == null) continue;
+                foreach (var mt in resp.Content.Values)
+                    if (mt?.Schema != null) VisitSchema(mt.Schema);
             }
         }
     }

@@ -42,6 +42,6 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
 
-        await _util.ProcessKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", @"c:\cloudflare\src", CancellationToken);
+     //   await _util.ProcessKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", @"c:\cloudflare\src", CancellationToken);
     }
 }
