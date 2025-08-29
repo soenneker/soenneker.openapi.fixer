@@ -690,7 +690,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (list == null || list.Count == 0)
             return list;
 
-        List<IOpenApiSchema> kept = list.Where(b => !isRedundant((OpenApiSchema)b)).ToList();
+        List<IOpenApiSchema> kept = list.Where(b => b is not OpenApiSchema concreteB || !isRedundant(concreteB)).ToList();
         return kept.Count == 0 ? null : kept;
     }
 
