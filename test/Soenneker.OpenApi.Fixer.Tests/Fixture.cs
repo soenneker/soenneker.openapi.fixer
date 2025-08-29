@@ -2,8 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Soenneker.Fixtures.Unit;
-using Soenneker.Utils.Test;
 using Soenneker.OpenApi.Fixer.Registrars;
+using Soenneker.Utils.Process.Registrars;
+using Soenneker.Utils.Test;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
 
@@ -27,5 +28,6 @@ public sealed class Fixture : UnitFixture
         services.AddSingleton(config);
 
         services.AddOpenApiFixerAsScoped();
+        services.AddProcessUtilAsScoped();
     }
 }
