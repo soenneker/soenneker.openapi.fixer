@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.OpenApi;
@@ -21,17 +20,21 @@ public static class OpenApiUtil
         logger.LogInformation("--- Starting FINAL, BRUTE-FORCE ERASURE of all examples ---");
 
         // Use a HashSet to track which schemas have already been nuked to prevent infinite loops.
-        var visitedSchemas = new HashSet<OpenApiSchema>();
+        var visitedSchemas = new HashSet<IOpenApiSchema>();
 
         // Recursive helper specifically for schemas, which can be deeply nested.
-        void NukeSchema(OpenApiSchema? schema)
+        void NukeSchema(IOpenApiSchema? schema)
         {
             if (schema == null || !visitedSchemas.Add(schema))
             {
                 return;
             }
 
-            schema.Example = null;
+            // In v2.3, we need to cast to concrete type to modify read-only properties
+            if (schema is OpenApiSchema concreteSchema)
+            {
+                concreteSchema.Example = null;
+            }
 
             if (schema.Items != null) NukeSchema(schema.Items);
             if (schema.AdditionalProperties != null) NukeSchema(schema.AdditionalProperties);
@@ -61,15 +64,23 @@ public static class OpenApiUtil
             if (document.Components.Parameters != null)
                 foreach (var p in document.Components.Parameters.Values)
                 {
-                    p.Example = null;
-                    p.Examples = null;
+                    // In v2.3, we need to cast to concrete type to modify read-only properties
+                    if (p is OpenApiParameter concreteParam)
+                    {
+                        concreteParam.Example = null;
+                        concreteParam.Examples = null;
+                    }
                 }
 
             if (document.Components.Headers != null)
                 foreach (var h in document.Components.Headers.Values)
                 {
-                    h.Example = null;
-                    h.Examples = null;
+                    // In v2.3, we need to cast to concrete type to modify read-only properties
+                    if (h is OpenApiHeader concreteHeader)
+                    {
+                        concreteHeader.Example = null;
+                        concreteHeader.Examples = null;
+                    }
                 }
 
             if (document.Components.RequestBodies != null)
@@ -77,8 +88,12 @@ public static class OpenApiUtil
                     if (rb.Content != null)
                         foreach (var mt in rb.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // In v2.3, we need to cast to concrete type to modify read-only properties
+                            if (mt is OpenApiMediaType concreteMediaType)
+                            {
+                                concreteMediaType.Example = null;
+                                concreteMediaType.Examples = null;
+                            }
                         }
 
             if (document.Components.Responses != null)
@@ -86,8 +101,12 @@ public static class OpenApiUtil
                     if (resp.Content != null)
                         foreach (var mt in resp.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // In v2.3, we need to cast to concrete type to modify read-only properties
+                            if (mt is OpenApiMediaType concreteMediaType)
+                            {
+                                concreteMediaType.Example = null;
+                                concreteMediaType.Examples = null;
+                            }
                         }
         }
 
@@ -100,8 +119,12 @@ public static class OpenApiUtil
                 if (pathItem.Parameters != null)
                     foreach (var p in pathItem.Parameters)
                     {
-                        p.Example = null;
-                        p.Examples = null;
+                        // In v2.3, we need to cast to concrete type to modify read-only properties
+                        if (p is OpenApiParameter concreteParam)
+                        {
+                            concreteParam.Example = null;
+                            concreteParam.Examples = null;
+                        }
                         NukeSchema(p.Schema);
                     }
 
@@ -111,16 +134,24 @@ public static class OpenApiUtil
                     if (operation.Parameters != null)
                         foreach (var p in operation.Parameters)
                         {
-                            p.Example = null;
-                            p.Examples = null;
+                            // In v2.3, we need to cast to concrete type to modify read-only properties
+                            if (p is OpenApiParameter concreteParam)
+                            {
+                                concreteParam.Example = null;
+                                concreteParam.Examples = null;
+                            }
                             NukeSchema(p.Schema);
                         }
 
                     if (operation.RequestBody?.Content != null)
                         foreach (var mt in operation.RequestBody.Content.Values)
                         {
-                            mt.Example = null;
-                            mt.Examples = null;
+                            // In v2.3, we need to cast to concrete type to modify read-only properties
+                            if (mt is OpenApiMediaType concreteMediaType)
+                            {
+                                concreteMediaType.Example = null;
+                                concreteMediaType.Examples = null;
+                            }
                             NukeSchema(mt.Schema);
                         }
 
@@ -130,16 +161,24 @@ public static class OpenApiUtil
                             if (resp.Headers != null)
                                 foreach (var h in resp.Headers.Values)
                                 {
-                                    h.Example = null;
-                                    h.Examples = null;
+                                    // In v2.3, we need to cast to concrete type to modify read-only properties
+                                    if (h is OpenApiHeader concreteHeader)
+                                    {
+                                        concreteHeader.Example = null;
+                                        concreteHeader.Examples = null;
+                                    }
                                     NukeSchema(h.Schema);
                                 }
 
                             if (resp.Content != null)
                                 foreach (var mt in resp.Content.Values)
                                 {
-                                    mt.Example = null;
-                                    mt.Examples = null;
+                                    // In v2.3, we need to cast to concrete type to modify read-only properties
+                                    if (mt is OpenApiMediaType concreteMediaType)
+                                    {
+                                        concreteMediaType.Example = null;
+                                        concreteMediaType.Examples = null;
+                                    }
                                     NukeSchema(mt.Schema);
                                 }
                         }
@@ -156,14 +195,18 @@ public static class OpenApiUtil
     /// </summary>
     public static void StripAllDiscriminators(OpenApiDocument document, ILogger logger)
     {
-        var visited = new HashSet<OpenApiSchema>();
+        var visited = new HashSet<IOpenApiSchema>();
 
-        void Strip(OpenApiSchema schema)
+        void Strip(IOpenApiSchema schema)
         {
             if (schema == null || !visited.Add(schema))
                 return;
 
-            schema.Discriminator = null;
+            // In v2.3, we need to cast to concrete type to modify read-only properties
+            if (schema is OpenApiSchema concreteSchema)
+            {
+                concreteSchema.Discriminator = null;
+            }
 
             if (schema.AllOf != null)
                 foreach (var child in schema.AllOf)
@@ -202,17 +245,17 @@ public static class OpenApiUtil
 
     public static bool IsMediaEmpty(OpenApiMediaType media)
     {
-        OpenApiSchema? s = media.Schema;
-        bool schemaEmpty = s == null || (string.IsNullOrWhiteSpace(s.Type) && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
+        IOpenApiSchema? s = media.Schema;
+        bool schemaEmpty = s == null || (s.Type == null && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
                                          !s.AllOf.Any() // ← don't treat allOf children as "empty"
                                          && !s.AnyOf.Any() && !s.OneOf.Any());
         bool hasExample = s?.Example != null || (media.Examples?.Any() == true);
         return schemaEmpty && !hasExample;
     }
 
-    public static bool IsSchemaEmpty(OpenApiSchema schema)
+    public static bool IsSchemaEmpty(IOpenApiSchema schema)
     {
-        return schema == null || (string.IsNullOrWhiteSpace(schema.Type) && (schema.Properties == null || !schema.Properties.Any()) && !schema.AllOf.Any() &&
+        return schema == null || (schema.Type == null && (schema.Properties == null || !schema.Properties.Any()) && !schema.AllOf.Any() &&
                                   !schema.OneOf.Any() && !schema.AnyOf.Any() && schema.Items == null && (schema.Enum == null || !schema.Enum.Any()) &&
                                   schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed);
     }
