@@ -2323,8 +2323,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             bool primitive = os.Type is JsonSchemaType.String or JsonSchemaType.Integer or JsonSchemaType.Number or JsonSchemaType.Boolean;
             bool noShape = (os.Properties?.Count ?? 0) == 0 && os.Items is null && (os.AllOf?.Count ?? 0) == 0 && (os.AnyOf?.Count ?? 0) == 0 &&
                            (os.OneOf?.Count ?? 0) == 0;
+            bool noEnum = (os.Enum?.Count ?? 0) == 0;
 
-            return primitive && noShape;
+            return primitive && noShape && noEnum;
         }
 
         IOpenApiSchema InlineTarget(OpenApiSchemaReference r)
