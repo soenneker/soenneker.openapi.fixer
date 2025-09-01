@@ -1463,30 +1463,64 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             var visited = new HashSet<IOpenApiSchema>();
 
-            // Recursively replace schema.$ref → inlineSchema
+            // Recursively replace schema.$ref → inlineSchema, including nested properties and compositions
             void ReplaceRef(IOpenApiSchema? schema)
             {
                 if (schema == null || !visited.Add(schema)) return;
 
-                // dive into composite schemas
-                if (schema.AllOf != null)
-                    foreach (IOpenApiSchema? c in schema.AllOf)
-                        if (c is OpenApiSchema concreteC)
-                            ReplaceRef(concreteC);
-                if (schema.OneOf != null)
-                    foreach (IOpenApiSchema? c in schema.OneOf)
-                        if (c is OpenApiSchema concreteC)
-                            ReplaceRef(concreteC);
-                if (schema.AnyOf != null)
-                    foreach (IOpenApiSchema? c in schema.AnyOf)
-                        if (c is OpenApiSchema concreteC)
-                            ReplaceRef(concreteC);
-                if (schema.Properties != null)
-                    foreach (IOpenApiSchema? prop in schema.Properties.Values)
-                        if (prop is OpenApiSchema concreteProp)
-                            ReplaceRef(concreteProp);
-                if (schema.Items != null) ReplaceRef(schema.Items);
-                if (schema.AdditionalProperties != null) ReplaceRef(schema.AdditionalProperties);
+                if (schema is OpenApiSchema os)
+                {
+                    // First, replace direct refs inside dictionaries/lists at this level
+                    ReplaceRefsInDictionary(os.Properties);
+                    ReplaceRefsInCollection(os.AllOf);
+                    ReplaceRefsInCollection(os.OneOf);
+                    ReplaceRefsInCollection(os.AnyOf);
+
+                    // Handle Items
+                    if (os.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
+                    {
+                        os.Items = inlineSchema;
+                        _logger.LogInformation("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
+                    }
+                    else if (os.Items is OpenApiSchema itemsSchema)
+                    {
+                        ReplaceRef(itemsSchema);
+                    }
+
+                    // Handle AdditionalProperties
+                    if (os.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
+                    {
+                        os.AdditionalProperties = inlineSchema;
+                        _logger.LogInformation("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
+                    }
+                    else if (os.AdditionalProperties is OpenApiSchema additionalSchema)
+                    {
+                        ReplaceRef(additionalSchema);
+                    }
+
+                    // Recurse into child schemas that are concrete schemas after replacements
+                    if (os.Properties != null)
+                    {
+                        foreach (var key in os.Properties.Keys.ToList())
+                        {
+                            if (os.Properties[key] is OpenApiSchema concreteProp)
+                                ReplaceRef(concreteProp);
+                        }
+                    }
+
+                    if (os.AllOf != null)
+                        foreach (var c in os.AllOf)
+                            if (c is OpenApiSchema concreteC)
+                                ReplaceRef(concreteC);
+                    if (os.OneOf != null)
+                        foreach (var c in os.OneOf)
+                            if (c is OpenApiSchema concreteC)
+                                ReplaceRef(concreteC);
+                    if (os.AnyOf != null)
+                        foreach (var c in os.AnyOf)
+                            if (c is OpenApiSchema concreteC)
+                                ReplaceRef(concreteC);
+                }
             }
 
             // Replace references in collections
@@ -2324,6 +2358,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Booleans
             if (token is "bool" or "boolean")
+                return JsonSchemaType.Boolean;
+
+            // Common boolean-like property/id tokens
+            if (token.Contains("enabled") || token.StartsWith("is_") || token.StartsWith("is") || token.EndsWith("_enabled") || token.EndsWith("Enabled"))
                 return JsonSchemaType.Boolean;
 
             // Integers

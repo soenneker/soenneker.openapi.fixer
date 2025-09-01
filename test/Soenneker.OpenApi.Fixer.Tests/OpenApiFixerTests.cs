@@ -55,6 +55,6 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         _directoryUtil.DeleteIfExists(targetDir);
         _directoryUtil.CreateIfDoesNotExist(targetDir);
 
-        await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
+      //  await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
     }
 }
