@@ -2313,6 +2313,31 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         bool IsMissing(OpenApiSchemaReference r) => string.IsNullOrWhiteSpace(r.Reference.Id) || !comps.ContainsKey(r.Reference.Id);
 
+        // Heuristic: when a referenced primitive component is missing (e.g., after prior inlining/cleanup),
+        // infer the intended primitive type from the reference id instead of defaulting to string.
+        static JsonSchemaType InferPrimitiveTypeFromId(string? id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return JsonSchemaType.String;
+
+            string token = id!.Trim().ToLowerInvariant();
+
+            // Booleans
+            if (token is "bool" or "boolean")
+                return JsonSchemaType.Boolean;
+
+            // Integers
+            if (token is "int" or "integer" or "int32" or "int64")
+                return JsonSchemaType.Integer;
+
+            // Numbers (floating point / decimal)
+            if (token is "number" or "float" or "double" or "decimal")
+                return JsonSchemaType.Number;
+
+            // Strings (ids, uuids, etc) fall back to string
+            return JsonSchemaType.String;
+        }
+
         bool IsPurePrimitive(IOpenApiSchema s)
         {
             if (s is OpenApiSchemaReference r && comps.TryGetValue(r.Reference.Id, out var target))
@@ -2332,7 +2357,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             // When missing, fall back to a string (your example is an ID)
             if (IsMissing(r))
-                return new OpenApiSchema {Type = JsonSchemaType.String};
+            {
+                var inferred = InferPrimitiveTypeFromId(r.Reference.Id);
+                return new OpenApiSchema {Type = inferred};
+            }
 
             var target = comps[r.Reference.Id];
             if (IsPurePrimitive(target))
