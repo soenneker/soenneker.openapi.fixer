@@ -1866,7 +1866,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             ProcessBranchList(ps.OneOf);
             ProcessBranchList(ps.AnyOf);
-            // Skip allOf to avoid unnecessary wrappers in composition merges
+            ProcessBranchList(ps.AllOf);
         }
     }
 
@@ -1889,10 +1889,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach (var key in schemas.Keys.ToList())
         {
-            if (!IsValidIdentifier(key))
+            // Use strict validation suitable for Kiota: only [A-Za-z0-9_] and starts with a letter.
+            // Also rename if our canonical validation would change the name.
+            string validated = ValidateComponentName(key);
+            bool needsRename = !IsValidIdentifier(key) || !string.Equals(validated, key, StringComparison.Ordinal);
+
+            if (needsRename)
             {
                 _logger.LogInformation("Found invalid schema name '{InvalidName}', sanitizing...", key);
-                string baseName = SanitizeName(key);
+                string baseName = validated;
 
                 // Fallback to "Schema" if sanitization fails
                 if (string.IsNullOrWhiteSpace(baseName))
@@ -2748,10 +2753,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
     {
-        if (!comps.ContainsKey(baseName))
-            return baseName;
+        // Ensure a valid, non-empty component key baseline
+        string Sanitize(string? name, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return fallback;
+            string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+            if (string.IsNullOrWhiteSpace(sanitized)) sanitized = fallback;
+            if (!char.IsLetter(sanitized[0])) sanitized = "C" + sanitized;
+            return sanitized;
+        }
 
-        var withSuffix = $"{baseName}_{fallbackSuffix}";
+        string candidate = Sanitize(baseName, "UnnamedComponent");
+        if (!comps.ContainsKey(candidate))
+            return candidate;
+
+        string withSuffix = Sanitize($"{baseName}_{fallbackSuffix}", "UnnamedComponent_Wrapper");
         if (!comps.ContainsKey(withSuffix))
             return withSuffix;
 
@@ -2759,7 +2775,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         string numbered;
         do
         {
-            numbered = $"{withSuffix}_{i++}";
+            numbered = Sanitize($"{baseName}_{fallbackSuffix}_{i++}", "UnnamedComponent_Wrapper");
         }
         while (comps.ContainsKey(numbered));
 
@@ -4019,7 +4035,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (parent?.Discriminator is null) continue;
 
             // Handle both oneOf and anyOf (mutate in place)
-            var branches = parent.OneOf ?? parent.AnyOf;
+            var branches = parent.OneOf ?? parent.AnyOf ?? parent.AllOf;
             if (branches is null || branches.Count == 0) continue;
 
             // Discriminator.mapping is string->OpenApiSchemaReference in v2.3
@@ -4089,6 +4105,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 var id = v.Reference.Id;
                 if (id is not null && comps.ContainsKey(id))
                     parent.Discriminator.Mapping[k] = new OpenApiSchemaReference(id);
+                // If mapping points to an enum-like schema directly (not part of branches), wrap it too
+                if (id is not null && comps.TryGetValue(id, out var target) && IsNonObjectLike(target))
+                {
+                    string wrapperName = ReserveUniqueSchemaName(comps, id, "Wrapper");
+                    if (!comps.ContainsKey(wrapperName))
+                    {
+                        comps[wrapperName] = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.Object,
+                            Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = new OpenApiSchemaReference(id) },
+                            Required = new HashSet<string> { "value" }
+                        };
+                    }
+                    parent.Discriminator.Mapping[k] = new OpenApiSchemaReference(wrapperName);
+                }
             }
         }
     }
@@ -4529,11 +4560,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 if (parent is not OpenApiSchema pos) return;
                 // Only consider oneOf/anyOf unions; skip allOf merges
-                var branches = pos.OneOf ?? pos.AnyOf;
+                var branches = pos.OneOf ?? pos.AnyOf ?? pos.AllOf;
                 if (branches is not {Count: > 0}) return;
 
-                // Only wrap when there is an explicit discriminator on the parent
-                if (pos.Discriminator == null) return;
+                // Allow wrapping even without discriminator to avoid Kiota enum/class cast issues
 
                 // Collect changes to avoid modifying collection during enumeration
                 var changes = new List<(int index, IOpenApiSchema newBranch)>();
