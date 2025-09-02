@@ -386,6 +386,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (poly is not {Count: > 1}) continue; // not polymorphic
             if (schema.Discriminator != null) continue; // already OK
 
+            // Only inject discriminator when there's at least one object-like branch
+            bool hasObjectBranch = poly.Any(b =>
+            {
+                var s = b;
+                if (s is OpenApiSchemaReference sr && sr.Reference.Id != null && doc.Components.Schemas.TryGetValue(sr.Reference.Id, out var rs))
+                    s = rs;
+                return s is OpenApiSchema os && (os.Type == JsonSchemaType.Object || (os.Properties?.Any() == true) || os.AdditionalProperties != null || os.AdditionalPropertiesAllowed);
+            });
+            if (!hasObjectBranch) continue;
+
             const string discProp = "type";
 
             // In v2.3, we need to cast to concrete type to modify read-only properties
@@ -4532,8 +4542,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 var branches = pos.OneOf ?? pos.AnyOf;
                 if (branches is not {Count: > 0}) return;
 
-                // Only wrap when there is an explicit discriminator on the parent
-                if (pos.Discriminator == null) return;
+                // Only wrap when there is a mix of object-like and non-object branches (to avoid Kiota CodeEnum→CodeClass casts)
+                bool hasObjectBranch = HasObjectBranch(pos);
+                if (!hasObjectBranch) return;
 
                 // Collect changes to avoid modifying collection during enumeration
                 var changes = new List<(int index, IOpenApiSchema newBranch)>();
