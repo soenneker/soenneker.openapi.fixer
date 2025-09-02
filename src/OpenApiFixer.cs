@@ -1745,6 +1745,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         foreach (var (parentName, parent) in comps.ToList())
         {
             if (parent is not OpenApiSchema ps) continue;
+            if (ps.Discriminator == null) continue; // only wrap when polymorphic discriminator is present
             var branches = ps.OneOf ?? ps.AnyOf;
             if (branches is not {Count: > 0} || ps.Discriminator is null) continue;
 
@@ -1767,7 +1768,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     (rs.Type == null || (rs.Type != JsonSchemaType.Object && (rs.Properties == null || rs.Properties.Count == 0))))
                 {
                     // Create wrapper component
-                    var wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}_setting", "Wrapper");
+                    var wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
                     var wrapper = new OpenApiSchema
                     {
                         Type = JsonSchemaType.Object,
@@ -1837,7 +1838,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (resolved is OpenApiSchema rs && rs.Enum is {Count: > 0} &&
                         (rs.Type == null || (rs.Type != JsonSchemaType.Object && (rs.Properties == null || rs.Properties.Count == 0))))
                     {
-                        var wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}_setting", "Wrapper");
+                        var wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
                         var wrapper = new OpenApiSchema
                         {
                             Type = JsonSchemaType.Object,
@@ -1865,7 +1866,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             ProcessBranchList(ps.OneOf);
             ProcessBranchList(ps.AnyOf);
-            ProcessBranchList(ps.AllOf);
+            // Skip allOf to avoid unnecessary wrappers in composition merges
         }
     }
 
@@ -4527,8 +4528,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             void ProcessUnion(IOpenApiSchema parent)
             {
                 if (parent is not OpenApiSchema pos) return;
-                var branches = pos.OneOf ?? pos.AnyOf ?? pos.AllOf;
+                // Only consider oneOf/anyOf unions; skip allOf merges
+                var branches = pos.OneOf ?? pos.AnyOf;
                 if (branches is not {Count: > 0}) return;
+
+                // Only wrap when there is an explicit discriminator on the parent
+                if (pos.Discriminator == null) return;
 
                 // Collect changes to avoid modifying collection during enumeration
                 var changes = new List<(int index, IOpenApiSchema newBranch)>();
