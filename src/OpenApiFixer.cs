@@ -1856,8 +1856,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static string KeyForDiscriminator(IOpenApiSchema branch, string discProp, string fallback)
     {
-        if (branch is OpenApiSchema bs && bs.Properties != null && bs.Properties.TryGetValue(discProp, out IOpenApiSchema? dp) && dp is OpenApiSchema dps && dps.Enum is { Count: > 0 } &&
-            dps.Enum.First() is JsonValue jv && jv.TryGetValue<string>(out string? val) && !string.IsNullOrWhiteSpace(val))
+        if (branch is OpenApiSchema bs && bs.Properties != null && bs.Properties.TryGetValue(discProp, out IOpenApiSchema? dp) && dp is OpenApiSchema dps &&
+            dps.Enum is { Count: > 0 } && dps.Enum.First() is JsonValue jv && jv.TryGetValue<string>(out string? val) && !string.IsNullOrWhiteSpace(val))
             return val;
         return fallback;
     }
@@ -2133,7 +2133,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (rb.Content != null)
                     {
                         // In v2.3, we can't modify the content directly, so we need to create a new request body
-                        Dictionary<string, OpenApiMediaType>? normalizedContent = rb.Content.Where(p => p.Key != null && p.Value != null).ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
+                        Dictionary<string, OpenApiMediaType>? normalizedContent =
+                            rb.Content.Where(p => p.Key != null && p.Value != null).ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
 
                         ScrubBrokenRefs(normalizedContent, document);
                         Dictionary<string, OpenApiMediaType>? validRb = normalizedContent
@@ -3030,20 +3031,27 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        if (doc.Components == null) return;
+        if (doc.Components == null)
+            return;
 
-        foreach (KeyValuePair<string, IOpenApiRequestBody> kv in doc.Components.RequestBodies)
+        if (doc.Components.RequestBodies != null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (kv.Value?.Content != null)
-                PatchContent(kv.Value.Content);
+            foreach (KeyValuePair<string, IOpenApiRequestBody> kv in doc.Components.RequestBodies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (kv.Value?.Content != null)
+                    PatchContent(kv.Value.Content);
+            }
         }
 
-        foreach (KeyValuePair<string, IOpenApiResponse> kv in doc.Components.Responses)
+        if (doc.Components.Responses != null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (kv.Value?.Content != null)
-                PatchContent(kv.Value.Content);
+            foreach (KeyValuePair<string, IOpenApiResponse> kv in doc.Components.Responses)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (kv.Value?.Content != null)
+                    PatchContent(kv.Value.Content);
+            }
         }
 
         if (doc.Components?.Parameters != null)
