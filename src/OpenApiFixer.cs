@@ -39,9 +39,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
             await ReadAndValidateOpenApi(sourceFilePath, cancellationToken).NoSync();
             await using MemoryStream pre = await PreprocessSpecFile(sourceFilePath, cancellationToken);
-            ReadResult result = await OpenApiDocument.LoadAsync(pre, cancellationToken: cancellationToken);
-            OpenApiDocument? document = result.Document;
-            OpenApiDiagnostic? diagnostics = result.Diagnostic;
+            (OpenApiDocument? document, OpenApiDiagnostic? diagnostics) = await OpenApiDocument.LoadAsync(pre, cancellationToken: cancellationToken).NoSync();
 
             if (diagnostics?.Errors?.Any() == true)
             {
