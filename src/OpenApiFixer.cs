@@ -1304,12 +1304,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         SanitizeExample(schema);
 
-        if (schema.Default is JsonValue ds && ds.TryGetValue<string>(out string? dsValue) && string.IsNullOrEmpty(dsValue))
+        if (schema.Default is JsonValue ds && ds.TryGetValue(out string? dsValue) && string.IsNullOrEmpty(dsValue))
         {
             schema.Default = null;
         }
 
-        if (schema.Example is JsonValue es && es.TryGetValue<string>(out string? esValue) && string.IsNullOrEmpty(esValue))
+        if (schema.Example is JsonValue es && es.TryGetValue(out string? esValue) && string.IsNullOrEmpty(esValue))
         {
             schema.Example = null;
         }
@@ -1857,7 +1857,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private static string KeyForDiscriminator(IOpenApiSchema branch, string discProp, string fallback)
     {
         if (branch is OpenApiSchema bs && bs.Properties != null && bs.Properties.TryGetValue(discProp, out IOpenApiSchema? dp) && dp is OpenApiSchema dps &&
-            dps.Enum is { Count: > 0 } && dps.Enum.First() is JsonValue jv && jv.TryGetValue<string>(out string? val) && !string.IsNullOrWhiteSpace(val))
+            dps.Enum is { Count: > 0 } && dps.Enum.First() is JsonValue jv && jv.TryGetValue(out string? val) && !string.IsNullOrWhiteSpace(val))
             return val;
         return fallback;
     }
@@ -3545,33 +3545,71 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void FixSchemaDefaults(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
     {
-        if (schema == null || !visited.Add(schema)) return;
+        if (schema == null || !visited.Add(schema))
+            return;
 
-        // Cast to concrete type to modify read-only properties
-        if (schema is not OpenApiSchema concreteSchema) return;
+        if (schema is not OpenApiSchema concreteSchema)
+            return;
 
-        if (schema.Enum != null && schema.Enum.Any())
+        // --- ENUM DEFAULTS: robust matching & assignment ---
+        if (schema.Enum is { Count: > 0 })
         {
-            List<string> enumValues = schema.Enum.Select(e => e.ToString() ?? string.Empty).ToList();
-
-            if (schema.Default != null)
+            var enumByText = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
+            foreach (JsonNode e in schema.Enum)
             {
-                var defaultValue = schema.Default.ToString();
-                if (!enumValues.Contains(defaultValue))
+                if (e is JsonValue jv)
                 {
-                    string? matchingValue = enumValues.FirstOrDefault(v => v.Equals(defaultValue, StringComparison.OrdinalIgnoreCase));
+                    if (jv.TryGetValue(out string? s))
+                        enumByText[s] = e;
+                    else if (jv.TryGetValue(out long l))
+                        enumByText[l.ToString(System.Globalization.CultureInfo.InvariantCulture)] = e;
+                    else if (jv.TryGetValue(out double d))
+                        enumByText[d.ToString(System.Globalization.CultureInfo.InvariantCulture)] = e;
+                }
+                else
+                {
+                    enumByText[e.ToJsonString()] = e;
+                }
+            }
 
-                    if (matchingValue != null)
+            if (schema.Default is not null)
+            {
+                string? defText = null;
+                if (schema.Default is JsonValue dv)
+                {
+                    if (dv.TryGetValue(out string? ds))
+                        defText = ds;
+                    else if (dv.TryGetValue(out long dl))
+                        defText = dl.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    else if (dv.TryGetValue(out double dd))
+                        defText = dd.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    else
+                        defText = schema.Default.ToJsonString();
+                }
+                else
+                {
+                    defText = schema.Default.ToJsonString();
+                }
+
+                if (defText is not null)
+                {
+                    if (enumByText.TryGetValue(defText, out JsonNode? matchingEnumElement))
                     {
-                        concreteSchema.Default = JsonValue.Create(matchingValue);
+                        if (!ReferenceEquals(schema.Default, matchingEnumElement))
+                        {
+                            concreteSchema.Default = matchingEnumElement;
+                            _logger.LogWarning("Fixed enum default on '{SchemaTitle}' to '{NewDefault}'", schema.Title ?? "(no title)", defText);
+                        }
                     }
                     else
                     {
-                        concreteSchema.Default = schema.Enum.First();
+                        JsonNode first = schema.Enum[0];
+                        if (!ReferenceEquals(schema.Default, first))
+                        {
+                            concreteSchema.Default = first;
+                            _logger.LogWarning("Replaced invalid enum default on '{SchemaTitle}' with first enum member", schema.Title ?? "(no title)");
+                        }
                     }
-
-                    _logger.LogWarning("Fixed invalid default value '{OldDefault}' to '{NewDefault}' in schema '{SchemaTitle}'", defaultValue, concreteSchema.Default,
-                        schema.Title ?? "(no title)");
                 }
             }
         }
@@ -3581,12 +3619,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
             switch (schema.Type)
             {
                 case JsonSchemaType.Boolean:
-                    if (schema.Default is not JsonValue || schema.Default.GetValueKind() != JsonValueKind.True && schema.Default.GetValueKind() != JsonValueKind.False)
+                {
+                    bool? normalized = null;
+                    if (schema.Default is JsonValue jv)
                     {
-                        concreteSchema.Default = JsonValue.Create(false);
+                        if (jv.GetValueKind() is JsonValueKind.True or JsonValueKind.False)
+                            normalized = jv.GetValueKind() == JsonValueKind.True;
+                        else if (jv.GetValueKind() == JsonValueKind.String && Boolean.TryParse(jv.GetValue<string>(), out bool b))
+                            normalized = b;
+                        else if (jv.GetValueKind() == JsonValueKind.Number && jv.TryGetValue(out int n) && (n == 0 || n == 1))
+                            normalized = n == 1;
                     }
 
+                    concreteSchema.Default = JsonValue.Create(normalized ?? false);
                     break;
+                }
 
                 case JsonSchemaType.Array:
                     if (schema.Default is not JsonArray)
@@ -3599,13 +3646,84 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 case JsonSchemaType.String:
                     if (schema.Format == "date-time" && schema.Default is JsonValue dateStr)
                     {
-                        if (dateStr.GetValue<string>() is string dateValue && !DateTime.TryParse(dateValue, out _))
+                        if (dateStr.GetValue<string>() is string dateValue && !DateTimeOffset.TryParse(dateValue, System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.RoundtripKind, out _))
                         {
                             concreteSchema.Default = null;
                         }
                     }
 
                     break;
+
+                case JsonSchemaType.Integer:
+                {
+                    if (schema.Default is JsonValue jv)
+                    {
+                        if (jv.GetValueKind() == JsonValueKind.Number)
+                        {
+                            // ok
+                        }
+                        else if (jv.GetValueKind() == JsonValueKind.String && Int64.TryParse(jv.GetValue<string>(), System.Globalization.NumberStyles.Integer,
+                                     System.Globalization.CultureInfo.InvariantCulture, out long parsed))
+                        {
+                            concreteSchema.Default = JsonValue.Create(parsed);
+                        }
+                        else
+                        {
+                            concreteSchema.Default = null;
+                        }
+                    }
+                    else
+                    {
+                        concreteSchema.Default = null;
+                    }
+
+                    break;
+                }
+
+                case JsonSchemaType.Number:
+                {
+                    if (schema.Default is JsonValue jv)
+                    {
+                        if (jv.GetValueKind() == JsonValueKind.Number)
+                        {
+                            // ok
+                        }
+                        else if (jv.GetValueKind() == JsonValueKind.String && Double.TryParse(jv.GetValue<string>(), System.Globalization.NumberStyles.Float,
+                                     System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                        {
+                            concreteSchema.Default = JsonValue.Create(parsed);
+                        }
+                        else
+                        {
+                            concreteSchema.Default = null;
+                        }
+                    }
+                    else
+                    {
+                        concreteSchema.Default = null;
+                    }
+
+                    break;
+                }
+            }
+
+            // --- FINAL GUARD: nuke bad string defaults on non-string/non-enum schemas ---
+            if (schema.Default is JsonValue sVal && sVal.GetValueKind() == JsonValueKind.String && schema.Type is not JsonSchemaType.String && !(schema.Enum?.Count > 0))
+            {
+                try
+                {
+                    string defText = sVal.GetValue<string>() ?? string.Empty;
+                    string desc = schema.Description ?? string.Empty;
+                    if (string.Equals(defText, desc, StringComparison.Ordinal) || schema.Type is JsonSchemaType.Object || schema.Type is JsonSchemaType.Array)
+                    {
+                        concreteSchema.Default = null;
+                    }
+                }
+                catch
+                {
+                    concreteSchema.Default = null;
+                }
             }
         }
 
@@ -3614,13 +3732,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (prop is OpenApiSchema concreteProp)
                     FixSchemaDefaults(concreteProp, visited);
 
-        if (schema.Items != null)
-            if (schema.Items is OpenApiSchema concreteItems)
-                FixSchemaDefaults(concreteItems, visited);
+        if (schema.Items is OpenApiSchema concreteItems)
+            FixSchemaDefaults(concreteItems, visited);
 
-        if (schema.AdditionalProperties != null)
-            if (schema.AdditionalProperties is OpenApiSchema concreteAdditional)
-                FixSchemaDefaults(concreteAdditional, visited);
+        if (schema.AdditionalProperties is OpenApiSchema concreteAdditional)
+            FixSchemaDefaults(concreteAdditional, visited);
 
         if (schema.AllOf != null)
             foreach (IOpenApiSchema? s in schema.AllOf)
@@ -3700,7 +3816,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (s.Type == JsonSchemaType.String && arr.First() is JsonValue firstValue)
             {
                 // Check if the value can be converted to string
-                if (firstValue.TryGetValue<string>(out string? stringValue) && stringValue != null)
+                if (firstValue.TryGetValue(out string? stringValue) && stringValue != null)
                     s.Example = JsonValue.Create(stringValue);
                 else
                     s.Example = null;
@@ -3712,7 +3828,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (s?.Example is JsonValue str)
         {
             // Check if the value can be converted to string
-            if (str.TryGetValue<string>(out string? strValue) && strValue != null && strValue.Length > 5_000)
+            if (str.TryGetValue(out string? strValue) && strValue != null && strValue.Length > 5_000)
                 s.Example = null;
         }
     }
@@ -4415,7 +4531,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 var filtered = new List<JsonNode>();
                 foreach (JsonNode e in os.Enum)
                 {
-                    if (e is JsonValue jv && jv.TryGetValue<string>(out string? str) && string.IsNullOrEmpty(str))
+                    if (e is JsonValue jv && jv.TryGetValue(out string? str) && string.IsNullOrEmpty(str))
                     {
                         changed = true;
                         continue;
@@ -4657,7 +4773,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             foreach (JsonNode enumValue in schema.Enum)
             {
-                if (enumValue is JsonValue jsonValue && jsonValue.TryGetValue<string>(out string? stringValue))
+                if (enumValue is JsonValue jsonValue && jsonValue.TryGetValue(out string? stringValue))
                 {
                     string trimmed = TrimQuotes(stringValue);
                     if (!string.Equals(trimmed, stringValue, StringComparison.Ordinal))
@@ -4690,7 +4806,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         // Fix default if it is a quoted string
-        if (schema.Default is JsonValue defVal && defVal.TryGetValue<string>(out string? defStr))
+        if (schema.Default is JsonValue defVal && defVal.TryGetValue(out string? defStr))
         {
             string trimmedDefault = TrimQuotes(defStr);
             if (!string.Equals(trimmedDefault, defStr, StringComparison.Ordinal))
@@ -4698,7 +4814,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         // Fix example if it is a quoted string
-        if (schema.Example is JsonValue exVal && exVal.TryGetValue<string>(out string? exStr))
+        if (schema.Example is JsonValue exVal && exVal.TryGetValue(out string? exStr))
         {
             string trimmedExample = TrimQuotes(exStr);
             if (!string.Equals(trimmedExample, exStr, StringComparison.Ordinal))
