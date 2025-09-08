@@ -40,16 +40,16 @@ public static class OpenApiUtil
             if (schema.Items != null) NukeSchema(schema.Items);
             if (schema.AdditionalProperties != null) NukeSchema(schema.AdditionalProperties);
             if (schema.Properties != null)
-                foreach (var p in schema.Properties.Values)
+                foreach (IOpenApiSchema p in schema.Properties.Values)
                     NukeSchema(p);
             if (schema.AllOf != null)
-                foreach (var s in schema.AllOf)
+                foreach (IOpenApiSchema s in schema.AllOf)
                     NukeSchema(s);
             if (schema.AnyOf != null)
-                foreach (var s in schema.AnyOf)
+                foreach (IOpenApiSchema s in schema.AnyOf)
                     NukeSchema(s);
             if (schema.OneOf != null)
-                foreach (var s in schema.OneOf)
+                foreach (IOpenApiSchema s in schema.OneOf)
                     NukeSchema(s);
         }
 
@@ -64,7 +64,7 @@ public static class OpenApiUtil
                         NukeSchema(schema);
 
             if (document.Components.Parameters != null)
-                foreach (var p in document.Components.Parameters.Values)
+                foreach (IOpenApiParameter p in document.Components.Parameters.Values)
                 {
                     // In v2.3, we need to cast to concrete type to modify read-only properties
                     if (p is OpenApiParameter concreteParam)
@@ -75,7 +75,7 @@ public static class OpenApiUtil
                 }
 
             if (document.Components.Headers != null)
-                foreach (var h in document.Components.Headers.Values)
+                foreach (IOpenApiHeader h in document.Components.Headers.Values)
                 {
                     // In v2.3, we need to cast to concrete type to modify read-only properties
                     if (h is OpenApiHeader concreteHeader)
@@ -86,9 +86,9 @@ public static class OpenApiUtil
                 }
 
             if (document.Components.RequestBodies != null)
-                foreach (var rb in document.Components.RequestBodies.Values)
+                foreach (IOpenApiRequestBody rb in document.Components.RequestBodies.Values)
                     if (rb.Content != null)
-                        foreach (var mt in rb.Content.Values)
+                        foreach (OpenApiMediaType mt in rb.Content.Values)
                         {
                             // In v2.3, we need to cast to concrete type to modify read-only properties
                             if (mt is OpenApiMediaType concreteMediaType)
@@ -99,9 +99,9 @@ public static class OpenApiUtil
                         }
 
             if (document.Components.Responses != null)
-                foreach (var resp in document.Components.Responses.Values)
+                foreach (IOpenApiResponse resp in document.Components.Responses.Values)
                     if (resp.Content != null)
-                        foreach (var mt in resp.Content.Values)
+                        foreach (OpenApiMediaType mt in resp.Content.Values)
                         {
                             // In v2.3, we need to cast to concrete type to modify read-only properties
                             if (mt is OpenApiMediaType concreteMediaType)
@@ -115,11 +115,11 @@ public static class OpenApiUtil
         // 2. Nuke all path and operation-level definitions
         if (document.Paths != null)
         {
-            foreach (var pathItem in document.Paths.Values)
+            foreach (IOpenApiPathItem pathItem in document.Paths.Values)
             {
                 // Clean parameters directly on the path
                 if (pathItem.Parameters != null)
-                    foreach (var p in pathItem.Parameters)
+                    foreach (IOpenApiParameter p in pathItem.Parameters)
                     {
                         // In v2.3, we need to cast to concrete type to modify read-only properties
                         if (p is OpenApiParameter concreteParam)
@@ -134,10 +134,10 @@ public static class OpenApiUtil
                 // Clean items within each operation
                 if (pathItem.Operations != null)
                 {
-                    foreach (var operation in pathItem.Operations.Values)
+                    foreach (OpenApiOperation operation in pathItem.Operations.Values)
                 {
                     if (operation.Parameters != null)
-                        foreach (var p in operation.Parameters)
+                        foreach (IOpenApiParameter p in operation.Parameters)
                         {
                             // In v2.3, we need to cast to concrete type to modify read-only properties
                             if (p is OpenApiParameter concreteParam)
@@ -150,7 +150,7 @@ public static class OpenApiUtil
                         }
 
                     if (operation.RequestBody?.Content != null)
-                        foreach (var mt in operation.RequestBody.Content.Values)
+                        foreach (OpenApiMediaType mt in operation.RequestBody.Content.Values)
                         {
                             // In v2.3, we need to cast to concrete type to modify read-only properties
                             if (mt is OpenApiMediaType concreteMediaType)
@@ -163,10 +163,10 @@ public static class OpenApiUtil
                         }
 
                     if (operation.Responses != null)
-                        foreach (var resp in operation.Responses.Values)
+                        foreach (IOpenApiResponse resp in operation.Responses.Values)
                         {
                             if (resp.Headers != null)
-                                foreach (var h in resp.Headers.Values)
+                                foreach (IOpenApiHeader h in resp.Headers.Values)
                                 {
                                     // In v2.3, we need to cast to concrete type to modify read-only properties
                                     if (h is OpenApiHeader concreteHeader)
@@ -179,7 +179,7 @@ public static class OpenApiUtil
                                 }
 
                             if (resp.Content != null)
-                                foreach (var mt in resp.Content.Values)
+                                foreach (OpenApiMediaType mt in resp.Content.Values)
                                 {
                                     // In v2.3, we need to cast to concrete type to modify read-only properties
                                     if (mt is OpenApiMediaType concreteMediaType)
@@ -219,16 +219,16 @@ public static class OpenApiUtil
             }
 
             if (schema.AllOf != null)
-                foreach (var child in schema.AllOf)
+                foreach (IOpenApiSchema child in schema.AllOf)
                     Strip(child);
             if (schema.OneOf != null)
-                foreach (var child in schema.OneOf)
+                foreach (IOpenApiSchema child in schema.OneOf)
                     Strip(child);
             if (schema.AnyOf != null)
-                foreach (var child in schema.AnyOf)
+                foreach (IOpenApiSchema child in schema.AnyOf)
                     Strip(child);
             if (schema.Properties != null)
-                foreach (var child in schema.Properties.Values)
+                foreach (IOpenApiSchema child in schema.Properties.Values)
                     Strip(child);
             if (schema.Items != null)
                 Strip(schema.Items);
@@ -239,7 +239,7 @@ public static class OpenApiUtil
         if (document.Components?.Schemas == null)
             return;
 
-        foreach (var root in document.Components.Schemas.Values)
+        foreach (IOpenApiSchema root in document.Components.Schemas.Values)
             Strip(root);
     }
 
@@ -272,10 +272,10 @@ public static class OpenApiUtil
 
     public static void EnsureResponseDescriptions(OpenApiResponses responses)
     {
-        foreach (var kv in responses)
+        foreach (KeyValuePair<string, IOpenApiResponse> kv in responses)
         {
-            var code = kv.Key;
-            var resp = kv.Value;
+            string code = kv.Key;
+            IOpenApiResponse resp = kv.Value;
             if (string.IsNullOrWhiteSpace(resp.Description))
             {
                 resp.Description = code == "default" ? "Default response" : $"{code} response";
@@ -286,7 +286,7 @@ public static class OpenApiUtil
     public static void CleanEmptyKeysOn<T>(IDictionary<string, T> dict, string dictName, ILogger logger)
     {
         if (dict == null) return;
-        foreach (var key in dict.Keys.ToList())
+        foreach (string key in dict.Keys.ToList())
         {
             if (string.IsNullOrWhiteSpace(key))
             {
