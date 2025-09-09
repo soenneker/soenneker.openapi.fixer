@@ -107,15 +107,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
             LogState("FixErrorMessageArrayCollision", document!);
 
             //SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
-           // LogState("After STAGE 4C: SetExplicitNullability", document!);
+            // LogState("After STAGE 4C: SetExplicitNullability", document!);
 
             if (document!.Components?.Schemas != null)
             {
-                foreach (IOpenApiSchema? schema in document.Components.Schemas.Values)
+                foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
                 {
                     if (schema is OpenApiSchema concreteSchema)
                     {
-                        DeepCleanSchema(concreteSchema, new HashSet<OpenApiSchema>());
+                        DeepCleanSchema(concreteSchema, []);
                     }
                 }
             }
@@ -4908,9 +4908,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     foreach (var (_, media) in resp.Content)
                     {
                         var s = media?.Schema;
-                        if (s is OpenApiSchemaReference r &&
-                            r.Reference.Type == ReferenceType.Schema &&
-                            !string.IsNullOrEmpty(r.Reference.Id))
+                        if (s is OpenApiSchemaReference r && r.Reference.Type == ReferenceType.Schema && !string.IsNullOrEmpty(r.Reference.Id))
                         {
                             targetIds.Add(r.Reference.Id);
                         }
@@ -4939,11 +4937,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (container is null) return;
 
             // Depth-first, but very narrow: touch only the 'message' property at this level.
-            if (container.Properties is { } props &&
-                props.TryGetValue("message", out var msg) &&
-                msg is OpenApiSchema m &&
-                string.Equals(m.Type?.ToString(), "array", StringComparison.OrdinalIgnoreCase) &&
-                m.Items is OpenApiSchema mi &&
+            if (container.Properties is { } props && props.TryGetValue("message", out var msg) && msg is OpenApiSchema m &&
+                string.Equals(m.Type?.ToString(), "array", StringComparison.OrdinalIgnoreCase) && m.Items is OpenApiSchema mi &&
                 string.Equals(mi.Type?.ToString(), "string", StringComparison.OrdinalIgnoreCase))
             {
                 var replacement = new OpenApiSchema
