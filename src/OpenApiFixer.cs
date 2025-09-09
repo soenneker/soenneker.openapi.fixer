@@ -103,8 +103,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ApplySchemaNormalizations(document!, cancellationToken);
             LogState("After STAGE 4B: ApplySchemaNormalizations", document!);
 
+            FixErrorMessageArrayCollision(document!);
+            LogState("FixErrorMessageArrayCollision", document!);
+
             //SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
-            LogState("After STAGE 4C: SetExplicitNullability", document!);
+           // LogState("After STAGE 4C: SetExplicitNullability", document!);
 
             if (document!.Components?.Schemas != null)
             {
@@ -4882,6 +4885,82 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (schema.Not is OpenApiSchema notSchema)
         {
             FixMalformedEnumValuesRecursive(notSchema, visited, comps);
+        }
+    }
+
+    private static void FixErrorMessageArrayCollision(OpenApiDocument doc)
+    {
+        if (doc?.Paths is null || doc.Components?.Schemas is null) return;
+
+        // 1) Collect component schema IDs used by 4xx/5xx JSON responses.
+        var targetIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (_, path) in doc.Paths)
+        {
+            if (path?.Operations is null) continue;
+            foreach (var (_, op) in path.Operations)
+            {
+                if (op?.Responses is null) continue;
+                foreach (var (status, resp) in op.Responses)
+                {
+                    if (string.IsNullOrEmpty(status) || (status[0] != '4' && status[0] != '5')) continue;
+                    if (resp?.Content is null) continue;
+
+                    foreach (var (_, media) in resp.Content)
+                    {
+                        var s = media?.Schema;
+                        if (s is OpenApiSchemaReference r &&
+                            r.Reference.Type == ReferenceType.Schema &&
+                            !string.IsNullOrEmpty(r.Reference.Id))
+                        {
+                            targetIds.Add(r.Reference.Id);
+                        }
+                        else if (s is OpenApiSchema inline)
+                        {
+                            // Inline error body: patch it locally.
+                            CoerceMessageArrayToString(inline);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (targetIds.Count == 0) return;
+
+        // 2) Patch only those component schemas.
+        foreach (var id in targetIds)
+        {
+            if (doc.Components.Schemas.TryGetValue(id, out var schema) && schema is OpenApiSchema os)
+                CoerceMessageArrayToString(os);
+        }
+
+        // --- local helper ---
+        static void CoerceMessageArrayToString(OpenApiSchema container)
+        {
+            if (container is null) return;
+
+            // Depth-first, but very narrow: touch only the 'message' property at this level.
+            if (container.Properties is { } props &&
+                props.TryGetValue("message", out var msg) &&
+                msg is OpenApiSchema m &&
+                string.Equals(m.Type?.ToString(), "array", StringComparison.OrdinalIgnoreCase) &&
+                m.Items is OpenApiSchema mi &&
+                string.Equals(mi.Type?.ToString(), "string", StringComparison.OrdinalIgnoreCase))
+            {
+                var replacement = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Description = m.Description,
+                    Example = m.Example
+                };
+                if (m.Extensions is { Count: > 0 })
+                    foreach (var kv in m.Extensions)
+                        replacement.Extensions[kv.Key] = kv.Value;
+
+                container.Properties["message"] = replacement;
+            }
+
+            // No recursive rewrite: we don’t mutate nested children unless they are
+            // themselves direct error bodies (handled when collected from responses).
         }
     }
 }
