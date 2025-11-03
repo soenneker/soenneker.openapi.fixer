@@ -1319,15 +1319,24 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         if (schema.Enum != null && schema.Enum.Any())
         {
-            List<JsonNode> cleanedEnum = schema.Enum.OfType<JsonValue>().Where(s =>
+            List<JsonNode> cleanedEnum = new List<JsonNode>();
+            foreach (JsonNode enumValue in schema.Enum)
             {
-                // Accept any non-null enum value (string, number, boolean, etc.)
-                return s.GetValueKind() != JsonValueKind.Null;
-            }).Select(s =>
-            {
-                // Preserve the original value type
-                return s;
-            }).Cast<JsonNode>().ToList();
+                // Filter out null values
+                if (enumValue is JsonValue jsonValue && jsonValue.GetValueKind() == JsonValueKind.Null)
+                {
+                    continue;
+                }
+                
+                // Filter out empty array enum values
+                if (enumValue is JsonArray jsonArray && jsonArray.Count == 0)
+                {
+                    continue;
+                }
+                
+                // Accept any other valid enum value (string, number, boolean, array with items, etc.)
+                cleanedEnum.Add(enumValue);
+            }
 
             schema.Enum = cleanedEnum.Any() ? cleanedEnum : null;
         }
@@ -3306,6 +3315,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             var cleanedEnum = new List<JsonNode>();
             foreach (JsonNode enumValue in schema.Enum)
             {
+                // Filter out empty array enum values
+                if (enumValue is JsonArray jsonArray && jsonArray.Count == 0)
+                {
+                    continue;
+                }
+                
                 if (enumValue is JsonValue jsonValue)
                 {
                     // Ensure the value is valid JSON
@@ -4502,15 +4517,169 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private static void FixMalformedEnumValues(OpenApiDocument doc)
     {
         IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
-        if (comps is null || comps.Count == 0) return;
-
-        // Recursively fix malformed enum values in all schemas
         var visited = new HashSet<OpenApiSchema>();
-        foreach (KeyValuePair<string, IOpenApiSchema> kvp in comps.ToList())
+
+        // Process component schemas
+        if (comps != null && comps.Count > 0)
         {
-            if (kvp.Value is OpenApiSchema schema)
+            foreach (KeyValuePair<string, IOpenApiSchema> kvp in comps.ToList())
             {
-                FixMalformedEnumValuesRecursive(schema, visited, comps);
+                if (kvp.Value is OpenApiSchema schema)
+                {
+                    FixMalformedEnumValuesRecursive(schema, visited, comps);
+                }
+            }
+        }
+
+        // Process component responses
+        if (doc.Components?.Responses != null)
+        {
+            foreach (IOpenApiResponse response in doc.Components.Responses.Values)
+            {
+                if (response?.Content != null)
+                {
+                    foreach (OpenApiMediaType mediaType in response.Content.Values)
+                    {
+                        if (mediaType?.Schema is OpenApiSchema schema && comps != null)
+                        {
+                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                        }
+                    }
+                }
+                // Process response headers
+                if (response?.Headers != null)
+                {
+                    foreach (IOpenApiHeader header in response.Headers.Values)
+                    {
+                        if (header?.Schema is OpenApiSchema schema && comps != null)
+                        {
+                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process component request bodies
+        if (doc.Components?.RequestBodies != null)
+        {
+            foreach (IOpenApiRequestBody requestBody in doc.Components.RequestBodies.Values)
+            {
+                if (requestBody?.Content != null)
+                {
+                    foreach (OpenApiMediaType mediaType in requestBody.Content.Values)
+                    {
+                        if (mediaType?.Schema is OpenApiSchema schema && comps != null)
+                        {
+                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process component parameters
+        if (doc.Components?.Parameters != null)
+        {
+            foreach (IOpenApiParameter parameter in doc.Components.Parameters.Values)
+            {
+                if (parameter?.Schema is OpenApiSchema schema && comps != null)
+                {
+                    FixMalformedEnumValuesRecursive(schema, visited, comps);
+                }
+            }
+        }
+
+        // Process component headers
+        if (doc.Components?.Headers != null)
+        {
+            foreach (IOpenApiHeader header in doc.Components.Headers.Values)
+            {
+                if (header?.Schema is OpenApiSchema schema && comps != null)
+                {
+                    FixMalformedEnumValuesRecursive(schema, visited, comps);
+                }
+            }
+        }
+
+        // Process path operations (responses, request bodies, parameters)
+        if (doc.Paths != null)
+        {
+            foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+            {
+                // Process path-level parameters
+                if (pathItem.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    {
+                        if (parameter?.Schema is OpenApiSchema schema && comps != null)
+                        {
+                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                        }
+                    }
+                }
+
+                // Process operations
+                if (pathItem.Operations != null)
+                {
+                    foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                    {
+                        // Process operation parameters
+                        if (operation.Parameters != null)
+                        {
+                            foreach (IOpenApiParameter parameter in operation.Parameters)
+                            {
+                                if (parameter?.Schema is OpenApiSchema schema && comps != null)
+                                {
+                                    FixMalformedEnumValuesRecursive(schema, visited, comps);
+                                }
+                            }
+                        }
+
+                        // Process request body
+                        if (operation.RequestBody?.Content != null)
+                        {
+                            foreach (OpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                            {
+                                if (mediaType?.Schema is OpenApiSchema schema && comps != null)
+                                {
+                                    FixMalformedEnumValuesRecursive(schema, visited, comps);
+                                }
+                            }
+                        }
+
+                        // Process responses
+                        if (operation.Responses != null)
+                        {
+                            foreach (IOpenApiResponse response in operation.Responses.Values)
+                            {
+                                // Process response content
+                                if (response?.Content != null)
+                                {
+                                    foreach (OpenApiMediaType mediaType in response.Content.Values)
+                                    {
+                                        if (mediaType?.Schema is OpenApiSchema schema && comps != null)
+                                        {
+                                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                                        }
+                                    }
+                                }
+
+                                // Process response headers
+                                if (response?.Headers != null)
+                                {
+                                    foreach (IOpenApiHeader header in response.Headers.Values)
+                                    {
+                                        if (header?.Schema is OpenApiSchema schema && comps != null)
+                                        {
+                                            FixMalformedEnumValuesRecursive(schema, visited, comps);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -4776,6 +4945,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             foreach (JsonNode enumValue in schema.Enum)
             {
+                // Filter out empty array enum values
+                if (enumValue is JsonArray jsonArray && jsonArray.Count == 0)
+                {
+                    hasMalformedValues = true;
+                    continue;
+                }
+                
                 if (enumValue is JsonValue jsonValue && jsonValue.TryGetValue(out string? stringValue))
                 {
                     string trimmed = TrimQuotes(stringValue);
@@ -4798,12 +4974,20 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             if (hasMalformedValues)
             {
-                // For inline schemas, we need to replace the enum values directly
-                // Clear the existing enum and add the cleaned values
-                schema.Enum.Clear();
-                foreach (JsonNode cleanedValue in cleanedEnum)
+                if (cleanedEnum.Any())
                 {
-                    schema.Enum.Add(cleanedValue);
+                    // For inline schemas, we need to replace the enum values directly
+                    // Clear the existing enum and add the cleaned values
+                    schema.Enum.Clear();
+                    foreach (JsonNode cleanedValue in cleanedEnum)
+                    {
+                        schema.Enum.Add(cleanedValue);
+                    }
+                }
+                else
+                {
+                    // If all enum values were filtered out, remove the enum entirely
+                    schema.Enum = null;
                 }
             }
         }
