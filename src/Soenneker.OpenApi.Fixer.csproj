@@ -9,7 +9,7 @@
 
     <PropertyGroup>
         <Description>A utility that fixes problem OpenApi specs being converted into clients</Description>
-        <Version Condition="'$(BUILD_VERSION)' == ''">3.0.0</Version>
+        <Version Condition="'$(BUILD_VERSION)' == ''">4.0.0</Version>
         <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
         <AssemblyName>Soenneker.OpenApi.Fixer</AssemblyName>
         <PackageId>Soenneker.OpenApi.Fixer</PackageId>

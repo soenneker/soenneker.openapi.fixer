@@ -474,9 +474,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         // servers
         if (doc.Servers != null)
+        {
             foreach (OpenApiServer s in doc.Servers)
                 ScrubEnumsInExtensions(s);
-
+        }
+        
         // paths, operations, params, request/response/headers
         if (doc.Paths != null)
         {
