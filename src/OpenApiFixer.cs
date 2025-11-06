@@ -15,6 +15,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using Soenneker.Extensions.Task;
 
 namespace Soenneker.OpenApi.Fixer;
@@ -181,6 +182,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Final safety net: ensure no union branch is a non-object (enums, primitives, arrays)
             WrapNonObjectUnionBranchesEverywhere(document);
+            NormalizeAllOfWrappers(document);
 
             InlinePrimitivePropertyRefs(document);
             EnsureInlineObjectTypes(document!);
@@ -3997,9 +3999,44 @@ public sealed class OpenApiFixer : IOpenApiFixer
             cancellationToken: cancellationToken).NoSync();
     }
 
-    private static bool IsSchemaRef(IOpenApiSchema s) => s is OpenApiSchemaReference;
+    private static bool TryGetSchemaRefId(IOpenApiSchema schema, out string? id)
+    {
+        id = null;
 
-    private static string? GetSchemaRefId(IOpenApiSchema s) => s is OpenApiSchemaReference schemaRef ? schemaRef.Reference.Id : null;
+        switch (schema)
+        {
+            case OpenApiSchemaReference sr when sr.Reference.Id is { Length: > 0 }:
+                id = sr.Reference.Id;
+                return true;
+
+            case OpenApiSchema os:
+            {
+                object? reference = os.GetType().GetProperty("Reference")?.GetValue(os);
+                if (reference == null)
+                    return false;
+
+                string? typeValue = reference.GetType().GetProperty("Type")?.GetValue(reference)?.ToString();
+                string? idValue = reference.GetType().GetProperty("Id")?.GetValue(reference)?.ToString();
+
+                if (string.IsNullOrEmpty(idValue))
+                    return false;
+
+                if (typeValue is null || string.Equals(typeValue, "Schema", StringComparison.OrdinalIgnoreCase))
+                {
+                    id = idValue;
+                    return true;
+                }
+
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSchemaRef(IOpenApiSchema s) => TryGetSchemaRefId(s, out _);
+
+    private static string? GetSchemaRefId(IOpenApiSchema s) => TryGetSchemaRefId(s, out string? id) ? id : null;
 
     private static IOpenApiSchema MakeSchemaRef(string id) => new OpenApiSchemaReference(id);
 
@@ -4615,6 +4652,18 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private static void WrapNonObjectUnionBranchesEverywhere(OpenApiDocument doc)
     {
         var newSchemas = new Dictionary<string, IOpenApiSchema>();
+        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
+        Dictionary<IOpenApiSchema, string>? reverseLookup = null;
+
+        if (comps != null)
+        {
+            reverseLookup = new Dictionary<IOpenApiSchema, string>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+            foreach (KeyValuePair<string, IOpenApiSchema> kv in comps)
+            {
+                if (kv.Value != null && !reverseLookup.ContainsKey(kv.Value))
+                    reverseLookup[kv.Value] = kv.Key;
+            }
+        }
 
         void ProcessSchema(IOpenApiSchema? s, IDictionary<string, IOpenApiSchema>? comps)
         {
@@ -4644,47 +4693,61 @@ public sealed class OpenApiFixer : IOpenApiFixer
             void ProcessUnion(IOpenApiSchema parent)
             {
                 if (parent is not OpenApiSchema pos) return;
-                // Only consider oneOf/anyOf unions; skip allOf merges
-                IList<IOpenApiSchema>? branches = pos.OneOf ?? pos.AnyOf ?? pos.AllOf;
-                if (branches is not { Count: > 0 }) return;
 
-                // Allow wrapping even without discriminator to avoid Kiota enum/class cast issues
+                bool changedAny = false;
 
-                // Collect changes to avoid modifying collection during enumeration
-                var changes = new List<(int index, IOpenApiSchema newBranch)>();
-
-                for (int i = 0; i < branches.Count; i++)
+                void ProcessBranchList(IList<IOpenApiSchema>? branches, bool allowInlineWrap)
                 {
-                    IOpenApiSchema b = branches[i];
-                    IOpenApiSchema resolved = b;
-                    string? refId = GetSchemaRefId(b);
-                    if (refId != null && comps != null && comps.TryGetValue(refId, out IOpenApiSchema? target))
-                        resolved = target;
-                    if (IsNonObjectLike(resolved))
+                    if (branches is not { Count: > 0 }) return;
+
+                    // Collect changes to avoid modifying collection during enumeration
+                    var changes = new List<(int index, IOpenApiSchema newBranch)>();
+
+                    for (int i = 0; i < branches.Count; i++)
                     {
-                        string baseName = refId ?? (pos.Title ?? "UnionBranch");
-                        string wrapperName = ReserveUniqueSchemaName(comps ?? new Dictionary<string, IOpenApiSchema>(), baseName, "Wrapper");
-                        if (comps != null && !comps.ContainsKey(wrapperName) && !newSchemas.ContainsKey(wrapperName))
+                        IOpenApiSchema b = branches[i];
+                        IOpenApiSchema resolved = b;
+                        string? refId = GetSchemaRefId(b);
+
+                        if (refId == null && reverseLookup != null && b is OpenApiSchema branchSchema && reverseLookup.TryGetValue(branchSchema, out string mappedId))
                         {
-                            newSchemas[wrapperName] = new OpenApiSchema
-                            {
-                                Type = JsonSchemaType.Object,
-                                Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = refId != null ? new OpenApiSchemaReference(refId) : resolved },
-                                Required = new HashSet<string> { "value" }
-                            };
+                            refId = mappedId;
                         }
 
-                        changes.Add((i, new OpenApiSchemaReference(wrapperName)));
+                        if (refId != null && comps != null && comps.TryGetValue(refId, out IOpenApiSchema? target))
+                            resolved = target;
+                        bool isWrapperAlready = refId != null && refId.EndsWith("_Wrapper", StringComparison.Ordinal);
+
+                        if (IsNonObjectLike(resolved) && !isWrapperAlready && (refId != null || allowInlineWrap))
+                        {
+                            string baseName = refId ?? (pos.Title ?? "UnionBranch");
+                            string wrapperName = ReserveUniqueSchemaName(comps ?? new Dictionary<string, IOpenApiSchema>(), baseName, "Wrapper");
+                            if (comps != null && !comps.ContainsKey(wrapperName) && !newSchemas.ContainsKey(wrapperName))
+                            {
+                                newSchemas[wrapperName] = new OpenApiSchema
+                                {
+                                    Type = JsonSchemaType.Object,
+                                    Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = refId != null ? new OpenApiSchemaReference(refId) : resolved },
+                                    Required = new HashSet<string> { "value" }
+                                };
+                            }
+
+                            changes.Add((i, new OpenApiSchemaReference(wrapperName)));
+                        }
+                    }
+
+                    foreach ((int index, IOpenApiSchema newBranch) in changes)
+                    {
+                        branches[index] = newBranch;
+                        changedAny = true;
                     }
                 }
 
-                // Apply changes after enumeration is complete
-                foreach ((int index, IOpenApiSchema newBranch) in changes)
-                {
-                    branches[index] = newBranch;
-                }
+                ProcessBranchList(pos.OneOf, allowInlineWrap: true);
+                ProcessBranchList(pos.AnyOf, allowInlineWrap: true);
+                ProcessBranchList(pos.AllOf, allowInlineWrap: false);
 
-                if (changes.Count > 0 && pos.Discriminator is not null && pos is OpenApiSchema cp && cp.Discriminator.Mapping != null)
+                if (changedAny && pos.Discriminator is not null && pos is OpenApiSchema cp && cp.Discriminator.Mapping != null)
                 {
                     // we don't know exact mapping keys here; prior passes handled mapping retargets on components
                 }
@@ -4708,7 +4771,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (os.AdditionalProperties != null) ProcessSchema(os.AdditionalProperties, comps);
         }
 
-        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
         if (comps != null)
         {
             // Process all existing schemas first
@@ -4720,6 +4782,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             foreach (KeyValuePair<string, IOpenApiSchema> kvp in newSchemas)
             {
                 comps[kvp.Key] = kvp.Value;
+                if (reverseLookup != null && kvp.Value != null && !reverseLookup.ContainsKey(kvp.Value))
+                    reverseLookup[kvp.Value] = kvp.Key;
             }
         }
 
@@ -4759,6 +4823,115 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     }
             }
         }
+    }
+
+    private static void NormalizeAllOfWrappers(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0) return;
+
+        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
+
+        foreach (KeyValuePair<string, IOpenApiSchema> schemaEntry in comps.ToList())
+        {
+            if (schemaEntry.Value is not OpenApiSchema container || container.Properties == null || container.Properties.Count == 0)
+                continue;
+
+            foreach ((string propName, IOpenApiSchema propSchemaIface) in container.Properties.ToList())
+            {
+                if (propSchemaIface is not OpenApiSchema propSchema)
+                    continue;
+                if (propSchema.AllOf is not { Count: > 1 })
+                    continue;
+
+                // Skip if already wrapped
+                if (propSchema.AllOf.Any(branch => GetSchemaRefId(branch) is string id && id.EndsWith("_Wrapper", StringComparison.Ordinal)))
+                    continue;
+
+                string? baseRefId = propSchema.AllOf
+                    .Select(GetSchemaRefId)
+                    .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id) && comps.ContainsKey(id!));
+
+                if (string.IsNullOrWhiteSpace(baseRefId))
+                    continue;
+
+                if (comps.TryGetValue(baseRefId, out IOpenApiSchema? baseSchema) && baseSchema is OpenApiSchema baseOs)
+                {
+                    if (baseOs.Type == JsonSchemaType.Object || (baseOs.Properties?.Count ?? 0) > 0)
+                        continue; // already object-like; no need to wrap
+                }
+
+                string wrapperName = $"{baseRefId}_Wrapper";
+                if (!comps.ContainsKey(wrapperName))
+                    wrapperName = ReserveUniqueSchemaName(comps, baseRefId, "Wrapper");
+
+                var valueAllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference(baseRefId) };
+                foreach (IOpenApiSchema branch in propSchema.AllOf)
+                {
+                    string? branchId = GetSchemaRefId(branch);
+                    if (branchId != null && string.Equals(branchId, baseRefId, StringComparison.Ordinal))
+                        continue;
+
+                    valueAllOf.Add(branch);
+                }
+
+                IOpenApiSchema valueSchema;
+                if (valueAllOf.Count == 1)
+                {
+                    valueSchema = valueAllOf[0];
+                }
+                else
+                {
+                    valueSchema = new OpenApiSchema { AllOf = valueAllOf };
+                }
+
+                OpenApiSchema wrapperSchema;
+                if (comps.TryGetValue(wrapperName, out IOpenApiSchema? wrapperCandidate) && wrapperCandidate is OpenApiSchema wrapperOpenApiSchema)
+                {
+                    wrapperSchema = wrapperOpenApiSchema;
+                }
+                else
+                {
+                    wrapperSchema = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>(),
+                        Required = new HashSet<string> { "value" }
+                    };
+                    comps[wrapperName] = wrapperSchema;
+                }
+
+                wrapperSchema.Properties ??= new Dictionary<string, IOpenApiSchema>();
+                wrapperSchema.Properties["value"] = valueSchema;
+                wrapperSchema.Required ??= new HashSet<string>();
+                wrapperSchema.Required.Add("value");
+
+                var replacement = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Object,
+                    AllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference(wrapperName) }
+                };
+
+                CopySchemaMetadata(propSchema, replacement);
+
+                container.Properties[propName] = replacement;
+            }
+        }
+    }
+
+    private static void CopySchemaMetadata(OpenApiSchema source, OpenApiSchema target)
+    {
+        target.Description = source.Description;
+        target.Default = source.Default;
+        target.Example = source.Example;
+        target.Deprecated = source.Deprecated;
+        target.ReadOnly = source.ReadOnly;
+        target.WriteOnly = source.WriteOnly;
+
+        if (source.Extensions != null && source.Extensions.Count > 0)
+            target.Extensions = new Dictionary<string, IOpenApiExtension>(source.Extensions);
+
+        target.Xml = source.Xml;
+        target.ExternalDocs = source.ExternalDocs;
     }
 
     /// <summary>
@@ -4957,5 +5130,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // No recursive rewrite: we don’t mutate nested children unless they are
             // themselves direct error bodies (handled when collected from responses).
         }
+    }
+
+    private sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T>
+        where T : class
+    {
+        public static ReferenceEqualityComparer<T> Instance { get; } = new();
+
+        public bool Equals(T? x, T? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(T obj) => RuntimeHelpers.GetHashCode(obj);
     }
 }
