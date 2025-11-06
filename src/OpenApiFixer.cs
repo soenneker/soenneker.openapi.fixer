@@ -78,6 +78,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             FixContentTypeWrapperCollisions(document!);
 
+            _logger.LogInformation("Removing deprecated operations and schemas...");
+            RemoveDeprecatedOperationsAndSchemas(document!);
+
             // Harden primitive/enum request bodies by wrapping into small objects to avoid Kiota regressions
             WrapPrimitiveRequestBodies(document!);
 
@@ -1246,6 +1249,72 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     concreteSchema.Title ?? "(no title)");
                 concreteSchema.Default = null;
             }
+        }
+    }
+
+    private void RemoveDeprecatedOperationsAndSchemas(OpenApiDocument document)
+    {
+        if (document == null)
+            return;
+
+        int removedOperations = 0;
+        int removedPaths = 0;
+        int removedSchemas = 0;
+
+        if (document.Paths != null)
+        {
+            var emptyPathKeys = new List<string>();
+
+            foreach (var pathEntry in document.Paths.ToList())
+            {
+                var pathItem = pathEntry.Value;
+
+                if (pathItem?.Operations == null || pathItem.Operations.Count == 0)
+                    continue;
+
+                var deprecatedOperations = pathItem.Operations
+                    .Where(op => op.Value?.Deprecated == true)
+                    .Select(op => op.Key)
+                    .ToList();
+
+                if (deprecatedOperations.Count == 0)
+                    continue;
+
+                foreach (var operationType in deprecatedOperations)
+                {
+                    pathItem.Operations.Remove(operationType);
+                    removedOperations++;
+                }
+
+                if (pathItem.Operations.Count == 0)
+                    emptyPathKeys.Add(pathEntry.Key);
+            }
+
+            foreach (string pathKey in emptyPathKeys)
+            {
+                document.Paths.Remove(pathKey);
+                removedPaths++;
+            }
+        }
+
+        if (document.Components?.Schemas != null)
+        {
+            var deprecatedSchemaKeys = document.Components.Schemas
+                .Where(kvp => kvp.Value is OpenApiSchema schema && schema.Deprecated)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (string schemaKey in deprecatedSchemaKeys)
+            {
+                document.Components.Schemas.Remove(schemaKey);
+                removedSchemas++;
+            }
+        }
+
+        if (removedOperations > 0 || removedPaths > 0 || removedSchemas > 0)
+        {
+            _logger.LogInformation("Removed deprecated elements. Operations: {OperationCount}, Paths: {PathCount}, Schemas: {SchemaCount}.",
+                removedOperations, removedPaths, removedSchemas);
         }
     }
 
