@@ -340,7 +340,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (op.RequestBody?.Content == null || op.OperationId == null)
                 continue;
 
-            foreach ((string media, OpenApiMediaType mt) in op.RequestBody.Content)
+            foreach ((string media, IOpenApiMediaType mt) in op.RequestBody.Content)
             {
                 var expectedWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
                 if (doc.Components.Schemas.ContainsKey(expectedWrapperName))
@@ -359,7 +359,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     /// <summary>
-    /// Wraps primitive or enum request body schemas into a tiny object { value: <primitive> } to avoid Kiota primitive body issues.
+    /// Wraps primitive or enum request body schemas into a tiny object { value: &lt;primitive&gt; } to avoid Kiota primitive body issues.
     /// </summary>
     private static void WrapPrimitiveRequestBodies(OpenApiDocument doc)
     {
@@ -373,17 +373,18 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 if (op?.RequestBody?.Content == null)
                     continue;
-                foreach (var mt in op.RequestBody.Content.Values)
+                foreach (var media in op.RequestBody.Content.Values.OfType<OpenApiMediaType>())
                 {
-                    if (mt?.Schema is not OpenApiSchema s)
+                    if (media.Schema is not OpenApiSchema s)
                         continue;
+
                     bool isBareEnum = s.Enum is { Count: > 0 } && (s.Type == null || s.Type != JsonSchemaType.Object) &&
                                       (s.Properties == null || s.Properties.Count == 0);
                     bool isPrimitive = s.Type == JsonSchemaType.String || s.Type == JsonSchemaType.Integer || s.Type == JsonSchemaType.Number ||
                                        s.Type == JsonSchemaType.Boolean;
                     if (isBareEnum || isPrimitive)
                     {
-                        mt.Schema = new OpenApiSchema
+                        media.Schema = new OpenApiSchema
                         {
                             Type = JsonSchemaType.Object,
                             Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = s },
@@ -527,8 +528,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         {
                             if (rb is IOpenApiExtensible rbExt)
                                 ScrubEnumsInExtensions(rbExt);
-                            foreach (var mt in rb.Content.Values)
-                                if (mt?.Schema is OpenApiSchema mtSchema)
+                            foreach (var media in rb.Content.Values.OfType<OpenApiMediaType>())
+                                if (media.Schema is OpenApiSchema mtSchema)
                                 {
                                     // Optional hardening: wrap primitive/enum request bodies
                                     bool isBareEnum = mtSchema.Enum is { Count: > 0 } && (mtSchema.Type == null || mtSchema.Type != JsonSchemaType.Object) &&
@@ -537,7 +538,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                                        mtSchema.Type == JsonSchemaType.Number || mtSchema.Type == JsonSchemaType.Boolean;
                                     if (isBareEnum || isPrimitive)
                                     {
-                                        mt.Schema = new OpenApiSchema
+                                        media.Schema = new OpenApiSchema
                                         {
                                             Type = JsonSchemaType.Object,
                                             Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = mtSchema },
@@ -557,8 +558,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                 if (resp is IOpenApiExtensible respExt)
                                     ScrubEnumsInExtensions(respExt);
                                 if (resp.Content != null)
-                                    foreach (var mt in resp.Content.Values)
-                                        if (mt?.Schema is OpenApiSchema mtSchema)
+                                    foreach (var media in resp.Content.Values.OfType<OpenApiMediaType>())
+                                        if (media.Schema is OpenApiSchema mtSchema)
                                             FixSchemaEnumWithoutType(mtSchema, new HashSet<OpenApiSchema>());
                                 if (resp.Headers != null)
                                     foreach (var h in resp.Headers.Values)
@@ -869,8 +870,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 operation.OperationId ?? "unnamed");
 
             // We must materialize the list to modify it during iteration
-            foreach ((string mediaType, OpenApiMediaType media) in operation.RequestBody.Content!.ToList())
+            foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content!.ToList())
             {
+                if (mediaInterface is not OpenApiMediaType media)
+                    continue;
+
                 if (media.Schema == null)
                     continue;
 
@@ -886,12 +890,14 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         mediaType, operation.OperationId ?? "unnamed", newSchemaName);
 
                     // Add the inline schema to the components dictionary.
-                    OpenApiSchema extractedSchema = (OpenApiSchema)media.Schema;
-                    // In v2.3, Title is read-only, so we can't modify it directly
-                    schemas.Add(newSchemaName, extractedSchema);
+                    if (media.Schema is OpenApiSchema extractedSchema)
+                    {
+                        // In v2.3, Title is read-only, so we can't modify it directly
+                        schemas.Add(newSchemaName, extractedSchema);
 
-                    // Replace the inline schema with a reference to our new component.
-                    media.Schema = new OpenApiSchemaReference(newSchemaName);
+                        // Replace the inline schema with a reference to our new component.
+                        media.Schema = new OpenApiSchemaReference(newSchemaName);
+                    }
                 }
                 // --- END OF NEW LOGIC ---
 
@@ -1072,16 +1078,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         // Check request body
                         if (operation.RequestBody?.Content != null)
                         {
-                            foreach ((string mediaType, var media) in operation.RequestBody.Content)
+                            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content)
                             {
-                                if (media?.Schema is OpenApiSchemaReference mediaSchemaRef && mediaSchemaRef.Reference.ReferenceV3 == oldRef)
+                                if (mediaInterface is not OpenApiMediaType media)
+                                    continue;
+
+                                if (media.Schema is OpenApiSchemaReference mediaSchemaRef && mediaSchemaRef.Reference.ReferenceV3 == oldRef)
                                 {
                                     _logger.LogInformation("Replacing schema reference in request body from '{OldRef}' to '{NewRef}'", oldRef, newRef);
                                     media.Schema = new OpenApiSchemaReference(newKey);
                                 }
                                 else
                                 {
-                                    Recurse(media?.Schema, $"{operationContext}.requestBody.{mediaType}");
+                                    Recurse(media.Schema, $"{operationContext}.requestBody.{mediaType}");
                                 }
                             }
                         }
@@ -1093,16 +1102,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             {
                                 if (response?.Content != null)
                                 {
-                                    foreach ((string mediaType, var media) in response.Content)
+                                    foreach ((string mediaType, IOpenApiMediaType mediaInterface) in response.Content)
                                     {
-                                        if (media?.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
+                                        if (mediaInterface is not OpenApiMediaType media)
+                                            continue;
+
+                                        if (media.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
                                         {
                                             _logger.LogInformation("Replacing schema reference in response from '{OldRef}' to '{NewRef}'", oldRef, newRef);
                                             media.Schema = new OpenApiSchemaReference(newKey);
                                         }
                                         else
                                         {
-                                            Recurse(media?.Schema, $"{operationContext}.responses[{responseCode}].{mediaType}");
+                                            Recurse(media.Schema, $"{operationContext}.responses[{responseCode}].{mediaType}");
                                         }
                                     }
                                 }
@@ -1163,16 +1175,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 {
                     if (requestBody?.Content != null)
                     {
-                        foreach (var media in requestBody.Content.Values)
+                        foreach (var mediaInterface in requestBody.Content.Values)
                         {
-                            if (media?.Schema is OpenApiSchemaReference requestBodySchemaRef && requestBodySchemaRef.Reference.ReferenceV3 == oldRef)
+                            if (mediaInterface is not OpenApiMediaType media)
+                                continue;
+
+                            if (media.Schema is OpenApiSchemaReference requestBodySchemaRef && requestBodySchemaRef.Reference.ReferenceV3 == oldRef)
                             {
                                 _logger.LogInformation("Replacing schema reference in component request body from '{OldRef}' to '{NewRef}'", oldRef, newRef);
                                 media.Schema = new OpenApiSchemaReference(newKey);
                             }
                             else
                             {
-                                Recurse(media?.Schema, "components.requestBodies");
+                                Recurse(media.Schema, "components.requestBodies");
                             }
                         }
                     }
@@ -1186,16 +1201,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 {
                     if (response?.Content != null)
                     {
-                        foreach (var media in response.Content.Values)
+                        foreach (var mediaInterface in response.Content.Values)
                         {
-                            if (media?.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
+                            if (mediaInterface is not OpenApiMediaType media)
+                                continue;
+
+                            if (media.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
                             {
                                 _logger.LogInformation("Replacing schema reference in component response from '{OldRef}' to '{NewRef}'", oldRef, newRef);
                                 media.Schema = new OpenApiSchemaReference(newKey);
                             }
                             else
                             {
-                                Recurse(media?.Schema, "components.responses");
+                                Recurse(media.Schema, "components.responses");
                             }
                         }
                     }
@@ -2243,11 +2261,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                         if (resp.Value.Content != null)
                         {
-                            Dictionary<string, OpenApiMediaType> valid = resp.Value.Content.Where(p =>
+                            Dictionary<string, IOpenApiMediaType> valid = resp.Value.Content.Where(p =>
                             {
                                 if (p.Value == null)
                                     return false;
-                                OpenApiMediaType? mt = p.Value;
+                                IOpenApiMediaType? mt = p.Value;
                                 if (mt.Schema == null)
                                     return false;
                                 IOpenApiSchema? sch = mt.Schema;
@@ -2289,13 +2307,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (rb.Content != null)
                     {
                         // In v2.3, we can't modify the content directly, so we need to create a new request body
-                        Dictionary<string, OpenApiMediaType>? normalizedContent = rb.Content.Where(p => p.Key != null && p.Value != null)
+                        Dictionary<string, IOpenApiMediaType>? normalizedContent = rb.Content.Where(p => p.Key != null && p.Value != null)
                             .ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
 
                         ScrubBrokenRefs(normalizedContent, document);
-                        Dictionary<string, OpenApiMediaType>? validRb = normalizedContent
-                            ?.Where(p => p.Value != null && (p.Value.Schema is OpenApiSchemaReference || !IsMediaEmpty(p.Value)))
-                            .ToDictionary(p => p.Key, p => p.Value);
+                        Dictionary<string, IOpenApiMediaType>? validRb = normalizedContent
+                                                                         ?.Where(p => p.Value != null && (p.Value.Schema is OpenApiSchemaReference || !IsMediaEmpty(p.Value)))
+                                                                         .ToDictionary(p => p.Key, p => p.Value);
 
                         if (operation.Value is OpenApiOperation concreteOperation)
                         {
@@ -2471,7 +2489,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             [code] = new OpenApiResponse
             {
                 Description = "Default",
-                Content = new Dictionary<string, OpenApiMediaType>
+                Content = new Dictionary<string, IOpenApiMediaType>
                 {
                     ["application/json"] = new OpenApiMediaType
                     {
@@ -2655,23 +2673,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (doc.Components?.RequestBodies != null)
             foreach (var rb in doc.Components.RequestBodies.Values)
                 if (rb?.Content != null)
-                    foreach (var mt in rb.Content.Values)
-                        if (mt?.Schema is { } sch)
+                    foreach (var media in rb.Content.Values.OfType<OpenApiMediaType>())
+                        if (media.Schema is { } sch)
                         {
                             IOpenApiSchema? tmp = sch;
                             Visit(ref tmp);
-                            mt.Schema = tmp;
+                            media.Schema = tmp;
                         }
 
         if (doc.Components?.Responses != null)
             foreach (var resp in doc.Components.Responses.Values)
                 if (resp?.Content != null)
-                    foreach (var mt in resp.Content.Values)
-                        if (mt?.Schema is { } sch)
+                    foreach (var media in resp.Content.Values.OfType<OpenApiMediaType>())
+                        if (media.Schema is { } sch)
                         {
                             IOpenApiSchema? tmp = sch;
                             Visit(ref tmp);
-                            mt.Schema = tmp;
+                            media.Schema = tmp;
                         }
 
         // Inline under paths
@@ -2704,24 +2722,24 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             }
 
                     if (op?.RequestBody is OpenApiRequestBody rb2 && rb2.Content != null)
-                        foreach (var mt in rb2.Content.Values)
-                            if (mt?.Schema is { } sch)
+                        foreach (var media in rb2.Content.Values.OfType<OpenApiMediaType>())
+                            if (media.Schema is { } sch)
                             {
                                 IOpenApiSchema? tmp = sch;
                                 Visit(ref tmp);
-                                mt.Schema = tmp;
+                                media.Schema = tmp;
                             }
 
                     if (op?.Responses != null)
                         foreach (var r in op.Responses.Values)
                         {
                             if (r?.Content != null)
-                                foreach (var mt in r.Content.Values)
-                                    if (mt?.Schema is { } sch)
+                                foreach (var media in r.Content.Values.OfType<OpenApiMediaType>())
+                                    if (media.Schema is { } sch)
                                     {
                                         IOpenApiSchema? tmp = sch;
                                         Visit(ref tmp);
-                                        mt.Schema = tmp;
+                                        media.Schema = tmp;
                                     }
 
                             if (r?.Headers != null)
@@ -2743,7 +2761,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return new OpenApiRequestBody
         {
             Description = "Fallback request body",
-            Content = new Dictionary<string, OpenApiMediaType>
+            Content = new Dictionary<string, IOpenApiMediaType>
             {
                 ["application/json"] = new OpenApiMediaType
                 {
@@ -2833,7 +2851,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                             if (param is OpenApiParameter concreteParam && concreteParam.Content?.Any() == true)
                             {
-                                OpenApiMediaType? first = concreteParam.Content.Values.FirstOrDefault();
+                                IOpenApiMediaType? first = concreteParam.Content.Values.FirstOrDefault();
                                 if (first?.Schema != null)
                                     concreteParam.Schema = first.Schema;
 
@@ -2844,9 +2862,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                     if (operation.RequestBody != null && operation.RequestBody is not OpenApiRequestBodyReference && operation.RequestBody.Content != null)
                     {
-                        foreach ((string mediaType, OpenApiMediaType media) in operation.RequestBody.Content!.ToList())
+                        foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content!.ToList())
                         {
-                            IOpenApiSchema? schemaReq = media?.Schema;
+                            if (mediaInterface is not OpenApiMediaType media)
+                                continue;
+
+                            IOpenApiSchema? schemaReq = media.Schema;
                             if (schemaReq == null || schemaReq is OpenApiSchemaReference)
                                 continue;
                             if (schemaReq is OpenApiSchema concreteSchemaReq1 && IsSimpleEnvelope(concreteSchemaReq1))
@@ -2880,9 +2901,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             if (response.Content == null)
                                 continue;
 
-                            foreach ((string mediaType, OpenApiMediaType media) in response.Content!.ToList())
+                            foreach (var (mediaType, mediaInterface) in response.Content!.ToList())
                             {
-                                IOpenApiSchema? schemaResp = media?.Schema;
+                                if (mediaInterface is not OpenApiMediaType media)
+                                    continue;
+
+                                IOpenApiSchema? schemaResp = media.Schema;
                                 if (schemaResp == null || schemaResp is OpenApiSchemaReference)
                                     continue;
                                 if (schemaResp is OpenApiSchema concreteSchemaResp1 && IsSimpleEnvelope(concreteSchemaResp1))
@@ -2894,8 +2918,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                                 if (schemaResp is OpenApiSchema concreteSchemaResp2)
                                     AddComponentSchema(document, compName, concreteSchemaResp2);
-                                if (media != null)
-                                    media.Schema = new OpenApiSchemaReference(compName);
+                                media.Schema = new OpenApiSchemaReference(compName);
                             }
                         }
                     }
@@ -3093,7 +3116,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return keyExists;
     }
 
-    private void ScrubBrokenRefs(IDictionary<string, OpenApiMediaType>? contentDict, OpenApiDocument doc)
+    private void ScrubBrokenRefs(IDictionary<string, IOpenApiMediaType>? contentDict, OpenApiDocument doc)
     {
         if (contentDict == null)
             return;
@@ -3102,7 +3125,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach (string key in contentDict.Keys.ToList())
         {
-            OpenApiMediaType media = contentDict[key];
+            IOpenApiMediaType media = contentDict[key];
             IOpenApiSchema? schema = media.Schema;
             if (schema is OpenApiSchemaReference schemaRef && !IsValidSchemaReference(schemaRef, doc))
             {
@@ -3224,7 +3247,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        void PatchContent(IDictionary<string, OpenApiMediaType>? content)
+        void PatchContent(IDictionary<string, IOpenApiMediaType>? content)
         {
             if (content == null)
                 return;
@@ -3378,7 +3401,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return baseType;
     }
 
-    private static bool IsMediaEmpty(OpenApiMediaType media)
+    private static bool IsMediaEmpty(IOpenApiMediaType media)
     {
         IOpenApiSchema? s = media.Schema;
         bool schemaEmpty = s == null || (s.Type == null && (s.Properties == null || !s.Properties.Any()) && s.Items == null &&
