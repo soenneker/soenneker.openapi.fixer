@@ -52,6 +52,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY
             _logger.LogInformation("Running initial cleanup on identifiers, paths, and security schemes...");
+            FixYamlUnsafeDescriptions(document!);
             EnsureSecuritySchemes(document!);
             RenameConflictingPaths(document!);
 
@@ -2014,6 +2015,150 @@ public sealed class OpenApiFixer : IOpenApiFixer
             dps.Enum is { Count: > 0 } && dps.Enum.First() is JsonValue jv && jv.TryGetValue(out string? val) && !string.IsNullOrWhiteSpace(val))
             return val;
         return fallback;
+    }
+
+    /// <summary>
+    /// Quotes descriptions (and similar text fields) that contain YAML-invalid
+    /// mapping expressions like "Deprecated: something". These must be quoted
+    /// because YAML interprets a colon + space as a new key-value mapping.
+    /// </summary>
+    private void FixYamlUnsafeDescriptions(OpenApiDocument document)
+    {
+        if (document == null)
+            return;
+
+        // Fix top-level descriptions
+        document.Info.Description = FixYamlUnsafeString(document.Info.Description);
+
+        // Fix all components (schemas, parameters, responses, etc.)
+        if (document.Components != null)
+        {
+            foreach (var schema in document.Components.Schemas.Values)
+                FixSchemaDescriptions(schema);
+
+            foreach (var parameter in document.Components.Parameters.Values)
+                FixParameterDescriptions(parameter);
+
+            foreach (var response in document.Components.Responses.Values)
+                FixResponseDescriptions(response);
+
+            foreach (var requestBody in document.Components.RequestBodies.Values)
+                FixRequestBodyDescriptions(requestBody);
+        }
+
+        // Fix all paths & operations
+        foreach (var path in document.Paths.Values)
+            FixPathItemDescriptions(path);
+    }
+
+    private static string? FixYamlUnsafeString(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        // YAML forbids unquoted "key: value" patterns in many scalar contexts
+        // We detect colon+space OR leading/trailing colon situations.
+        bool containsYamlMappingPattern =
+            value.Contains(": ", StringComparison.Ordinal) ||
+            value.EndsWith(":", StringComparison.Ordinal) ||
+            value.StartsWith(":", StringComparison.Ordinal);
+
+        if (!containsYamlMappingPattern)
+            return value;
+
+        // Already quoted? Skip.
+        if ((value.StartsWith("\"") && value.EndsWith("\"")) ||
+            (value.StartsWith("'") && value.EndsWith("'")))
+            return value;
+
+        // Escape internal quotes minimally but safely
+        string escaped = value.Replace("\"", "\\\"");
+
+        return $"\"{escaped}\"";
+    }
+
+    private void FixSchemaDescriptions(IOpenApiSchema schema)
+    {
+        if (schema == null)
+            return;
+
+        schema.Description = FixYamlUnsafeString(schema.Description);
+
+        foreach (var prop in schema.Properties.Values)
+        {
+            prop.Description = FixYamlUnsafeString(prop.Description);
+            FixSchemaDescriptions(prop); // recursive
+        }
+
+        // Handle `items`, `additionalProperties`
+        FixSchemaDescriptions(schema.Items);
+        if (schema.AdditionalProperties is OpenApiSchema addl)
+            FixSchemaDescriptions(addl);
+
+        // Handle oneOf/anyOf/allOf
+        foreach (var s in schema.OneOf) FixSchemaDescriptions(s);
+        foreach (var s in schema.AnyOf) FixSchemaDescriptions(s);
+        foreach (var s in schema.AllOf) FixSchemaDescriptions(s);
+    }
+
+    private void FixPathItemDescriptions(IOpenApiPathItem item)
+    {
+        if (item == null)
+            return;
+
+        item.Description = FixYamlUnsafeString(item.Description);
+        item.Summary = FixYamlUnsafeString(item.Summary);
+
+        foreach (var op in item.Operations.Values)
+            FixOperationDescriptions(op);
+    }
+
+    private void FixOperationDescriptions(OpenApiOperation op)
+    {
+        if (op == null)
+            return;
+
+        op.Description = FixYamlUnsafeString(op.Description);
+        op.Summary = FixYamlUnsafeString(op.Summary);
+
+        foreach (var param in op.Parameters)
+            FixParameterDescriptions(param);
+
+        FixRequestBodyDescriptions(op.RequestBody);
+
+        foreach (var resp in op.Responses.Values)
+            FixResponseDescriptions(resp);
+    }
+
+    private void FixParameterDescriptions(IOpenApiParameter parameter)
+    {
+        if (parameter == null)
+            return;
+
+        parameter.Description = FixYamlUnsafeString(parameter.Description);
+        FixSchemaDescriptions(parameter.Schema);
+    }
+
+    private void FixRequestBodyDescriptions(IOpenApiRequestBody body)
+    {
+        if (body == null)
+            return;
+
+        body.Description = FixYamlUnsafeString(body.Description);
+
+        foreach (var content in body.Content.Values)
+            FixSchemaDescriptions(content.Schema);
+    }
+
+    private void FixResponseDescriptions(IOpenApiResponse response)
+    {
+        if (response == null)
+            return;
+
+        response.Description = FixYamlUnsafeString(response.Description);
+
+        foreach (var content in response.Content.Values)
+            FixSchemaDescriptions(content.Schema);
     }
 
     private void RenameInvalidComponentSchemas(OpenApiDocument document)
