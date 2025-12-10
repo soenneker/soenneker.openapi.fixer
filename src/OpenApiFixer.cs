@@ -2098,10 +2098,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         schema.Description = FixYamlUnsafeString(schema.Description);
 
-        foreach (var prop in schema.Properties.Values)
+        if (schema.Properties != null)
         {
-            prop.Description = FixYamlUnsafeString(prop.Description);
-            FixSchemaDescriptions(prop); // recursive
+            foreach (var prop in schema.Properties.Values)
+            {
+                prop.Description = FixYamlUnsafeString(prop.Description);
+                FixSchemaDescriptions(prop); // recursive
+            }
         }
 
         // Handle `items`, `additionalProperties`
@@ -2110,12 +2113,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
             FixSchemaDescriptions(addl);
 
         // Handle oneOf/anyOf/allOf
-        foreach (var s in schema.OneOf)
-            FixSchemaDescriptions(s);
-        foreach (var s in schema.AnyOf)
-            FixSchemaDescriptions(s);
-        foreach (var s in schema.AllOf)
-            FixSchemaDescriptions(s);
+        if (schema.OneOf != null)
+        {
+            foreach (var s in schema.OneOf)
+                FixSchemaDescriptions(s);
+        }
+        if (schema.AnyOf != null)
+        {
+            foreach (var s in schema.AnyOf)
+                FixSchemaDescriptions(s);
+        }
+        if (schema.AllOf != null)
+        {
+            foreach (var s in schema.AllOf)
+                FixSchemaDescriptions(s);
+        }
     }
 
     private void FixPathItemDescriptions(IOpenApiPathItem item)
