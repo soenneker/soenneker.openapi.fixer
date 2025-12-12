@@ -1,11 +1,15 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
+using Soenneker.OpenApi.Fixer.Abstract;
 using System;
 using System.Collections.Generic;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
-public sealed class OpenApiDescriptionFixer
+/// <summary>
+/// Provides functionality to fix and sanitize descriptions in OpenAPI documents, particularly handling YAML-unsafe strings.
+/// </summary>
+public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 {
     private readonly ILogger<OpenApiDescriptionFixer> _logger;
 
@@ -14,6 +18,7 @@ public sealed class OpenApiDescriptionFixer
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public void FixYamlUnsafeDescriptions(OpenApiDocument document)
     {
         if (document == null)

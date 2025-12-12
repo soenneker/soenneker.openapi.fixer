@@ -7,19 +7,26 @@ using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using Soenneker.OpenApi.Fixer.Abstract;
+
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
-public sealed class OpenApiNamingFixer
+/// <summary>
+/// Provides functionality to validate, sanitize, and normalize names and identifiers in OpenAPI documents,
+/// including schema names, operation IDs, and path names.
+/// </summary>
+public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
     private readonly ILogger<OpenApiNamingFixer> _logger;
-    private readonly OpenApiReferenceFixer _referenceFixer;
+    private readonly IOpenApiReferenceFixer _referenceFixer;
 
-    public OpenApiNamingFixer(ILogger<OpenApiNamingFixer> logger, OpenApiReferenceFixer referenceFixer)
+    public OpenApiNamingFixer(ILogger<OpenApiNamingFixer> logger, IOpenApiReferenceFixer referenceFixer)
     {
         _logger = logger;
         _referenceFixer = referenceFixer;
     }
 
+    /// <inheritdoc />
     public void RenameInvalidComponentSchemas(OpenApiDocument document)
     {
         IDictionary<string, IOpenApiSchema>? schemas = document.Components?.Schemas;
@@ -75,6 +82,7 @@ public sealed class OpenApiNamingFixer
             _referenceFixer.UpdateAllReferences(document, mapping);
     }
 
+    /// <inheritdoc />
     public void ValidateAndFixSchemaNames(OpenApiDocument doc)
     {
         IDictionary<string, IOpenApiSchema>? schemas = doc.Components?.Schemas;
@@ -117,6 +125,7 @@ public sealed class OpenApiNamingFixer
         }
     }
 
+    /// <inheritdoc />
     public void EnsureUniqueOperationIds(OpenApiDocument doc)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -167,6 +176,7 @@ public sealed class OpenApiNamingFixer
         }
     }
 
+    /// <inheritdoc />
     public void NormalizeOperationIds(OpenApiDocument doc)
     {
         if (doc.Paths == null)
@@ -189,6 +199,7 @@ public sealed class OpenApiNamingFixer
         }
     }
 
+    /// <inheritdoc />
     public void ResolveSchemaOperationNameCollisions(OpenApiDocument doc)
     {
         if (doc.Components?.Schemas == null || doc.Paths == null)
@@ -241,6 +252,7 @@ public sealed class OpenApiNamingFixer
         }
     }
 
+    /// <inheritdoc />
     public void RenameConflictingPaths(OpenApiDocument doc)
     {
         if (doc.Paths == null || !doc.Paths.Any())
@@ -331,7 +343,8 @@ public sealed class OpenApiNamingFixer
         doc.Paths = newPaths;
     }
 
-    public static string SanitizeName(string input)
+    /// <inheritdoc />
+    public string SanitizeName(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
             return string.Empty;
@@ -351,7 +364,8 @@ public sealed class OpenApiNamingFixer
     /// Normalizes operationIds by removing parentheses and collapsing punctuation to single dashes/underscores.
     /// Ensures result is non-empty and starts with a letter.
     /// </summary>
-    public static string NormalizeOperationId(string input)
+    /// <inheritdoc />
+    public string NormalizeOperationId(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
             return string.Empty;
@@ -370,9 +384,11 @@ public sealed class OpenApiNamingFixer
         return collapsed;
     }
 
-    public static bool IsValidIdentifier(string id) =>
+    /// <inheritdoc />
+    public bool IsValidIdentifier(string id) =>
         !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.');
 
+    /// <inheritdoc />
     public string GenerateSafePart(string? input, string fallback = "unnamed")
     {
         if (string.IsNullOrWhiteSpace(input))
@@ -384,6 +400,7 @@ public sealed class OpenApiNamingFixer
         return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
     }
 
+    /// <inheritdoc />
     public string ValidateComponentName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))

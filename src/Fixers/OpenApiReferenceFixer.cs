@@ -6,9 +6,14 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 
+using Soenneker.OpenApi.Fixer.Abstract;
+
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
-public sealed class OpenApiReferenceFixer
+/// <summary>
+/// Provides functionality to manage and fix OpenAPI schema references, including replacing, validating, and scrubbing broken references.
+/// </summary>
+public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 {
     private readonly ILogger<OpenApiReferenceFixer> _logger;
 
@@ -17,6 +22,7 @@ public sealed class OpenApiReferenceFixer
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public void ReplaceAllRefs(OpenApiDocument document, string oldKey, string newKey)
     {
         var oldRef = $"#/components/schemas/{oldKey}";
@@ -316,6 +322,7 @@ public sealed class OpenApiReferenceFixer
         }
     }
 
+    /// <inheritdoc />
     public void UpdateAllReferences(OpenApiDocument doc, Dictionary<string, string> mapping)
     {
         // Delegate to ReplaceAllRefs for each mapping pair
@@ -325,6 +332,7 @@ public sealed class OpenApiReferenceFixer
         }
     }
 
+    /// <inheritdoc />
     public bool IsValidSchemaReference(OpenApiSchemaReference? reference, OpenApiDocument doc)
     {
         if (reference == null)
@@ -357,6 +365,7 @@ public sealed class OpenApiReferenceFixer
         return keyExists;
     }
 
+    /// <inheritdoc />
     public void ScrubBrokenRefs(IDictionary<string, IOpenApiMediaType>? contentDict, OpenApiDocument doc)
     {
         if (contentDict == null)
@@ -377,10 +386,7 @@ public sealed class OpenApiReferenceFixer
         }
     }
 
-    /// <summary>
-    /// Replaces "$ref" values that incorrectly point into path example chains (e.g., "#/paths/.../examples/...")
-    /// with placeholder component schemas. This ensures all refs target valid component schemas.
-    /// </summary>
+    /// <inheritdoc />
     public void FixRefsPointingIntoPathsExamples(OpenApiDocument doc)
     {
         if (doc.Paths == null)
@@ -443,6 +449,7 @@ public sealed class OpenApiReferenceFixer
         }
     }
 
+    /// <inheritdoc />
     public void ScrubAllRefs(IOpenApiSchema? schema, OpenApiDocument doc, HashSet<IOpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -476,6 +483,7 @@ public sealed class OpenApiReferenceFixer
             ScrubAllRefs(schema.AdditionalProperties, doc, visited);
     }
 
+    /// <inheritdoc />
     public void ScrubComponentRefs(OpenApiDocument doc, CancellationToken cancellationToken)
     {
         var visited = new HashSet<IOpenApiSchema>();
