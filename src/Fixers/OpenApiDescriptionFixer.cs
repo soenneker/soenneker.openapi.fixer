@@ -20,7 +20,10 @@ public sealed class OpenApiDescriptionFixer
             return;
 
         // Fix top-level descriptions
-        document.Info.Description = FixYamlUnsafeString(document.Info.Description);
+        if (document.Info != null)
+        {
+            document.Info.Description = FixYamlUnsafeString(document.Info.Description);
+        }
 
         // Create visited set to prevent circular reference issues
         var visited = new HashSet<IOpenApiSchema>();
@@ -28,22 +31,37 @@ public sealed class OpenApiDescriptionFixer
         // Fix all components (schemas, parameters, responses, etc.)
         if (document.Components != null)
         {
-            foreach (var schema in document.Components.Schemas.Values)
-                FixSchemaDescriptions(schema, visited);
+            if (document.Components.Schemas != null)
+            {
+                foreach (var schema in document.Components.Schemas.Values)
+                    FixSchemaDescriptions(schema, visited);
+            }
 
-            foreach (var parameter in document.Components.Parameters.Values)
-                FixParameterDescriptions(parameter, visited);
+            if (document.Components.Parameters != null)
+            {
+                foreach (var parameter in document.Components.Parameters.Values)
+                    FixParameterDescriptions(parameter, visited);
+            }
 
-            foreach (var response in document.Components.Responses.Values)
-                FixResponseDescriptions(response, visited);
+            if (document.Components.Responses != null)
+            {
+                foreach (var response in document.Components.Responses.Values)
+                    FixResponseDescriptions(response, visited);
+            }
 
-            foreach (var requestBody in document.Components.RequestBodies.Values)
-                FixRequestBodyDescriptions(requestBody, visited);
+            if (document.Components.RequestBodies != null)
+            {
+                foreach (var requestBody in document.Components.RequestBodies.Values)
+                    FixRequestBodyDescriptions(requestBody, visited);
+            }
         }
 
         // Fix all paths & operations
-        foreach (var path in document.Paths.Values)
-            FixPathItemDescriptions(path, visited);
+        if (document.Paths != null)
+        {
+            foreach (var path in document.Paths.Values)
+                FixPathItemDescriptions(path, visited);
+        }
     }
 
     private static string? FixYamlUnsafeString(string? value)
@@ -122,8 +140,11 @@ public sealed class OpenApiDescriptionFixer
         item.Description = FixYamlUnsafeString(item.Description);
         item.Summary = FixYamlUnsafeString(item.Summary);
 
-        foreach (var op in item.Operations.Values)
-            FixOperationDescriptions(op, visited);
+        if (item.Operations != null)
+        {
+            foreach (var op in item.Operations.Values)
+                FixOperationDescriptions(op, visited);
+        }
     }
 
     private void FixOperationDescriptions(OpenApiOperation op, HashSet<IOpenApiSchema> visited)
@@ -134,14 +155,20 @@ public sealed class OpenApiDescriptionFixer
         op.Description = FixYamlUnsafeString(op.Description);
         op.Summary = FixYamlUnsafeString(op.Summary);
 
-        foreach (var param in op.Parameters)
-            FixParameterDescriptions(param, visited);
+        if (op.Parameters != null)
+        {
+            foreach (var param in op.Parameters)
+                FixParameterDescriptions(param, visited);
+        }
 
         if (op.RequestBody != null)
             FixRequestBodyDescriptions(op.RequestBody, visited);
 
-        foreach (var resp in op.Responses.Values)
-            FixResponseDescriptions(resp, visited);
+        if (op.Responses != null)
+        {
+            foreach (var resp in op.Responses.Values)
+                FixResponseDescriptions(resp, visited);
+        }
     }
 
     private void FixParameterDescriptions(IOpenApiParameter parameter, HashSet<IOpenApiSchema> visited)
@@ -161,10 +188,13 @@ public sealed class OpenApiDescriptionFixer
 
         body.Description = FixYamlUnsafeString(body.Description);
 
-        foreach (var content in body.Content.Values)
+        if (body.Content != null)
         {
-            if (content.Schema != null)
-                FixSchemaDescriptions(content.Schema, visited);
+            foreach (var content in body.Content.Values)
+            {
+                if (content.Schema != null)
+                    FixSchemaDescriptions(content.Schema, visited);
+            }
         }
     }
 
@@ -175,10 +205,13 @@ public sealed class OpenApiDescriptionFixer
 
         response.Description = FixYamlUnsafeString(response.Description);
 
-        foreach (var content in response.Content.Values)
+        if (response.Content != null)
         {
-            if (content.Schema != null)
-                FixSchemaDescriptions(content.Schema, visited);
+            foreach (var content in response.Content.Values)
+            {
+                if (content.Schema != null)
+                    FixSchemaDescriptions(content.Schema, visited);
+            }
         }
     }
 }
