@@ -4,10 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Text.RegularExpressions;
 
 using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.Utils.PooledStringBuilders;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -348,16 +348,16 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     {
         if (string.IsNullOrWhiteSpace(input))
             return string.Empty;
-        var sb = new StringBuilder();
+        using var psb = new PooledStringBuilder(input.Length);
         foreach (char c in input)
         {
             if (char.IsLetterOrDigit(c) || c == '_')
-                sb.Append(c);
+                psb.Append(c);
             else
-                sb.Append('_');
+                psb.Append('_');
         }
 
-        return sb.ToString();
+        return psb.ToString();
     }
 
     /// <summary>
