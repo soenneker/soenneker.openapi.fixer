@@ -2,6 +2,9 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers;
+using Soenneker.OpenApi.Fixer.Fixers.Abstract;
+using Soenneker.Utils.Directory;
+using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.Process.Registrars;
 
 namespace Soenneker.OpenApi.Fixer.Registrars;
@@ -23,7 +26,8 @@ public static class OpenApiFixerRegistrar
         services.TryAddSingleton<IOpenApiReferenceFixer, OpenApiReferenceFixer>();
         services.TryAddSingleton<IOpenApiNamingFixer, OpenApiNamingFixer>();
         services.TryAddSingleton<IOpenApiSchemaFixer, OpenApiSchemaFixer>();
-        
+        services.TryAddSingleton<IDirectoryUtil, DirectoryUtil>();
+
         // Register main fixer
         services.TryAddSingleton<IOpenApiFixer, OpenApiFixer>();
 
@@ -42,6 +46,7 @@ public static class OpenApiFixerRegistrar
         services.TryAddScoped<IOpenApiReferenceFixer, OpenApiReferenceFixer>();
         services.TryAddScoped<IOpenApiNamingFixer, OpenApiNamingFixer>();
         services.TryAddScoped<IOpenApiSchemaFixer, OpenApiSchemaFixer>();
+        services.TryAddScoped<IDirectoryUtil, DirectoryUtil>();
         
         // Register main fixer
         services.TryAddScoped<IOpenApiFixer, OpenApiFixer>();

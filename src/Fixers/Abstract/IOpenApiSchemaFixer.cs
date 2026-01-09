@@ -1,7 +1,7 @@
 using Microsoft.OpenApi;
 using System.Collections.Generic;
 
-namespace Soenneker.OpenApi.Fixer.Abstract;
+namespace Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 /// <summary>
 /// Provides functionality to clean, transform, and fix OpenAPI schemas, including removing empty schemas,
@@ -81,5 +81,12 @@ public interface IOpenApiSchemaFixer
     /// <param name="schema">The schema to fix.</param>
     /// <param name="visited">Set of already visited schemas to prevent infinite recursion.</param>
     void InjectTypeForNullable(OpenApiSchema schema, HashSet<OpenApiSchema> visited);
+
+    /// <summary>
+    /// Removes duplicate composition branches (e.g. duplicate <c>$ref</c> entries) from <c>anyOf</c>, <c>oneOf</c>, and <c>allOf</c> across the document.
+    /// This is primarily to satisfy generators (e.g. Kiota) that fail on duplicate branches.
+    /// </summary>
+    /// <param name="document">The OpenAPI document to fix.</param>
+    void DeduplicateCompositionBranches(OpenApiDocument document);
 }
 

@@ -1,6 +1,6 @@
 using Microsoft.OpenApi;
 
-namespace Soenneker.OpenApi.Fixer.Abstract;
+namespace Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 /// <summary>
 /// Provides functionality to fix and sanitize descriptions in OpenAPI documents, particularly handling YAML-unsafe strings.

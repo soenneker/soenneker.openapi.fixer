@@ -2,8 +2,6 @@
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.OpenApi.Fixer.Abstract;
-using Soenneker.OpenApi.Fixer.Fixers;
 using Soenneker.Utils.Process.Abstract;
 using System;
 using System.Collections.Generic;
@@ -18,6 +16,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using Soenneker.Extensions.Task;
+using Soenneker.Utils.Directory.Abstract;
+using Soenneker.OpenApi.Fixer.Fixers.Abstract;
+using Soenneker.OpenApi.Fixer.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
@@ -31,9 +32,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiReferenceFixer _referenceFixer;
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
+    private readonly IDirectoryUtil _directoryUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IProcessUtil processUtil, IOpenApiDescriptionFixer descriptionFixer,
-        IOpenApiReferenceFixer referenceFixer, IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer)
+        IOpenApiReferenceFixer referenceFixer, IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer,
+        IDirectoryUtil directoryUtil)
     {
         _logger = logger;
         _processUtil = processUtil;
@@ -41,6 +44,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         _referenceFixer = referenceFixer;
         _namingFixer = namingFixer;
         _schemaFixer = schemaFixer;
+        _directoryUtil = directoryUtil;
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
@@ -202,6 +206,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             InlinePrimitivePropertyRefs(document);
             EnsureInlineObjectTypes(document!);
+
+            // Kiota (and some other generators) fail on duplicate branches in anyOf/oneOf/allOf (e.g. duplicated $ref entries).
+            _schemaFixer.DeduplicateCompositionBranches(document);
 
             _schemaFixer.CleanDocumentForSerialization(document);
 
@@ -2681,6 +2688,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
     public async ValueTask GenerateKiota(string fixedPath, string clientName, string libraryName, string targetDir,
         CancellationToken cancellationToken = default)
     {
+        _directoryUtil.CreateIfDoesNotExist(targetDir);
+
         await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o src -c {clientName} -n {libraryName} --ebc --cc",
                               waitForExit: true, cancellationToken: cancellationToken)
                           .NoSync();

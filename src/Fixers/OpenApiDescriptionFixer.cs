@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
-using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using System;
 using System.Collections.Generic;
 

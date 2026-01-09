@@ -5,8 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-
-using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -737,6 +736,240 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             // Check if the value can be converted to string
             if (str.TryGetValue(out string? strValue) && strValue != null && strValue.Length > 5_000)
                 s.Example = null;
+        }
+    }
+
+    /// <inheritdoc />
+    public void DeduplicateCompositionBranches(OpenApiDocument document)
+    {
+        if (document == null)
+            return;
+
+        int removed = 0;
+        var visited = new HashSet<OpenApiSchema>();
+
+        OpenApiSchema? Resolve(IOpenApiSchema? s)
+        {
+            if (s == null)
+                return null;
+
+            if (s is OpenApiSchema os)
+                return os;
+
+            if (s is OpenApiSchemaReference r && document.Components?.Schemas != null &&
+                document.Components.Schemas.TryGetValue(r.Reference.Id, out IOpenApiSchema? target) &&
+                target is OpenApiSchema targetSchema)
+                return targetSchema;
+
+            return null;
+        }
+
+        void Visit(IOpenApiSchema? s)
+        {
+            OpenApiSchema? os = Resolve(s);
+            if (os != null)
+                DeduplicateCompositionBranches(os, visited, ref removed);
+        }
+
+        // Components/schemas
+        if (document.Components?.Schemas != null)
+        {
+            foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
+                Visit(schema);
+        }
+
+        // Paths/operations
+        if (document.Paths != null)
+        {
+            foreach (var (pathKey, pathItem) in document.Paths)
+            {
+                if (pathItem?.Operations == null)
+                    continue;
+
+                foreach (var (method, operation) in pathItem.Operations)
+                {
+                    // Request bodies
+                    if (operation?.RequestBody?.Content != null)
+                    {
+                        foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content)
+                        {
+                            if (mediaInterface is not OpenApiMediaType media)
+                                continue;
+
+                            Visit(media.Schema);
+                        }
+                    }
+
+                    // Responses
+                    if (operation?.Responses != null)
+                    {
+                        foreach (var (responseCode, response) in operation.Responses)
+                        {
+                            if (response?.Content == null)
+                                continue;
+
+                            foreach (var (mediaType, mediaInterface) in response.Content)
+                            {
+                                if (mediaInterface is not OpenApiMediaType media)
+                                    continue;
+
+                                Visit(media.Schema);
+                            }
+                        }
+                    }
+
+                    // Parameters
+                    if (operation?.Parameters != null)
+                    {
+                        foreach (var param in operation.Parameters)
+                        {
+                            if (param is OpenApiParameter concreteParam)
+                                Visit(concreteParam.Schema);
+                        }
+                    }
+
+                    _ = method;
+                    _ = pathKey;
+                }
+            }
+        }
+
+        // Components: requestBodies/responses/parameters/headers
+        if (document.Components != null)
+        {
+            if (document.Components.RequestBodies != null)
+            {
+                foreach (IOpenApiRequestBody rb in document.Components.RequestBodies.Values)
+                {
+                    if (rb?.Content == null)
+                        continue;
+
+                    foreach (IOpenApiMediaType mt in rb.Content.Values)
+                    {
+                        if (mt is OpenApiMediaType concreteMt)
+                            Visit(concreteMt.Schema);
+                    }
+                }
+            }
+
+            if (document.Components.Responses != null)
+            {
+                foreach (IOpenApiResponse resp in document.Components.Responses.Values)
+                {
+                    if (resp?.Content == null)
+                        continue;
+
+                    foreach (IOpenApiMediaType mt in resp.Content.Values)
+                    {
+                        if (mt is OpenApiMediaType concreteMt)
+                            Visit(concreteMt.Schema);
+                    }
+                }
+            }
+
+            if (document.Components.Parameters != null)
+            {
+                foreach (IOpenApiParameter p in document.Components.Parameters.Values)
+                {
+                    if (p is OpenApiParameter concreteP)
+                        Visit(concreteP.Schema);
+                }
+            }
+
+            if (document.Components.Headers != null)
+            {
+                foreach (IOpenApiHeader h in document.Components.Headers.Values)
+                {
+                    if (h is OpenApiHeader concreteH)
+                        Visit(concreteH.Schema);
+                }
+            }
+        }
+
+        if (removed > 0)
+            _logger.LogInformation("Deduplicated {Count} duplicate composition branches (anyOf/oneOf/allOf) across the document", removed);
+    }
+
+    private static string? GetRefKey(IOpenApiSchema schema)
+    {
+        if (schema is OpenApiSchemaReference r)
+            return r.Reference?.ReferenceV3 ?? r.Reference?.Id;
+
+        return null;
+    }
+
+    private static List<IOpenApiSchema> DedupByRef(IList<IOpenApiSchema> list, ref int removed)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<IOpenApiSchema>(list.Count);
+
+        foreach (IOpenApiSchema? item in list)
+        {
+            if (item == null)
+                continue;
+
+            string? key = GetRefKey(item);
+            if (key != null)
+            {
+                if (!seen.Add(key))
+                {
+                    removed++;
+                    continue;
+                }
+            }
+
+            result.Add(item);
+        }
+
+        return result;
+    }
+
+    private static void DeduplicateCompositionBranches(OpenApiSchema schema, HashSet<OpenApiSchema> visited, ref int removed)
+    {
+        if (schema == null || !visited.Add(schema))
+            return;
+
+        if (schema.AllOf is { Count: > 1 })
+            schema.AllOf = DedupByRef(schema.AllOf, ref removed);
+
+        if (schema.OneOf is { Count: > 1 })
+            schema.OneOf = DedupByRef(schema.OneOf, ref removed);
+
+        if (schema.AnyOf is { Count: > 1 })
+            schema.AnyOf = DedupByRef(schema.AnyOf, ref removed);
+
+        if (schema.Properties != null)
+        {
+            foreach (IOpenApiSchema? prop in schema.Properties.Values)
+                if (prop is OpenApiSchema concreteProp)
+                    DeduplicateCompositionBranches(concreteProp, visited, ref removed);
+        }
+
+        if (schema.Items is OpenApiSchema concreteItems)
+            DeduplicateCompositionBranches(concreteItems, visited, ref removed);
+
+        if (schema.AdditionalProperties is OpenApiSchema concreteAdditional)
+            DeduplicateCompositionBranches(concreteAdditional, visited, ref removed);
+
+        if (schema.AllOf != null)
+        {
+            foreach (IOpenApiSchema? child in schema.AllOf)
+                if (child is OpenApiSchema concreteChild)
+                    DeduplicateCompositionBranches(concreteChild, visited, ref removed);
+        }
+
+        if (schema.OneOf != null)
+        {
+            foreach (IOpenApiSchema? child in schema.OneOf)
+                if (child is OpenApiSchema concreteChild)
+                    DeduplicateCompositionBranches(concreteChild, visited, ref removed);
+        }
+
+        if (schema.AnyOf != null)
+        {
+            foreach (IOpenApiSchema? child in schema.AnyOf)
+                if (child is OpenApiSchema concreteChild)
+                    DeduplicateCompositionBranches(concreteChild, visited, ref removed);
         }
     }
 }

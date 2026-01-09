@@ -2,7 +2,7 @@ using Microsoft.OpenApi;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace Soenneker.OpenApi.Fixer.Abstract;
+namespace Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 /// <summary>
 /// Provides functionality to manage and fix OpenAPI schema references, including replacing, validating, and scrubbing broken references.

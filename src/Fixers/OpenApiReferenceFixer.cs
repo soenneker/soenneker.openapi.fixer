@@ -5,8 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
-
-using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 

@@ -1,6 +1,6 @@
 using Microsoft.OpenApi;
 
-namespace Soenneker.OpenApi.Fixer.Abstract;
+namespace Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 /// <summary>
 /// Provides functionality to validate, sanitize, and normalize names and identifiers in OpenAPI documents,
