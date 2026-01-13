@@ -376,8 +376,49 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         if (schema == null || !visited.Add(schema))
             return;
 
-        if (schema is not OpenApiSchema concreteSchema)
+        // IMPORTANT:
+        // Defaults can be present on $ref/composed schemas (type is often null). Generators (e.g. Kiota C#)
+        // may emit invalid assignments like: Value = "lite"; for non-string model types.
+        // We must visit and potentially clear defaults even when the schema is a reference schema.
+        if (schema is OpenApiSchemaReference refSchema)
+        {
+            if (refSchema.Default is JsonValue dv && dv.GetValueKind() == JsonValueKind.String &&
+                refSchema.Type == null && !(refSchema.Enum?.Any() ?? false))
+            {
+                refSchema.Default = null;
+            }
+
+            // No further traversal is typically needed for pure refs, but return defensively.
             return;
+        }
+
+        if (schema is not OpenApiSchema concreteSchema)
+        {
+            // Unknown schema implementation; still attempt to traverse children best-effort.
+            if (schema.Properties != null)
+                foreach (IOpenApiSchema? prop in schema.Properties.Values)
+                    FixSchemaDefaults(prop, visited);
+
+            if (schema.Items != null)
+                FixSchemaDefaults(schema.Items, visited);
+
+            if (schema.AdditionalProperties != null)
+                FixSchemaDefaults(schema.AdditionalProperties, visited);
+
+            if (schema.AllOf != null)
+                foreach (IOpenApiSchema? s in schema.AllOf)
+                    FixSchemaDefaults(s, visited);
+
+            if (schema.OneOf != null)
+                foreach (IOpenApiSchema? s in schema.OneOf)
+                    FixSchemaDefaults(s, visited);
+
+            if (schema.AnyOf != null)
+                foreach (IOpenApiSchema? s in schema.AnyOf)
+                    FixSchemaDefaults(s, visited);
+
+            return;
+        }
 
         // --- ENUM DEFAULTS: robust matching & assignment ---
         if (schema.Enum is { Count: > 0 })
@@ -554,33 +595,39 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     concreteSchema.Default = null;
                 }
             }
+
+            // Extra safety: if the schema is typeless but looks like a $ref/composed schema, a string default is
+            // almost certainly unsafe for code-gen (it can't infer conversion).
+            if (schema.Default is JsonValue sVal2 && sVal2.GetValueKind() == JsonValueKind.String &&
+                schema.Type == null && !(schema.Enum?.Any() ?? false) &&
+                ((schema.AllOf?.Any() ?? false) || (schema.OneOf?.Any() ?? false) || (schema.AnyOf?.Any() ?? false)))
+            {
+                concreteSchema.Default = null;
+            }
         }
 
+        // Recurse through nested schemas (including $ref nodes) so we can clear bad defaults wherever they appear.
         if (schema.Properties != null)
             foreach (IOpenApiSchema? prop in schema.Properties.Values)
-                if (prop is OpenApiSchema concreteProp)
-                    FixSchemaDefaults(concreteProp, visited);
+                FixSchemaDefaults(prop, visited);
 
-        if (schema.Items is OpenApiSchema concreteItems)
-            FixSchemaDefaults(concreteItems, visited);
+        if (schema.Items != null)
+            FixSchemaDefaults(schema.Items, visited);
 
-        if (schema.AdditionalProperties is OpenApiSchema concreteAdditional)
-            FixSchemaDefaults(concreteAdditional, visited);
+        if (schema.AdditionalProperties != null)
+            FixSchemaDefaults(schema.AdditionalProperties, visited);
 
         if (schema.AllOf != null)
             foreach (IOpenApiSchema? s in schema.AllOf)
-                if (s is OpenApiSchema concreteS)
-                    FixSchemaDefaults(concreteS, visited);
+                FixSchemaDefaults(s, visited);
 
         if (schema.OneOf != null)
             foreach (IOpenApiSchema? s in schema.OneOf)
-                if (s is OpenApiSchema concreteS)
-                    FixSchemaDefaults(concreteS, visited);
+                FixSchemaDefaults(s, visited);
 
         if (schema.AnyOf != null)
             foreach (IOpenApiSchema? s in schema.AnyOf)
-                if (s is OpenApiSchema concreteS)
-                    FixSchemaDefaults(concreteS, visited);
+                FixSchemaDefaults(s, visited);
     }
 
     /// <inheritdoc />
