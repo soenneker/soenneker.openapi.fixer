@@ -376,48 +376,29 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         if (schema == null || !visited.Add(schema))
             return;
 
-        // IMPORTANT:
-        // Defaults can be present on $ref/composed schemas (type is often null). Generators (e.g. Kiota C#)
-        // may emit invalid assignments like: Value = "lite"; for non-string model types.
-        // We must visit and potentially clear defaults even when the schema is a reference schema.
-        if (schema is OpenApiSchemaReference refSchema)
-        {
-            if (refSchema.Default is JsonValue dv && dv.GetValueKind() == JsonValueKind.String &&
-                refSchema.Type == null && !(refSchema.Enum?.Any() ?? false))
-            {
-                refSchema.Default = null;
-            }
-
-            // No further traversal is typically needed for pure refs, but return defensively.
-            return;
-        }
-
         if (schema is not OpenApiSchema concreteSchema)
-        {
-            // Unknown schema implementation; still attempt to traverse children best-effort.
-            if (schema.Properties != null)
-                foreach (IOpenApiSchema? prop in schema.Properties.Values)
-                    FixSchemaDefaults(prop, visited);
-
-            if (schema.Items != null)
-                FixSchemaDefaults(schema.Items, visited);
-
-            if (schema.AdditionalProperties != null)
-                FixSchemaDefaults(schema.AdditionalProperties, visited);
-
-            if (schema.AllOf != null)
-                foreach (IOpenApiSchema? s in schema.AllOf)
-                    FixSchemaDefaults(s, visited);
-
-            if (schema.OneOf != null)
-                foreach (IOpenApiSchema? s in schema.OneOf)
-                    FixSchemaDefaults(s, visited);
-
-            if (schema.AnyOf != null)
-                foreach (IOpenApiSchema? s in schema.AnyOf)
-                    FixSchemaDefaults(s, visited);
-
             return;
+
+        // KIOTA SAFETY (based on observed Cloudflare schema):
+        // Some schemas are "union/discriminator-shaped" but still declare type: string, e.g.
+        //   type: "string"
+        //   anyOf: [ { $ref: ...Wrapper } ]
+        //   discriminator: { propertyName: "type" }
+        //   default: "lite"
+        //
+        // Kiota generates these as model types (not strings), and then a scalar string default becomes invalid C#:
+        //   Value = "lite";
+        //
+        // For discriminator/union schemas, drop scalar defaults to prevent broken generated code.
+        if (concreteSchema.Default is JsonValue unionDefault &&
+            unionDefault.GetValueKind() == JsonValueKind.String &&
+            !(concreteSchema.Enum?.Any() ?? false) &&
+            (concreteSchema.Discriminator != null ||
+             (concreteSchema.AnyOf?.Any() ?? false) ||
+             (concreteSchema.OneOf?.Any() ?? false) ||
+             (concreteSchema.AllOf?.Any() ?? false)))
+        {
+            concreteSchema.Default = null;
         }
 
         // --- ENUM DEFAULTS: robust matching & assignment ---
@@ -595,39 +576,33 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     concreteSchema.Default = null;
                 }
             }
-
-            // Extra safety: if the schema is typeless but looks like a $ref/composed schema, a string default is
-            // almost certainly unsafe for code-gen (it can't infer conversion).
-            if (schema.Default is JsonValue sVal2 && sVal2.GetValueKind() == JsonValueKind.String &&
-                schema.Type == null && !(schema.Enum?.Any() ?? false) &&
-                ((schema.AllOf?.Any() ?? false) || (schema.OneOf?.Any() ?? false) || (schema.AnyOf?.Any() ?? false)))
-            {
-                concreteSchema.Default = null;
-            }
         }
 
-        // Recurse through nested schemas (including $ref nodes) so we can clear bad defaults wherever they appear.
         if (schema.Properties != null)
             foreach (IOpenApiSchema? prop in schema.Properties.Values)
-                FixSchemaDefaults(prop, visited);
+                if (prop is OpenApiSchema concreteProp)
+                    FixSchemaDefaults(concreteProp, visited);
 
-        if (schema.Items != null)
-            FixSchemaDefaults(schema.Items, visited);
+        if (schema.Items is OpenApiSchema concreteItems)
+            FixSchemaDefaults(concreteItems, visited);
 
-        if (schema.AdditionalProperties != null)
-            FixSchemaDefaults(schema.AdditionalProperties, visited);
+        if (schema.AdditionalProperties is OpenApiSchema concreteAdditional)
+            FixSchemaDefaults(concreteAdditional, visited);
 
         if (schema.AllOf != null)
             foreach (IOpenApiSchema? s in schema.AllOf)
-                FixSchemaDefaults(s, visited);
+                if (s is OpenApiSchema concreteS)
+                    FixSchemaDefaults(concreteS, visited);
 
         if (schema.OneOf != null)
             foreach (IOpenApiSchema? s in schema.OneOf)
-                FixSchemaDefaults(s, visited);
+                if (s is OpenApiSchema concreteS)
+                    FixSchemaDefaults(concreteS, visited);
 
         if (schema.AnyOf != null)
             foreach (IOpenApiSchema? s in schema.AnyOf)
-                FixSchemaDefaults(s, visited);
+                if (s is OpenApiSchema concreteS)
+                    FixSchemaDefaults(concreteS, visited);
     }
 
     /// <inheritdoc />
