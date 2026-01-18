@@ -21,8 +21,8 @@
         </Content>
     </ItemGroup>
 
-    <ItemGroup><PackageReference Include="Soenneker.Facts.Local" Version="4.0.552" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.777" />
+    <ItemGroup>
+        <PackageReference Include="Soenneker.Facts.Local" Version="4.0.552" />
         <PackageReference Include="Soenneker.Utils.Test" Version="4.0.302" />
         <PackageReference Include="Soenneker.Tests.FixturedUnit" Version="4.0.2165" />
         <PackageReference Include="xUnit.v3" Version="3.2.2" />
@@ -34,7 +34,7 @@
 
     <ItemGroup>
         <Content Include="testconfig.json">
-          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
 
