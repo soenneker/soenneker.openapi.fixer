@@ -1226,7 +1226,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
 
             // Handle inlining a parameter $ref → copy its fields, then ReplaceRef(schema)
-            void InlineParameter(OpenApiParameter? param)
+            void InlineParameter(IOpenApiParameter? param)
             {
                 if (param?.Schema != null)
                     ReplaceRef(param.Schema);
@@ -1294,13 +1294,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // 5. Replace refs in headers
             if (document.Components.Headers != null)
-                foreach (OpenApiHeader? hdr in document.Components.Headers.Values)
+                foreach (IOpenApiHeader? hdr in document.Components.Headers.Values)
                     if (hdr?.Schema is OpenApiSchema concreteSchema)
                         ReplaceRef(concreteSchema);
 
             // 6. Inline component‐level parameters
             if (document.Components.Parameters != null)
-                foreach (OpenApiParameter? compParam in document.Components.Parameters.Values)
+                foreach (IOpenApiParameter? compParam in document.Components.Parameters.Values)
                     InlineParameter(compParam);
 
             // 7. Inline path‐level and operation‐level parameters
@@ -2688,7 +2688,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     public async ValueTask GenerateKiota(string fixedPath, string clientName, string libraryName, string targetDir,
         CancellationToken cancellationToken = default)
     {
-        _directoryUtil.CreateIfDoesNotExist(targetDir);
+        await _directoryUtil.CreateIfDoesNotExist(targetDir);
 
         await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o src -c {clientName} -n {libraryName} --ebc --cc",
                               waitForExit: true, cancellationToken: cancellationToken)
