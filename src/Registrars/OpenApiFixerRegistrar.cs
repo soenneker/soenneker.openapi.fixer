@@ -3,8 +3,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
-using Soenneker.Utils.Directory;
 using Soenneker.Utils.Directory.Abstract;
+using Soenneker.Utils.Directory.Registrars;
 using Soenneker.Utils.Process.Registrars;
 
 namespace Soenneker.OpenApi.Fixer.Registrars;
