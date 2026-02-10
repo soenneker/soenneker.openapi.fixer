@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?><Project Sdk="Microsoft.NET.Sdk">
+<?xml version="1.0" encoding="utf-8"?><Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -44,6 +44,7 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
         <PackageReference Include="Microsoft.OpenApi" Version="3.3.1" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.778" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.1073" />
         <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.10" />
         <PackageReference Include="Soenneker.Utils.Process" Version="4.0.1390" />
     </ItemGroup>

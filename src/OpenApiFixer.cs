@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Soenneker.Extensions.ValueTask;
@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using Soenneker.Extensions.Task;
 using Soenneker.Utils.Directory.Abstract;
+using Soenneker.Utils.File.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.OpenApi.Fixer.Abstract;
 
@@ -33,10 +34,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
     private readonly IDirectoryUtil _directoryUtil;
+    private readonly IFileUtil _fileUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IProcessUtil processUtil, IOpenApiDescriptionFixer descriptionFixer,
         IOpenApiReferenceFixer referenceFixer, IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer,
-        IDirectoryUtil directoryUtil)
+        IDirectoryUtil directoryUtil, IFileUtil fileUtil)
     {
         _logger = logger;
         _processUtil = processUtil;
@@ -45,6 +47,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         _namingFixer = namingFixer;
         _schemaFixer = schemaFixer;
         _directoryUtil = directoryUtil;
+        _fileUtil = fileUtil;
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
@@ -225,7 +228,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
 
-            await File.WriteAllTextAsync(targetFilePath, json, cancellationToken);
+            await _fileUtil.Write(targetFilePath, json, cancellationToken: cancellationToken);
 
             _logger.LogInformation($"Cleaned OpenAPI spec saved to {targetFilePath}");
         }
@@ -1076,7 +1079,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private async ValueTask<MemoryStream> PreprocessSpecFile(string path, CancellationToken cancellationToken = default)
     {
-        string raw = await File.ReadAllTextAsync(path, Encoding.UTF8, cancellationToken);
+        string raw = await _fileUtil.Read(path, cancellationToken: cancellationToken);
 
         //raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
         //    m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
@@ -2455,7 +2458,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
     {
-        await using FileStream stream = File.OpenRead(filePath);
+        await using var stream = await _fileUtil.ReadToMemoryStream(filePath, cancellationToken: cancellationToken);
 
         var reader = new OpenApiJsonReader(); // force JSON
         ReadResult read = await reader.ReadAsync(stream, new Uri(filePath), // base URI for relative $refs
