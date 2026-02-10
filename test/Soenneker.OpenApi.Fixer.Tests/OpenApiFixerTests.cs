@@ -3,6 +3,7 @@ using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Tests.FixturedUnit;
 using System.IO;
 using System.Threading.Tasks;
+using Soenneker.Facts.Manual;
 using Soenneker.Utils.Directory.Abstract;
 using Xunit;
 
@@ -26,7 +27,8 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
     }
 
-    [LocalFact]
+    [ManualFact]
+    //[LocalFact]
     public async ValueTask ProcessTelnyx()
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
@@ -42,7 +44,8 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
     }
 
-    [LocalFact]
+    [ManualFact]
+    //[LocalFact]
     public async ValueTask ProcessCloudflare()
     {
         const string fixedPath = @"c:\cloudflare\spec3fixed.json";
