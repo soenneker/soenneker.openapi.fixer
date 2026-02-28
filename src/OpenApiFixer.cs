@@ -2691,7 +2691,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     public async ValueTask GenerateKiota(string fixedPath, string clientName, string libraryName, string targetDir,
         CancellationToken cancellationToken = default)
     {
-        await _directoryUtil.CreateIfDoesNotExist(targetDir);
+        await _directoryUtil.Create(targetDir, cancellationToken: cancellationToken).NoSync();
 
         await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o src -c {clientName} -n {libraryName} --ebc --cc",
                               waitForExit: true, cancellationToken: cancellationToken)

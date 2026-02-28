@@ -39,7 +39,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, CancellationToken);
 
         await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.CreateIfDoesNotExist(targetDir);
+        await _directoryUtil.Create(targetDir);
 
         await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
     }
@@ -56,7 +56,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
 
         await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.CreateIfDoesNotExist(targetDir);
+        await _directoryUtil.Create(targetDir);
 
         await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
     }
