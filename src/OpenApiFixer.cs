@@ -205,6 +205,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Final safety net: ensure no union branch is a non-object (enums, primitives, arrays)
             WrapNonObjectUnionBranchesEverywhere(document);
+            FlattenMapAllOfCompositions(document);
+            InlineMapOnlySchemaReferences(document);
             NormalizeAllOfWrappers(document);
 
             InlinePrimitivePropertyRefs(document);
@@ -3661,6 +3663,390 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 CopySchemaMetadata(propSchema, replacement);
 
                 container.Properties[propName] = replacement;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Flattens "allOf" compositions where one branch is a pure map schema
+    /// (object + additionalProperties) and the remaining branches are plain
+    /// object overlays. This prevents Kiota from treating the map reference as
+    /// an empty model type in composed contexts.
+    /// </summary>
+    private static void FlattenMapAllOfCompositions(OpenApiDocument doc)
+    {
+        if (doc?.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
+            return;
+
+        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema os)
+                return;
+
+            TryFlattenMapAllOf(os, comps);
+
+            if (os.Properties != null)
+            {
+                foreach (IOpenApiSchema child in os.Properties.Values)
+                    Visit(child);
+            }
+
+            if (os.Items != null)
+                Visit(os.Items);
+
+            if (os.AdditionalProperties != null)
+                Visit(os.AdditionalProperties);
+
+            if (os.AllOf != null)
+            {
+                foreach (IOpenApiSchema child in os.AllOf)
+                    Visit(child);
+            }
+
+            if (os.AnyOf != null)
+            {
+                foreach (IOpenApiSchema child in os.AnyOf)
+                    Visit(child);
+            }
+
+            if (os.OneOf != null)
+            {
+                foreach (IOpenApiSchema child in os.OneOf)
+                    Visit(child);
+            }
+        }
+
+        foreach (IOpenApiSchema root in comps.Values)
+            Visit(root);
+
+        if (doc.Paths != null)
+        {
+            foreach (IOpenApiPathItem path in doc.Paths.Values)
+            {
+                if (path?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in path.Parameters)
+                        Visit(parameter?.Schema);
+                }
+
+                if (path?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in path.Operations.Values)
+                {
+                    if (operation?.Parameters != null)
+                    {
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                            Visit(parameter?.Schema);
+                    }
+
+                    if (operation?.RequestBody is OpenApiRequestBody body && body.Content != null)
+                    {
+                        foreach (IOpenApiMediaType mediaType in body.Content.Values)
+                            Visit(mediaType?.Schema);
+                    }
+
+                    if (operation?.Responses == null)
+                        continue;
+
+                    foreach (IOpenApiResponse response in operation.Responses.Values)
+                    {
+                        if (response?.Content != null)
+                        {
+                            foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                                Visit(mediaType?.Schema);
+                        }
+
+                        if (response?.Headers != null)
+                        {
+                            foreach (IOpenApiHeader header in response.Headers.Values)
+                                Visit(header?.Schema);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void TryFlattenMapAllOf(OpenApiSchema target, IDictionary<string, IOpenApiSchema> comps)
+    {
+        if (target.AllOf is not { Count: > 1 })
+            return;
+
+        int mapBranchIndex = -1;
+        OpenApiSchema? mapBranchSchema = null;
+
+        for (var i = 0; i < target.AllOf.Count; i++)
+        {
+            IOpenApiSchema branch = target.AllOf[i];
+            if (!TryResolveToConcreteSchema(branch, comps, out OpenApiSchema? resolved) || resolved == null)
+                continue;
+
+            if (IsPureMapSchema(resolved))
+            {
+                mapBranchIndex = i;
+                mapBranchSchema = resolved;
+                break;
+            }
+        }
+
+        if (mapBranchIndex < 0 || mapBranchSchema == null)
+            return;
+
+        var mergedProperties = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
+        var mergedRequired = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = 0; i < target.AllOf.Count; i++)
+        {
+            if (i == mapBranchIndex)
+                continue;
+
+            IOpenApiSchema branch = target.AllOf[i];
+            if (!TryResolveToConcreteSchema(branch, comps, out OpenApiSchema? resolved) || resolved == null)
+                return;
+
+            if (!IsFlattenableOverlayObject(resolved))
+                return;
+
+            if (resolved.Properties != null)
+            {
+                foreach ((string name, IOpenApiSchema propertySchema) in resolved.Properties)
+                    mergedProperties[name] = propertySchema;
+            }
+
+            if (resolved.Required != null)
+            {
+                foreach (string requiredProp in resolved.Required)
+                    mergedRequired.Add(requiredProp);
+            }
+        }
+
+        target.Type = JsonSchemaType.Object;
+        target.AllOf = null;
+
+        target.Properties ??= new Dictionary<string, IOpenApiSchema>();
+        foreach ((string name, IOpenApiSchema propertySchema) in mergedProperties)
+            target.Properties[name] = propertySchema;
+
+        if (target.AdditionalProperties == null && !target.AdditionalPropertiesAllowed)
+        {
+            target.AdditionalProperties = mapBranchSchema.AdditionalProperties;
+            target.AdditionalPropertiesAllowed = mapBranchSchema.AdditionalPropertiesAllowed;
+        }
+
+        if (mergedRequired.Count > 0)
+        {
+            target.Required ??= new HashSet<string>();
+            foreach (string requiredProp in mergedRequired)
+                target.Required.Add(requiredProp);
+        }
+    }
+
+    private static bool TryResolveToConcreteSchema(IOpenApiSchema schema, IDictionary<string, IOpenApiSchema> comps, out OpenApiSchema? resolved)
+    {
+        resolved = null;
+
+        if (schema is OpenApiSchema os)
+        {
+            resolved = os;
+            return true;
+        }
+
+        if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id &&
+            comps.TryGetValue(id, out IOpenApiSchema? target) && target is OpenApiSchema targetSchema)
+        {
+            resolved = targetSchema;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsPureMapSchema(OpenApiSchema schema)
+    {
+        bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
+        bool hasNoNamedProperties = schema.Properties == null || schema.Properties.Count == 0;
+        bool hasNoItems = schema.Items == null;
+        bool isObjectOrUnset = schema.Type == null || schema.Type == JsonSchemaType.Object;
+        bool hasMapSemantics = schema.AdditionalProperties != null || schema.AdditionalPropertiesAllowed;
+
+        return hasNoCompositions && hasNoNamedProperties && hasNoItems && isObjectOrUnset && hasMapSemantics;
+    }
+
+    private static bool IsFlattenableOverlayObject(OpenApiSchema schema)
+    {
+        bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
+        bool hasNoMapShape = schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed;
+        bool hasNoItems = schema.Items == null;
+        bool isObjectOrUnset = schema.Type == null || schema.Type == JsonSchemaType.Object;
+
+        return hasNoCompositions && hasNoMapShape && hasNoItems && isObjectOrUnset;
+    }
+
+    /// <summary>
+    /// Replaces references to map-only component schemas with inline map schemas.
+    /// This avoids Kiota trying to materialize map-only component refs as model classes.
+    /// </summary>
+    private static void InlineMapOnlySchemaReferences(OpenApiDocument doc)
+    {
+        if (doc?.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
+            return;
+
+        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
+
+        IOpenApiSchema Rewrite(IOpenApiSchema schema)
+        {
+            if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id &&
+                comps.TryGetValue(id, out IOpenApiSchema? target) && target is OpenApiSchema targetSchema &&
+                IsPureMapSchema(targetSchema))
+            {
+                return new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Object,
+                    AdditionalProperties = targetSchema.AdditionalProperties,
+                    AdditionalPropertiesAllowed = targetSchema.AdditionalPropertiesAllowed,
+                    Description = targetSchema.Description
+                };
+            }
+
+            return schema;
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema os)
+                return;
+
+            if (os.Properties != null)
+            {
+                foreach (string key in os.Properties.Keys.ToList())
+                {
+                    IOpenApiSchema rewritten = Rewrite(os.Properties[key]);
+                    os.Properties[key] = rewritten;
+                    Visit(rewritten);
+                }
+            }
+
+            if (os.Items != null)
+            {
+                os.Items = Rewrite(os.Items);
+                Visit(os.Items);
+            }
+
+            if (os.AdditionalProperties != null)
+            {
+                os.AdditionalProperties = Rewrite(os.AdditionalProperties);
+                Visit(os.AdditionalProperties);
+            }
+
+            if (os.AllOf != null)
+            {
+                for (var i = 0; i < os.AllOf.Count; i++)
+                {
+                    os.AllOf[i] = Rewrite(os.AllOf[i]);
+                    Visit(os.AllOf[i]);
+                }
+            }
+
+            if (os.AnyOf != null)
+            {
+                for (var i = 0; i < os.AnyOf.Count; i++)
+                {
+                    os.AnyOf[i] = Rewrite(os.AnyOf[i]);
+                    Visit(os.AnyOf[i]);
+                }
+            }
+
+            if (os.OneOf != null)
+            {
+                for (var i = 0; i < os.OneOf.Count; i++)
+                {
+                    os.OneOf[i] = Rewrite(os.OneOf[i]);
+                    Visit(os.OneOf[i]);
+                }
+            }
+        }
+
+        foreach (IOpenApiSchema root in comps.Values)
+            Visit(root);
+
+        if (doc.Paths != null)
+        {
+            foreach (IOpenApiPathItem path in doc.Paths.Values)
+            {
+                if (path?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in path.Parameters)
+                    {
+                        if (parameter is OpenApiParameter concreteParameter && concreteParameter.Schema != null)
+                        {
+                            concreteParameter.Schema = Rewrite(concreteParameter.Schema);
+                            Visit(concreteParameter.Schema);
+                        }
+                    }
+                }
+
+                if (path?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in path.Operations.Values)
+                {
+                    if (operation?.Parameters != null)
+                    {
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                        {
+                            if (parameter is OpenApiParameter concreteParameter && concreteParameter.Schema != null)
+                            {
+                                concreteParameter.Schema = Rewrite(concreteParameter.Schema);
+                                Visit(concreteParameter.Schema);
+                            }
+                        }
+                    }
+
+                    if (operation?.RequestBody is OpenApiRequestBody body && body.Content != null)
+                    {
+                        foreach (IOpenApiMediaType mediaType in body.Content.Values)
+                        {
+                            if (mediaType is OpenApiMediaType concreteMediaType && concreteMediaType.Schema != null)
+                            {
+                                concreteMediaType.Schema = Rewrite(concreteMediaType.Schema);
+                                Visit(concreteMediaType.Schema);
+                            }
+                        }
+                    }
+
+                    if (operation?.Responses == null)
+                        continue;
+
+                    foreach (IOpenApiResponse response in operation.Responses.Values)
+                    {
+                        if (response?.Content != null)
+                        {
+                            foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                            {
+                                if (mediaType is OpenApiMediaType concreteMediaType && concreteMediaType.Schema != null)
+                                {
+                                    concreteMediaType.Schema = Rewrite(concreteMediaType.Schema);
+                                    Visit(concreteMediaType.Schema);
+                                }
+                            }
+                        }
+
+                        if (response?.Headers != null)
+                        {
+                            foreach (IOpenApiHeader header in response.Headers.Values)
+                            {
+                                if (header is OpenApiHeader concreteHeader && concreteHeader.Schema != null)
+                                {
+                                    concreteHeader.Schema = Rewrite(concreteHeader.Schema);
+                                    Visit(concreteHeader.Schema);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

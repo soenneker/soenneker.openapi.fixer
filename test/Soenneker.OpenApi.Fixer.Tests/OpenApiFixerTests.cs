@@ -29,6 +29,23 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
     [ManualFact]
     //[LocalFact]
+    public async ValueTask ProcessCoinbase()
+    {
+        const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\spec3fixed.json";
+        const string targetDir = @"c:\cloudflare\src";
+
+        File.Delete(fixedPath);
+
+        await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, CancellationToken);
+
+        await _directoryUtil.DeleteIfExists(targetDir);
+        await _directoryUtil.Create(targetDir);
+
+        await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, CancellationToken);
+    }
+
+    [ManualFact]
+    //[LocalFact]
     public async ValueTask ProcessTelnyx()
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
