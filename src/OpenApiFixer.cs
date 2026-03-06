@@ -222,6 +222,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Run discriminator-required pass one last time to guarantee required flags are present
             EnsureDiscriminatorRequiredEverywhere(document);
 
+            // Kiota can emit invalid assignments when discriminator enum properties carry string defaults.
+            // Remove those defaults so generated C# compiles consistently.
+            RemoveEnumDefaultsFromDiscriminatorLikeProperties(document);
+
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
 
@@ -2741,6 +2745,69 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
 
         return false;
+    }
+
+    private static void RemoveEnumDefaultsFromDiscriminatorLikeProperties(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null || document.Components.Schemas.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema == null || !visited.Add(schema))
+                return;
+
+            if (schema is not OpenApiSchema concrete)
+                return;
+
+            if (concrete.Properties != null)
+            {
+                foreach ((string propName, IOpenApiSchema propSchema) in concrete.Properties)
+                {
+                    if (propSchema is OpenApiSchema prop &&
+                        prop.Enum is { Count: > 0 } &&
+                        prop.Default is JsonValue defaultValue &&
+                        defaultValue.GetValueKind() == JsonValueKind.String &&
+                        string.Equals(propName, "type", StringComparison.OrdinalIgnoreCase))
+                    {
+                        prop.Default = null;
+                    }
+
+                    Visit(propSchema);
+                }
+            }
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AllOf)
+                    Visit(child);
+            }
+
+            if (concrete.OneOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.OneOf)
+                    Visit(child);
+            }
+
+            if (concrete.AnyOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AnyOf)
+                    Visit(child);
+            }
+        }
+
+        foreach (IOpenApiSchema root in document.Components.Schemas.Values)
+        {
+            Visit(root);
+        }
     }
 
     private static bool IsSchemaRef(IOpenApiSchema s) => TryGetSchemaRefId(s, out _);

@@ -1,4 +1,4 @@
-﻿using Soenneker.Facts.Local;
+using Soenneker.Facts.Local;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Tests.FixturedUnit;
 using System.IO;
@@ -25,6 +25,24 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     public void Default()
     {
 
+    }
+
+    //[ManualFact]
+    [LocalFact]
+    public async ValueTask ProcessHubSpot()
+    {
+        const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";
+        const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\fixed.json";
+        const string targetDir = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\hubspot-src";
+
+        File.Delete(fixedPath);
+
+        await _util.Fix(sourcePath, fixedPath, CancellationToken);
+
+        await _directoryUtil.DeleteIfExists(targetDir);
+        await _directoryUtil.Create(targetDir);
+
+        await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, CancellationToken);
     }
 
     [ManualFact]
