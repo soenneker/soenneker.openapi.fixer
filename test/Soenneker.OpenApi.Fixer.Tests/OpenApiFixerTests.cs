@@ -27,8 +27,8 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
     }
 
-    //[ManualFact]
-    [LocalFact]
+    [ManualFact]
+   // [LocalFact]
     public async ValueTask ProcessHubSpot()
     {
         const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";

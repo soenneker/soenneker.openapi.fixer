@@ -21,7 +21,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public void ReplaceAllRefs(OpenApiDocument document, string oldKey, string newKey)
     {
         var oldRef = $"#/components/schemas/{oldKey}";
@@ -549,4 +548,3 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         }
     }
 }
-
