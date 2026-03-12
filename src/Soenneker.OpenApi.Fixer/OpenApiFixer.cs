@@ -2699,7 +2699,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         await _directoryUtil.Create(targetDir, cancellationToken: cancellationToken).NoSync();
 
-        await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o src -c {clientName} -n {libraryName} --ebc --cc",
+        string outputDir = $"src/{libraryName}";
+        await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o {outputDir} -c {clientName} -n {libraryName} --ebc --cc",
                               waitForExit: true, cancellationToken: cancellationToken)
                           .NoSync();
     }

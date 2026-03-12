@@ -30,7 +30,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\Soenneker.OpenApi.Fixer.csproj" />
+        <ProjectReference Include="..\..\src\Soenneker.OpenApi.Fixer\Soenneker.OpenApi.Fixer.csproj" />
     </ItemGroup>
 
     <ItemGroup>
