@@ -46,7 +46,7 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
         <PackageReference Include="Microsoft.OpenApi" Version="3.4.0" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.834" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.835" />
         <PackageReference Include="Soenneker.Utils.File" Version="4.0.2130" />
         <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.21" />
         <PackageReference Include="Soenneker.Utils.Process" Version="4.0.1442" />
