@@ -253,7 +253,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
                 {
                     if (requestBody?.Content != null)
                     {
-                        foreach (var mediaInterface in requestBody.Content.Values)
+                        foreach (IOpenApiMediaType mediaInterface in requestBody.Content.Values)
                         {
                             if (mediaInterface is not OpenApiMediaType media)
                                 continue;
@@ -279,7 +279,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
                 {
                     if (response?.Content != null)
                     {
-                        foreach (var mediaInterface in response.Content.Values)
+                        foreach (IOpenApiMediaType mediaInterface in response.Content.Values)
                         {
                             if (mediaInterface is not OpenApiMediaType media)
                                 continue;

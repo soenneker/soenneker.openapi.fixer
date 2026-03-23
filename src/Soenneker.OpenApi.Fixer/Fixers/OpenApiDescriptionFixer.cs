@@ -3,6 +3,7 @@ using Microsoft.OpenApi;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using System;
 using System.Collections.Generic;
+using Soenneker.Extensions.String;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -38,25 +39,25 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
         {
             if (document.Components.Schemas != null)
             {
-                foreach (var schema in document.Components.Schemas.Values)
+                foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
                     FixSchemaDescriptions(schema, visited);
             }
 
             if (document.Components.Parameters != null)
             {
-                foreach (var parameter in document.Components.Parameters.Values)
+                foreach (IOpenApiParameter parameter in document.Components.Parameters.Values)
                     FixParameterDescriptions(parameter, visited);
             }
 
             if (document.Components.Responses != null)
             {
-                foreach (var response in document.Components.Responses.Values)
+                foreach (IOpenApiResponse response in document.Components.Responses.Values)
                     FixResponseDescriptions(response, visited);
             }
 
             if (document.Components.RequestBodies != null)
             {
-                foreach (var requestBody in document.Components.RequestBodies.Values)
+                foreach (IOpenApiRequestBody requestBody in document.Components.RequestBodies.Values)
                     FixRequestBodyDescriptions(requestBody, visited);
             }
         }
@@ -64,14 +65,14 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
         // Fix all paths & operations
         if (document.Paths != null)
         {
-            foreach (var path in document.Paths.Values)
+            foreach (IOpenApiPathItem path in document.Paths.Values)
                 FixPathItemDescriptions(path, visited);
         }
     }
 
     private static string? FixYamlUnsafeString(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value.IsNullOrWhiteSpace())
             return value;
 
         // YAML forbids unquoted "key: value" patterns in many scalar contexts
@@ -97,8 +98,6 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
         if (schema == null || !visited.Add(schema))
             return;
 
-        // Skip references - they don't have their own descriptions/properties to fix.
-        // The referenced schema will be processed separately when iterating through Components.Schemas.
         if (schema is OpenApiSchemaReference)
             return;
 
@@ -106,34 +105,47 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (schema is OpenApiSchema concreteSchema && concreteSchema.Properties != null)
         {
-            foreach (var prop in concreteSchema.Properties.Values)
+            foreach (IOpenApiSchema? prop in concreteSchema.Properties.Values)
             {
+                if (prop == null)
+                    continue;
+
                 prop.Description = FixYamlUnsafeString(prop.Description);
-                FixSchemaDescriptions(prop, visited); // recursive
+                FixSchemaDescriptions(prop, visited);
             }
         }
 
-        // Handle `items`, `additionalProperties`
         if (schema.Items != null)
             FixSchemaDescriptions(schema.Items, visited);
+
         if (schema.AdditionalProperties is OpenApiSchema addl)
             FixSchemaDescriptions(addl, visited);
 
-        // Handle oneOf/anyOf/allOf
         if (schema.OneOf != null)
         {
-            foreach (var s in schema.OneOf)
-                FixSchemaDescriptions(s, visited);
+            foreach (IOpenApiSchema? s in schema.OneOf)
+            {
+                if (s != null)
+                    FixSchemaDescriptions(s, visited);
+            }
         }
+
         if (schema.AnyOf != null)
         {
-            foreach (var s in schema.AnyOf)
-                FixSchemaDescriptions(s, visited);
+            foreach (IOpenApiSchema? s in schema.AnyOf)
+            {
+                if (s != null)
+                    FixSchemaDescriptions(s, visited);
+            }
         }
+
         if (schema.AllOf != null)
         {
-            foreach (var s in schema.AllOf)
-                FixSchemaDescriptions(s, visited);
+            foreach (IOpenApiSchema? s in schema.AllOf)
+            {
+                if (s != null)
+                    FixSchemaDescriptions(s, visited);
+            }
         }
     }
 
@@ -147,7 +159,7 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (item.Operations != null)
         {
-            foreach (var op in item.Operations.Values)
+            foreach (OpenApiOperation op in item.Operations.Values)
                 FixOperationDescriptions(op, visited);
         }
     }
@@ -162,7 +174,7 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (op.Parameters != null)
         {
-            foreach (var param in op.Parameters)
+            foreach (IOpenApiParameter param in op.Parameters)
                 FixParameterDescriptions(param, visited);
         }
 
@@ -171,7 +183,7 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (op.Responses != null)
         {
-            foreach (var resp in op.Responses.Values)
+            foreach (IOpenApiResponse resp in op.Responses.Values)
                 FixResponseDescriptions(resp, visited);
         }
     }
@@ -195,7 +207,7 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (body.Content != null)
         {
-            foreach (var content in body.Content.Values)
+            foreach (IOpenApiMediaType content in body.Content.Values)
             {
                 if (content.Schema != null)
                     FixSchemaDescriptions(content.Schema, visited);
@@ -212,7 +224,7 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
         if (response.Content != null)
         {
-            foreach (var content in response.Content.Values)
+            foreach (IOpenApiMediaType content in response.Content.Values)
             {
                 if (content.Schema != null)
                     FixSchemaDescriptions(content.Schema, visited);

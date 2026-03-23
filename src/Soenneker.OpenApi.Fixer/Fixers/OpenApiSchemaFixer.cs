@@ -3,6 +3,7 @@ using Microsoft.OpenApi;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
@@ -22,19 +23,18 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public void RemoveEmptyInlineSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
             return;
 
         var visited = new HashSet<OpenApiSchema>();
+
         foreach (IOpenApiSchema? schema in document.Components.Schemas.Values)
             if (schema is OpenApiSchema concreteSchema)
                 Clean(concreteSchema, visited);
     }
 
-    /// <inheritdoc />
     public void Clean(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -97,7 +97,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public bool IsSchemaEmpty(IOpenApiSchema schema)
     {
         if (schema == null)
@@ -110,7 +109,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         return !hasContent;
     }
 
-    /// <inheritdoc />
     public void DeepCleanSchema(OpenApiSchema? schema, HashSet<OpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -171,7 +169,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void CleanDocumentForSerialization(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
@@ -184,7 +181,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void CleanSchemaForSerialization(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -370,7 +366,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void FixSchemaDefaults(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -803,17 +798,17 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         // Paths/operations
         if (document.Paths != null)
         {
-            foreach (var (pathKey, pathItem) in document.Paths)
+            foreach ((string pathKey, var pathItem) in document.Paths)
             {
                 if (pathItem?.Operations == null)
                     continue;
 
-                foreach (var (method, operation) in pathItem.Operations)
+                foreach ((HttpMethod method, var operation) in pathItem.Operations)
                 {
                     // Request bodies
                     if (operation?.RequestBody?.Content != null)
                     {
-                        foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content)
+                        foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content)
                         {
                             if (mediaInterface is not OpenApiMediaType media)
                                 continue;
@@ -825,12 +820,12 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     // Responses
                     if (operation?.Responses != null)
                     {
-                        foreach (var (responseCode, response) in operation.Responses)
+                        foreach ((string responseCode, var response) in operation.Responses)
                         {
                             if (response?.Content == null)
                                 continue;
 
-                            foreach (var (mediaType, mediaInterface) in response.Content)
+                            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in response.Content)
                             {
                                 if (mediaInterface is not OpenApiMediaType media)
                                     continue;
@@ -843,7 +838,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     // Parameters
                     if (operation?.Parameters != null)
                     {
-                        foreach (var param in operation.Parameters)
+                        foreach (IOpenApiParameter param in operation.Parameters)
                         {
                             if (param is OpenApiParameter concreteParam)
                                 Visit(concreteParam.Schema);

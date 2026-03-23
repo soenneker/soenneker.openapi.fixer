@@ -404,7 +404,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 if (op?.RequestBody?.Content == null)
                     continue;
-                foreach (var media in op.RequestBody.Content.Values.OfType<OpenApiMediaType>())
+                foreach (OpenApiMediaType media in op.RequestBody.Content.Values.OfType<OpenApiMediaType>())
                 {
                     if (media.Schema is not OpenApiSchema s)
                         continue;
@@ -559,7 +559,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         {
                             if (rb is IOpenApiExtensible rbExt)
                                 ScrubEnumsInExtensions(rbExt);
-                            foreach (var media in rb.Content.Values.OfType<OpenApiMediaType>())
+                            foreach (OpenApiMediaType media in rb.Content.Values.OfType<OpenApiMediaType>())
                                 if (media.Schema is OpenApiSchema mtSchema)
                                 {
                                     // Optional hardening: wrap primitive/enum request bodies
@@ -589,7 +589,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                 if (resp is IOpenApiExtensible respExt)
                                     ScrubEnumsInExtensions(respExt);
                                 if (resp.Content != null)
-                                    foreach (var media in resp.Content.Values.OfType<OpenApiMediaType>())
+                                    foreach (OpenApiMediaType media in resp.Content.Values.OfType<OpenApiMediaType>())
                                         if (media.Schema is OpenApiSchema mtSchema)
                                             FixSchemaEnumWithoutType(mtSchema, new HashSet<OpenApiSchema>());
                                 if (resp.Headers != null)
@@ -859,7 +859,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 operation.OperationId ?? "unnamed");
 
             // We must materialize the list to modify it during iteration
-            foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content!.ToList())
+            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content!.ToList())
             {
                 if (mediaInterface is not OpenApiMediaType media)
                     continue;
@@ -956,21 +956,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             var emptyPathKeys = new List<string>();
 
-            foreach (var pathEntry in document.Paths.ToList())
+            foreach (KeyValuePair<string, IOpenApiPathItem> pathEntry in document.Paths.ToList())
             {
-                var pathItem = pathEntry.Value;
+                IOpenApiPathItem? pathItem = pathEntry.Value;
 
                 if (pathItem?.Operations == null || pathItem.Operations.Count == 0)
                     continue;
 
-                var deprecatedOperations = pathItem.Operations.Where(op => op.Value?.Deprecated == true)
-                                                   .Select(op => op.Key)
-                                                   .ToList();
+                List<HttpMethod> deprecatedOperations = pathItem.Operations.Where(op => op.Value?.Deprecated == true)
+                                                                .Select(op => op.Key)
+                                                                .ToList();
 
                 if (deprecatedOperations.Count == 0)
                     continue;
 
-                foreach (var operationType in deprecatedOperations)
+                foreach (HttpMethod operationType in deprecatedOperations)
                 {
                     pathItem.Operations.Remove(operationType);
                     removedOperations++;
@@ -989,9 +989,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         if (document.Components?.Schemas != null)
         {
-            var deprecatedSchemaKeys = document.Components.Schemas.Where(kvp => kvp.Value is OpenApiSchema schema && schema.Deprecated)
-                                               .Select(kvp => kvp.Key)
-                                               .ToList();
+            List<string> deprecatedSchemaKeys = document.Components.Schemas.Where(kvp => kvp.Value is OpenApiSchema schema && schema.Deprecated)
+                                                        .Select(kvp => kvp.Key)
+                                                        .ToList();
 
             foreach (string schemaKey in deprecatedSchemaKeys)
             {
@@ -2168,7 +2168,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (doc.Components?.RequestBodies != null)
             foreach (var rb in doc.Components.RequestBodies.Values)
                 if (rb?.Content != null)
-                    foreach (var media in rb.Content.Values.OfType<OpenApiMediaType>())
+                    foreach (OpenApiMediaType media in rb.Content.Values.OfType<OpenApiMediaType>())
                         if (media.Schema is { } sch)
                         {
                             IOpenApiSchema? tmp = sch;
@@ -2179,7 +2179,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (doc.Components?.Responses != null)
             foreach (var resp in doc.Components.Responses.Values)
                 if (resp?.Content != null)
-                    foreach (var media in resp.Content.Values.OfType<OpenApiMediaType>())
+                    foreach (OpenApiMediaType media in resp.Content.Values.OfType<OpenApiMediaType>())
                         if (media.Schema is { } sch)
                         {
                             IOpenApiSchema? tmp = sch;
@@ -2217,7 +2217,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             }
 
                     if (op?.RequestBody is OpenApiRequestBody rb2 && rb2.Content != null)
-                        foreach (var media in rb2.Content.Values.OfType<OpenApiMediaType>())
+                        foreach (OpenApiMediaType media in rb2.Content.Values.OfType<OpenApiMediaType>())
                             if (media.Schema is { } sch)
                             {
                                 IOpenApiSchema? tmp = sch;
@@ -2229,7 +2229,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         foreach (var r in op.Responses.Values)
                         {
                             if (r?.Content != null)
-                                foreach (var media in r.Content.Values.OfType<OpenApiMediaType>())
+                                foreach (OpenApiMediaType media in r.Content.Values.OfType<OpenApiMediaType>())
                                     if (media.Schema is { } sch)
                                     {
                                         IOpenApiSchema? tmp = sch;
@@ -2328,7 +2328,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                     if (operation.RequestBody != null && operation.RequestBody is not OpenApiRequestBodyReference && operation.RequestBody.Content != null)
                     {
-                        foreach (var (mediaType, mediaInterface) in operation.RequestBody.Content!.ToList())
+                        foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content!.ToList())
                         {
                             if (mediaInterface is not OpenApiMediaType media)
                                 continue;
@@ -2369,7 +2369,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             if (response.Content == null)
                                 continue;
 
-                            foreach (var (mediaType, mediaInterface) in response.Content!.ToList())
+                            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in response.Content!.ToList())
                             {
                                 if (mediaInterface is not OpenApiMediaType media)
                                     continue;
@@ -2464,7 +2464,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
     {
-        await using var stream = await _fileUtil.ReadToMemoryStream(filePath, cancellationToken: cancellationToken);
+        await using MemoryStream stream = await _fileUtil.ReadToMemoryStream(filePath, cancellationToken: cancellationToken);
 
         var reader = new OpenApiJsonReader(); // force JSON
         ReadResult read = await reader.ReadAsync(stream, new Uri(filePath), // base URI for relative $refs
@@ -4278,7 +4278,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 if (op?.Responses is null)
                     continue;
-                foreach (var (status, resp) in op.Responses)
+                foreach ((string status, var resp) in op.Responses)
                 {
                     if (string.IsNullOrEmpty(status) || (status[0] != '4' && status[0] != '5'))
                         continue;
@@ -4287,7 +4287,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                     foreach (var (_, media) in resp.Content)
                     {
-                        var s = media?.Schema;
+                        IOpenApiSchema? s = media?.Schema;
                         if (s is OpenApiSchemaReference r && r.Reference.Type == ReferenceType.Schema && !string.IsNullOrEmpty(r.Reference.Id))
                         {
                             targetIds.Add(r.Reference.Id);
@@ -4306,9 +4306,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return;
 
         // 2) Patch only those component schemas.
-        foreach (var id in targetIds)
+        foreach (string id in targetIds)
         {
-            if (doc.Components.Schemas.TryGetValue(id, out var schema) && schema is OpenApiSchema os)
+            if (doc.Components.Schemas.TryGetValue(id, out IOpenApiSchema? schema) && schema is OpenApiSchema os)
                 CoerceMessageArrayToString(os);
         }
 
@@ -4319,7 +4319,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 return;
 
             // Depth-first, but very narrow: touch only the 'message' property at this level.
-            if (container.Properties is { } props && props.TryGetValue("message", out var msg) && msg is OpenApiSchema m &&
+            if (container.Properties is { } props && props.TryGetValue("message", out IOpenApiSchema? msg) && msg is OpenApiSchema m &&
                 string.Equals(m.Type?.ToString(), "array", StringComparison.OrdinalIgnoreCase) && m.Items is OpenApiSchema mi &&
                 string.Equals(mi.Type?.ToString(), "string", StringComparison.OrdinalIgnoreCase))
             {
@@ -4330,7 +4330,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     Example = m.Example
                 };
                 if (m.Extensions is { Count: > 0 })
-                    foreach (var kv in m.Extensions)
+                    foreach (KeyValuePair<string, IOpenApiExtension> kv in m.Extensions)
                         replacement.Extensions[kv.Key] = kv.Value;
 
                 container.Properties["message"] = replacement;
