@@ -26,6 +26,53 @@ namespace Soenneker.OpenApi.Fixer;
 ///<inheritdoc cref="IOpenApiFixer"/>
 public sealed class OpenApiFixer : IOpenApiFixer
 {
+    private static readonly Regex GeneratedEnumMemberRegex = new(
+        @"(?<prefix>\[EnumMember\(Value = ""(?<value>(?:[^""\\]|\\.)*)""\)\]\s*#pragma warning disable CS1591\s*)(?<name>[^\r\n,]+)(?<suffix>,\s*#pragma warning restore CS1591)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Dictionary<string, string> MultiCharacterEnumTokens = new(StringComparer.Ordinal)
+    {
+        ["!="] = "ExclamationEqual",
+        ["!~"] = "ExclamationTilde",
+        ["<="] = "LessThanOrEqual",
+        [">="] = "GreaterThanOrEqual",
+        ["=="] = "DoubleEqual"
+    };
+
+    private static readonly Dictionary<char, string> EnumSymbolTokens = new()
+    {
+        ['!'] = "Exclamation",
+        ['"'] = "Quote",
+        ['#'] = "Hash",
+        ['$'] = "Dollar",
+        ['%'] = "Percent",
+        ['&'] = "Ampersand",
+        ['\''] = "Apostrophe",
+        ['('] = "LeftParenthesis",
+        [')'] = "RightParenthesis",
+        ['*'] = "Asterisk",
+        ['+'] = "Plus",
+        [','] = "Comma",
+        ['-'] = "Minus",
+        ['.'] = "Dot",
+        ['/'] = "Slash",
+        [':'] = "Colon",
+        [';'] = "Semicolon",
+        ['<'] = "LessThan",
+        ['='] = "Equal",
+        ['>'] = "GreaterThan",
+        ['?'] = "QuestionMark",
+        ['@'] = "At",
+        ['['] = "LeftBracket",
+        ['\\'] = "BackSlash",
+        [']'] = "RightBracket",
+        ['^'] = "Caret",
+        ['{'] = "LeftBrace",
+        ['|'] = "Pipe",
+        ['}'] = "RightBrace",
+        ['~'] = "Tilde"
+    };
+
     private readonly ILogger<OpenApiFixer> _logger;
 
     private readonly IProcessUtil _processUtil;
@@ -2950,6 +2997,155 @@ public sealed class OpenApiFixer : IOpenApiFixer
         await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o {outputDir} -c {clientName} -n {libraryName} --ebc --cc",
                               waitForExit: true, cancellationToken: cancellationToken)
                           .NoSync();
+
+        await SanitizeGeneratedEnumMembers(Path.Combine(targetDir, "src", libraryName), cancellationToken).NoSync();
+    }
+
+    private async ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(generatedRoot))
+            return;
+
+        foreach (string filePath in Directory.EnumerateFiles(generatedRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string original = await _fileUtil.Read(filePath, cancellationToken: cancellationToken).NoSync();
+            string sanitized = SanitizeGeneratedEnumMembers(original);
+
+            if (!string.Equals(original, sanitized, StringComparison.Ordinal))
+                await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
+        }
+    }
+
+    private static string SanitizeGeneratedEnumMembers(string fileContents)
+    {
+        MatchCollection matches = GeneratedEnumMemberRegex.Matches(fileContents);
+
+        if (matches.Count == 0)
+            return fileContents;
+
+        var usedNames = matches.Select(match => match.Groups["name"]
+                                                     .Value
+                                                     .Trim())
+                               .Where(name => name.Length > 0)
+                               .ToHashSet(StringComparer.Ordinal);
+
+        return GeneratedEnumMemberRegex.Replace(fileContents, match =>
+        {
+            string currentName = match.Groups["name"].Value.Trim();
+
+            if (IsValidEnumMemberIdentifier(currentName))
+                return match.Value;
+
+            usedNames.Remove(currentName);
+
+            string enumValue = Regex.Unescape(match.Groups["value"].Value);
+            string replacementName = BuildSafeEnumMemberName(enumValue);
+            string uniqueName = MakeUniqueEnumMemberName(replacementName, usedNames);
+
+            usedNames.Add(uniqueName);
+
+            return $"{match.Groups["prefix"].Value}{uniqueName}{match.Groups["suffix"].Value}";
+        });
+    }
+
+    private static bool IsValidEnumMemberIdentifier(string name) =>
+        !string.IsNullOrWhiteSpace(name) && Regex.IsMatch(name, @"^[_\p{L}][_\p{L}\p{Nd}]*$");
+
+    private static string MakeUniqueEnumMemberName(string candidate, HashSet<string> usedNames)
+    {
+        string safeCandidate = string.IsNullOrWhiteSpace(candidate) ? "EnumValue" : candidate;
+
+        if (!usedNames.Contains(safeCandidate))
+            return safeCandidate;
+
+        int suffix = 1;
+        string uniqueCandidate;
+
+        do
+        {
+            uniqueCandidate = $"{safeCandidate}_{suffix++}";
+        } while (usedNames.Contains(uniqueCandidate));
+
+        return uniqueCandidate;
+    }
+
+    private static string BuildSafeEnumMemberName(string enumValue)
+    {
+        if (string.IsNullOrWhiteSpace(enumValue))
+            return "EnumValue";
+
+        if (MultiCharacterEnumTokens.TryGetValue(enumValue, out string? combinedToken))
+            return combinedToken;
+
+        var builder = new StringBuilder(enumValue.Length * 2);
+        bool capitalizeNext = true;
+
+        for (int i = 0; i < enumValue.Length; i++)
+        {
+            if (TryGetMultiCharacterEnumToken(enumValue, i, out string? multiCharacterToken, out int tokenLength))
+            {
+                builder.Append(multiCharacterToken);
+                capitalizeNext = true;
+                i += tokenLength - 1;
+                continue;
+            }
+
+            char character = enumValue[i];
+
+            if (char.IsLetterOrDigit(character))
+            {
+                if (builder.Length == 0 && char.IsDigit(character))
+                    builder.Append("Value");
+
+                builder.Append(capitalizeNext ? char.ToUpperInvariant(character) : character);
+                capitalizeNext = false;
+                continue;
+            }
+
+            if (character == '_' || char.IsWhiteSpace(character))
+            {
+                capitalizeNext = true;
+                continue;
+            }
+
+            if (EnumSymbolTokens.TryGetValue(character, out string? symbolToken))
+            {
+                builder.Append(symbolToken);
+                capitalizeNext = true;
+            }
+        }
+
+        string sanitized = builder.ToString();
+
+        if (string.IsNullOrWhiteSpace(sanitized))
+            sanitized = "EnumValue";
+
+        if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_')
+            sanitized = $"Value{sanitized}";
+
+        return sanitized;
+    }
+
+    private static bool TryGetMultiCharacterEnumToken(string value, int startIndex, out string? token, out int tokenLength)
+    {
+        foreach ((string symbol, string mappedToken) in MultiCharacterEnumTokens)
+        {
+            if (startIndex + symbol.Length > value.Length)
+                continue;
+
+            if (string.CompareOrdinal(value, startIndex, symbol, 0, symbol.Length) == 0)
+            {
+                token = mappedToken;
+                tokenLength = symbol.Length;
+                return true;
+            }
+        }
+
+        token = null;
+        tokenLength = 0;
+        return false;
     }
 
     private static bool TryGetSchemaRefId(IOpenApiSchema schema, out string? id)
