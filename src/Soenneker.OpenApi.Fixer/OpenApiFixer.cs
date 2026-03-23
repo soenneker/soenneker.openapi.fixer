@@ -950,6 +950,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         string trimmed = value.Trim();
 
+        if ((trimmed.StartsWith('{') && trimmed.EndsWith('}')) || (trimmed.StartsWith('[') && trimmed.EndsWith(']')))
+        {
+            try
+            {
+                JsonNode? parsed = JsonNode.Parse(trimmed);
+
+                if (parsed is JsonObject or JsonArray)
+                    return true;
+            }
+            catch (JsonException)
+            {
+                // Not actually JSON, continue with heuristic checks below.
+            }
+        }
+
         bool hasJsonDelimiters = trimmed.IndexOfAny(['{', '}', '[', ']']) >= 0;
         bool hasQuotedPropertyPattern = trimmed.Contains("\":", StringComparison.Ordinal) || trimmed.Contains("\": ", StringComparison.Ordinal);
         bool hasJsonFragmentMarkers = trimmed.Contains("{{", StringComparison.Ordinal) || trimmed.Contains("}}", StringComparison.Ordinal) ||
