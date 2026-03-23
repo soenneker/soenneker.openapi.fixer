@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -16,6 +17,8 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// </summary>
 public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
+    private static readonly SearchValues<char> AllowedIdPunctuation = SearchValues.Create("_-.");
+
     private readonly ILogger<OpenApiNamingFixer> _logger;
     private readonly IOpenApiReferenceFixer _referenceFixer;
 
@@ -385,7 +388,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
     /// <inheritdoc />
     public bool IsValidIdentifier(string id) =>
-        !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.');
+        !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || AllowedIdPunctuation.Contains(c));
 
     /// <inheritdoc />
     public string GenerateSafePart(string? input, string fallback = "unnamed")
