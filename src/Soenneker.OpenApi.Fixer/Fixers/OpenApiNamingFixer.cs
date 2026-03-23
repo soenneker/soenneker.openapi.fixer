@@ -127,7 +127,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    /// <inheritdoc />
     public void EnsureUniqueOperationIds(OpenApiDocument doc)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
