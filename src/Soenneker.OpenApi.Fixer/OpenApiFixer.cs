@@ -943,6 +943,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return value;
     }
 
+    private static bool LooksLikeMalformedStructuredEnumValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string trimmed = value.Trim();
+
+        bool hasJsonDelimiters = trimmed.IndexOfAny(['{', '}', '[', ']']) >= 0;
+        bool hasQuotedPropertyPattern = trimmed.Contains("\":", StringComparison.Ordinal) || trimmed.Contains("\": ", StringComparison.Ordinal);
+        bool hasJsonFragmentMarkers = trimmed.Contains("{{", StringComparison.Ordinal) || trimmed.Contains("}}", StringComparison.Ordinal) ||
+                                      trimmed.Contains('\n') || trimmed.Contains('\r');
+
+        return hasQuotedPropertyPattern || (hasJsonDelimiters && hasJsonFragmentMarkers);
+    }
+
 
     private void RemoveDeprecatedOperationsAndSchemas(OpenApiDocument document)
     {
@@ -3550,22 +3565,102 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
     /// <summary>
-    /// Fixes malformed enum values that have quoted strings (e.g., "\"Latency\"" instead of "Latency").
-    /// These malformed enums can cause Kiota to fail when trying to cast CodeEnum to CodeClass.
+    /// Fixes malformed enum values across the document.
+    /// This trims accidentally double-quoted string enums and drops enum entries that are really serialized JSON fragments.
+    /// Those malformed enums commonly surface in parameters and cause Kiota to emit invalid C# enums.
     /// </summary>
     private static void FixMalformedEnumValues(OpenApiDocument doc)
     {
-        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
-        if (comps is null || comps.Count == 0)
+        var visited = new HashSet<OpenApiSchema>();
+        IDictionary<string, IOpenApiSchema> comps = doc.Components?.Schemas ?? new Dictionary<string, IOpenApiSchema>();
+
+        void VisitSchema(IOpenApiSchema? schema)
+        {
+            if (schema is OpenApiSchema concreteSchema)
+                FixMalformedEnumValuesRecursive(concreteSchema, visited, comps);
+        }
+
+        if (doc.Components?.Schemas != null)
+        {
+            foreach (IOpenApiSchema schema in doc.Components.Schemas.Values)
+                VisitSchema(schema);
+        }
+
+        if (doc.Components?.Parameters != null)
+        {
+            foreach (IOpenApiParameter parameter in doc.Components.Parameters.Values)
+                VisitSchema(parameter?.Schema);
+        }
+
+        if (doc.Components?.Headers != null)
+        {
+            foreach (IOpenApiHeader header in doc.Components.Headers.Values)
+                VisitSchema(header?.Schema);
+        }
+
+        if (doc.Components?.RequestBodies != null)
+        {
+            foreach (IOpenApiRequestBody requestBody in doc.Components.RequestBodies.Values)
+            {
+                if (requestBody?.Content == null)
+                    continue;
+
+                foreach (IOpenApiMediaType mediaType in requestBody.Content.Values)
+                    VisitSchema(mediaType?.Schema);
+            }
+        }
+
+        if (doc.Components?.Responses != null)
+        {
+            foreach (IOpenApiResponse response in doc.Components.Responses.Values)
+            {
+                if (response?.Content == null)
+                    continue;
+
+                foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                    VisitSchema(mediaType?.Schema);
+            }
+        }
+
+        if (doc.Paths == null)
             return;
 
-        // Recursively fix malformed enum values in all schemas
-        var visited = new HashSet<OpenApiSchema>();
-        foreach (KeyValuePair<string, IOpenApiSchema> kvp in comps.ToList())
+        foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
         {
-            if (kvp.Value is OpenApiSchema schema)
+            if (pathItem?.Parameters != null)
             {
-                FixMalformedEnumValuesRecursive(schema, visited, comps);
+                foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    VisitSchema(parameter?.Schema);
+            }
+
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                if (operation?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        VisitSchema(parameter?.Schema);
+                }
+
+                if (operation?.RequestBody?.Content != null)
+                {
+                    foreach (IOpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                        VisitSchema(mediaType?.Schema);
+                }
+
+                if (operation?.Responses == null)
+                    continue;
+
+                foreach (IOpenApiResponse response in operation.Responses.Values)
+                {
+                    if (response?.Content == null)
+                        continue;
+
+                    foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                        VisitSchema(mediaType?.Schema);
+                }
             }
         }
     }
@@ -4365,12 +4460,22 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             bool hasMalformedValues = false;
             var cleanedEnum = new List<JsonNode>();
+            bool removedStructuredStringEnum = false;
+            bool hadStringEnums = false;
 
             foreach (JsonNode enumValue in schema.Enum)
             {
                 if (enumValue is JsonValue jsonValue && jsonValue.TryGetValue(out string? stringValue))
                 {
+                    hadStringEnums = true;
                     string trimmed = TrimQuotes(stringValue);
+                    if (LooksLikeMalformedStructuredEnumValue(trimmed))
+                    {
+                        hasMalformedValues = true;
+                        removedStructuredStringEnum = true;
+                        continue;
+                    }
+
                     if (!string.Equals(trimmed, stringValue, StringComparison.Ordinal))
                     {
                         cleanedEnum.Add(JsonValue.Create(trimmed));
@@ -4390,13 +4495,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             if (hasMalformedValues)
             {
-                // For inline schemas, we need to replace the enum values directly
-                // Clear the existing enum and add the cleaned values
-                schema.Enum.Clear();
-                foreach (JsonNode cleanedValue in cleanedEnum)
-                {
-                    schema.Enum.Add(cleanedValue);
-                }
+                schema.Enum = cleanedEnum.Count > 0 ? cleanedEnum : null;
+
+                if (removedStructuredStringEnum && schema.Type == null && hadStringEnums)
+                    schema.Type = JsonSchemaType.String;
             }
         }
 
