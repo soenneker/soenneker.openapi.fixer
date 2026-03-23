@@ -211,6 +211,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             InlinePrimitivePropertyRefs(document);
             EnsureInlineObjectTypes(document!);
+            EnsureNoNullSchemas(document);
 
             // Kiota (and some other generators) fail on duplicate branches in anyOf/oneOf/allOf (e.g. duplicated $ref entries).
             _schemaFixer.DeduplicateCompositionBranches(document);
@@ -2264,6 +2265,222 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
         };
+    }
+
+    private void EnsureNoNullSchemas(OpenApiDocument document)
+    {
+        if (document == null)
+            return;
+
+        static OpenApiSchema CreateFallbackSchema(string? description = null)
+        {
+            return new OpenApiSchema
+            {
+                Type = JsonSchemaType.Object,
+                AdditionalPropertiesAllowed = true,
+                Properties = new Dictionary<string, IOpenApiSchema>(),
+                Description = description
+            };
+        }
+
+        void VisitSchema(IOpenApiSchema? schema, HashSet<OpenApiSchema> visited)
+        {
+            if (schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return;
+
+            if (concreteSchema.Properties != null)
+            {
+                foreach (string propertyName in concreteSchema.Properties.Keys.ToList())
+                {
+                    if (concreteSchema.Properties[propertyName] == null)
+                    {
+                        concreteSchema.Properties.Remove(propertyName);
+                        concreteSchema.Required?.Remove(propertyName);
+                        continue;
+                    }
+
+                    VisitSchema(concreteSchema.Properties[propertyName], visited);
+                }
+            }
+
+            if (concreteSchema.Type == JsonSchemaType.Array && concreteSchema.Items == null)
+                concreteSchema.Items = CreateFallbackSchema("Fallback array item schema");
+            else if (concreteSchema.Items != null)
+                VisitSchema(concreteSchema.Items, visited);
+
+            if (concreteSchema.AdditionalProperties != null)
+                VisitSchema(concreteSchema.AdditionalProperties, visited);
+
+            static List<IOpenApiSchema>? RemoveNullBranches(IList<IOpenApiSchema>? branches) =>
+                branches?.Where(branch => branch != null)
+                        .ToList();
+
+            concreteSchema.AllOf = RemoveNullBranches(concreteSchema.AllOf);
+            concreteSchema.AnyOf = RemoveNullBranches(concreteSchema.AnyOf);
+            concreteSchema.OneOf = RemoveNullBranches(concreteSchema.OneOf);
+
+            if (concreteSchema.AllOf != null)
+            {
+                foreach (IOpenApiSchema branch in concreteSchema.AllOf)
+                    VisitSchema(branch, visited);
+            }
+
+            if (concreteSchema.AnyOf != null)
+            {
+                foreach (IOpenApiSchema branch in concreteSchema.AnyOf)
+                    VisitSchema(branch, visited);
+            }
+
+            if (concreteSchema.OneOf != null)
+            {
+                foreach (IOpenApiSchema branch in concreteSchema.OneOf)
+                    VisitSchema(branch, visited);
+            }
+        }
+
+        void EnsureContentSchemas(IDictionary<string, IOpenApiMediaType>? content, string context)
+        {
+            if (content == null)
+                return;
+
+            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in content)
+            {
+                if (mediaInterface is not OpenApiMediaType media)
+                    continue;
+
+                if (media.Schema == null)
+                {
+                    _logger.LogWarning("Injecting fallback schema for null media schema at {Context} ({MediaType})", context, mediaType);
+                    media.Schema = CreateFallbackSchema("Fallback media schema");
+                }
+
+                VisitSchema(media.Schema, []);
+            }
+        }
+
+        void EnsureParameterSchema(IOpenApiParameter? parameter, string context)
+        {
+            if (parameter is not OpenApiParameter concreteParameter)
+                return;
+
+            if (concreteParameter.Schema == null)
+            {
+                _logger.LogWarning("Injecting fallback schema for null parameter schema at {Context}", context);
+                concreteParameter.Schema = CreateFallbackSchema("Fallback parameter schema");
+            }
+
+            VisitSchema(concreteParameter.Schema, []);
+        }
+
+        void EnsureHeaderSchema(IOpenApiHeader? header, string context)
+        {
+            if (header is not OpenApiHeader concreteHeader)
+                return;
+
+            if (concreteHeader.Schema == null)
+            {
+                _logger.LogWarning("Injecting fallback schema for null header schema at {Context}", context);
+                concreteHeader.Schema = CreateFallbackSchema("Fallback header schema");
+            }
+
+            VisitSchema(concreteHeader.Schema, []);
+        }
+
+        if (document.Components?.Schemas != null)
+        {
+            foreach (string key in document.Components.Schemas.Keys.ToList())
+            {
+                IOpenApiSchema? schema = document.Components.Schemas[key];
+                if (schema == null)
+                {
+                    _logger.LogWarning("Injecting fallback component schema for null schema '{SchemaName}'", key);
+                    document.Components.Schemas[key] = CreateFallbackSchema($"Fallback component schema for {key}");
+                    continue;
+                }
+
+                VisitSchema(schema, []);
+            }
+        }
+
+        if (document.Components?.Parameters != null)
+        {
+            foreach ((string key, IOpenApiParameter parameter) in document.Components.Parameters)
+                EnsureParameterSchema(parameter, $"components.parameters.{key}");
+        }
+
+        if (document.Components?.Headers != null)
+        {
+            foreach ((string key, IOpenApiHeader header) in document.Components.Headers)
+                EnsureHeaderSchema(header, $"components.headers.{key}");
+        }
+
+        if (document.Components?.RequestBodies != null)
+        {
+            foreach ((string key, IOpenApiRequestBody requestBody) in document.Components.RequestBodies)
+            {
+                if (requestBody?.Content != null)
+                    EnsureContentSchemas(requestBody.Content, $"components.requestBodies.{key}");
+            }
+        }
+
+        if (document.Components?.Responses != null)
+        {
+            foreach ((string key, IOpenApiResponse response) in document.Components.Responses)
+            {
+                if (response?.Content != null)
+                    EnsureContentSchemas(response.Content, $"components.responses.{key}");
+
+                if (response?.Headers != null)
+                {
+                    foreach ((string headerName, IOpenApiHeader header) in response.Headers)
+                        EnsureHeaderSchema(header, $"components.responses.{key}.headers.{headerName}");
+                }
+            }
+        }
+
+        if (document.Paths == null)
+            return;
+
+        foreach ((string pathKey, IOpenApiPathItem pathItem) in document.Paths)
+        {
+            if (pathItem?.Parameters != null)
+            {
+                foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    EnsureParameterSchema(parameter, $"paths.{pathKey}.parameters");
+            }
+
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach ((HttpMethod method, OpenApiOperation operation) in pathItem.Operations)
+            {
+                string context = $"paths.{pathKey}.{method}";
+
+                if (operation?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        EnsureParameterSchema(parameter, $"{context}.parameters");
+                }
+
+                if (operation?.RequestBody?.Content != null)
+                    EnsureContentSchemas(operation.RequestBody.Content, $"{context}.requestBody");
+
+                if (operation?.Responses == null)
+                    continue;
+
+                foreach ((string statusCode, IOpenApiResponse response) in operation.Responses)
+                {
+                    if (response?.Content != null)
+                        EnsureContentSchemas(response.Content, $"{context}.responses.{statusCode}");
+
+                    if (response?.Headers != null)
+                    {
+                        foreach ((string headerName, IOpenApiHeader header) in response.Headers)
+                            EnsureHeaderSchema(header, $"{context}.responses.{statusCode}.headers.{headerName}");
+                    }
+                }
+            }
+        }
     }
 
     private void AddComponentSchema(OpenApiDocument doc, string compName, OpenApiSchema schema)
