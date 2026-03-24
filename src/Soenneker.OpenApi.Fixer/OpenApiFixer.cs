@@ -1826,8 +1826,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                         if (resp.Value is OpenApiResponse concreteResp && resp.Value.Content != null)
                         {
-                            concreteResp.Content = resp.Value.Content.Where(p => p.Key != null && p.Value != null)
-                                                       .ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
+                            concreteResp.Content = NormalizeMediaTypes(resp.Value.Content);
                         }
 
                         _referenceFixer.ScrubBrokenRefs(resp.Value.Content, document);
@@ -1881,8 +1880,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (rb.Content != null)
                     {
                         // In v2.3, we can't modify the content directly, so we need to create a new request body
-                        Dictionary<string, IOpenApiMediaType>? normalizedContent = rb.Content.Where(p => p.Key != null && p.Value != null)
-                                                                                     .ToDictionary(p => NormalizeMediaType(p.Key), p => p.Value);
+                        Dictionary<string, IOpenApiMediaType>? normalizedContent = NormalizeMediaTypes(rb.Content);
 
                         _referenceFixer.ScrubBrokenRefs(normalizedContent, document);
                         Dictionary<string, IOpenApiMediaType>? validRb = normalizedContent
@@ -2737,6 +2735,50 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (baseType.Contains('*') || !baseType.Contains('/'))
             return "application/json";
         return baseType;
+    }
+
+    private Dictionary<string, IOpenApiMediaType> NormalizeMediaTypes(IDictionary<string, IOpenApiMediaType> content)
+    {
+        var normalized = new Dictionary<string, IOpenApiMediaType>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (KeyValuePair<string, IOpenApiMediaType> entry in content)
+        {
+            if (entry.Key == null || entry.Value == null)
+                continue;
+
+            string normalizedKey = NormalizeMediaType(entry.Key);
+
+            if (normalized.TryGetValue(normalizedKey, out IOpenApiMediaType? existing))
+            {
+                normalized[normalizedKey] = SelectPreferredMediaType(existing, entry.Value, normalizedKey, entry.Key);
+                continue;
+            }
+
+            normalized[normalizedKey] = entry.Value;
+        }
+
+        return normalized;
+    }
+
+    private IOpenApiMediaType SelectPreferredMediaType(IOpenApiMediaType existing, IOpenApiMediaType candidate, string normalizedKey, string originalKey)
+    {
+        bool existingEmpty = IsMediaEmpty(existing);
+        bool candidateEmpty = IsMediaEmpty(candidate);
+
+        if (existingEmpty && !candidateEmpty)
+        {
+            _logger.LogDebug("Replacing empty media type '{MediaType}' while normalizing duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+            return candidate;
+        }
+
+        if (!existingEmpty && candidateEmpty)
+        {
+            _logger.LogDebug("Keeping non-empty media type '{MediaType}' while skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+            return existing;
+        }
+
+        _logger.LogDebug("Keeping first normalized media type '{MediaType}' and skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+        return existing;
     }
 
     private static bool IsMediaEmpty(IOpenApiMediaType media)
