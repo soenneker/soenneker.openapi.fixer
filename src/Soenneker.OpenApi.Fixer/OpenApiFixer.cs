@@ -200,6 +200,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             LogState("After STAGE 4E: StripEmptyEnumBranches", document);
 
             _schemaFixer.FixInvalidDefaults(document);
+            RemoveStringDefaultsFromUuidSchemas(document);
             LogState("After STAGE 4F: FixInvalidDefaults", document);
 
             FixAllInlineValueEnums(document);
@@ -3442,6 +3443,72 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
+    private static void RemoveStringDefaultsFromUuidSchemas(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null || document.Components.Schemas.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema == null || !visited.Add(schema))
+                return;
+
+            if (schema is not OpenApiSchema concrete)
+                return;
+
+            if (concrete.Type == JsonSchemaType.String &&
+                (string.Equals(concrete.Format, "uuid", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(concrete.Format, "uuid4", StringComparison.OrdinalIgnoreCase)) &&
+                concrete.Default is JsonValue defaultValue &&
+                defaultValue.GetValueKind() == JsonValueKind.String)
+            {
+                concrete.Default = null;
+            }
+
+            if (concrete.Properties != null)
+            {
+                foreach (IOpenApiSchema propSchema in concrete.Properties.Values)
+                {
+                    Visit(propSchema);
+                }
+            }
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AllOf)
+                    Visit(child);
+            }
+
+            if (concrete.OneOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.OneOf)
+                    Visit(child);
+            }
+
+            if (concrete.AnyOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AnyOf)
+                    Visit(child);
+            }
+
+            if (concrete.Not != null)
+                Visit(concrete.Not);
+        }
+
+        foreach (IOpenApiSchema root in document.Components.Schemas.Values)
+        {
+            Visit(root);
+        }
+    }
+
     private static bool IsSchemaRef(IOpenApiSchema s) => TryGetSchemaRefId(s, out _);
 
     private static string? GetSchemaRefId(IOpenApiSchema s) => TryGetSchemaRefId(s, out string? id) ? id : null;
@@ -5013,7 +5080,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         else if (s is OpenApiSchema inline)
                         {
                             // Inline error body: patch it locally.
-                            CoerceMessageArrayToString(inline);
+                            NormalizeErrorBody(inline);
                         }
                     }
                 }
@@ -5027,11 +5094,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
         foreach (string id in targetIds)
         {
             if (doc.Components.Schemas.TryGetValue(id, out IOpenApiSchema? schema) && schema is OpenApiSchema os)
-                CoerceMessageArrayToString(os);
+                NormalizeErrorBody(os);
         }
 
         // --- local helper ---
-        static void CoerceMessageArrayToString(OpenApiSchema container)
+        void NormalizeErrorBody(OpenApiSchema container)
         {
             if (container is null)
                 return;
@@ -5054,8 +5121,78 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 container.Properties["message"] = replacement;
             }
 
-            // No recursive rewrite: we don’t mutate nested children unless they are
-            // themselves direct error bodies (handled when collected from responses).
+            // Kiota can generate a broken ApiException.Message override for wrappers shaped like
+            // { errors: [ { message: "..." } ] }. Adding a root-level message property steers
+            // generation toward a safe string-backed override while preserving the array payload.
+            if (container.Properties is { } containerProps &&
+                !containerProps.ContainsKey("message") &&
+                containerProps.TryGetValue("errors", out IOpenApiSchema? errorsSchema) &&
+                TryGetArrayItemSchema(errorsSchema, out IOpenApiSchema? itemSchema) &&
+                HasDirectStringMessage(itemSchema, new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance)))
+            {
+                containerProps["message"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Description = "The primary error message."
+                };
+            }
+        }
+
+        bool TryGetArrayItemSchema(IOpenApiSchema? schema, out IOpenApiSchema? itemSchema)
+        {
+            itemSchema = null;
+
+            if (schema == null)
+                return false;
+
+            if (schema is OpenApiSchemaReference schemaRef &&
+                schemaRef.Reference.Type == ReferenceType.Schema &&
+                !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
+                doc.Components.Schemas.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? referencedSchema))
+            {
+                return TryGetArrayItemSchema(referencedSchema, out itemSchema);
+            }
+
+            if (schema is not OpenApiSchema concrete || concrete.Type != JsonSchemaType.Array || concrete.Items == null)
+                return false;
+
+            itemSchema = concrete.Items;
+            return true;
+        }
+
+        bool HasDirectStringMessage(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
+        {
+            if (schema == null || !visited.Add(schema))
+                return false;
+
+            if (schema is OpenApiSchemaReference schemaRef &&
+                schemaRef.Reference.Type == ReferenceType.Schema &&
+                !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
+                doc.Components.Schemas.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? referencedSchema))
+            {
+                return HasDirectStringMessage(referencedSchema, visited);
+            }
+
+            if (schema is not OpenApiSchema concrete)
+                return false;
+
+            if (concrete.Properties is { } props &&
+                props.TryGetValue("message", out IOpenApiSchema? messageSchema))
+            {
+                if (messageSchema is OpenApiSchemaReference messageRef &&
+                    messageRef.Reference.Type == ReferenceType.Schema &&
+                    !string.IsNullOrWhiteSpace(messageRef.Reference.Id) &&
+                    doc.Components.Schemas.TryGetValue(messageRef.Reference.Id, out IOpenApiSchema? referencedMessageSchema))
+                {
+                    return referencedMessageSchema is OpenApiSchema referencedMessageConcrete &&
+                           referencedMessageConcrete.Type == JsonSchemaType.String;
+                }
+
+                if (messageSchema is OpenApiSchema concreteMessage && concreteMessage.Type == JsonSchemaType.String)
+                    return true;
+            }
+
+            return false;
         }
     }
 
