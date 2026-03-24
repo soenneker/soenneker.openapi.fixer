@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Soenneker.OpenApi.Fixer.Abstract;
@@ -9,4 +9,6 @@ public interface IOpenApiFixer
 
     ValueTask GenerateKiota(string fixedPath, string clientName, string libraryName, string targetDir,
         CancellationToken cancellationToken = default);
+
+    ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken = default);
 }
