@@ -264,6 +264,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             _schemaFixer.DeduplicateCompositionBranches(document);
 
             _schemaFixer.CleanDocumentForSerialization(document);
+            StripEmptyPropertyNames(document);
 
             LogDanglingOrPrimitivePropertyRefs(document!);
 
@@ -5055,6 +5056,81 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // No recursive rewrite: we don’t mutate nested children unless they are
             // themselves direct error bodies (handled when collected from responses).
+        }
+    }
+
+    private void StripEmptyPropertyNames(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        foreach ((string schemaName, IOpenApiSchema schema) in doc.Components.Schemas)
+        {
+            StripEmptyPropertyNames(schema, $"#/components/schemas/{schemaName}", visited);
+        }
+    }
+
+    private void StripEmptyPropertyNames(IOpenApiSchema? schema, string location, HashSet<IOpenApiSchema> visited)
+    {
+        if (schema == null || !visited.Add(schema) || schema is not OpenApiSchema concreteSchema)
+            return;
+
+        if (concreteSchema.Properties is { Count: > 0 })
+        {
+            string[] invalidKeys = concreteSchema.Properties.Keys.Where(string.IsNullOrWhiteSpace)
+                                              .ToArray();
+
+            foreach (string invalidKey in invalidKeys)
+            {
+                concreteSchema.Properties.Remove(invalidKey);
+                _logger.LogWarning("Removed invalid empty property name from schema at '{Location}'.", location);
+            }
+
+            if (invalidKeys.Length > 0 && concreteSchema.Required is { Count: > 0 })
+            {
+                concreteSchema.Required = concreteSchema.Required.Where(required => !string.IsNullOrWhiteSpace(required))
+                                                     .ToHashSet(StringComparer.Ordinal);
+
+                if (concreteSchema.Required.Count == 0)
+                    concreteSchema.Required = null;
+            }
+
+            foreach ((string propertyName, IOpenApiSchema propertySchema) in concreteSchema.Properties.ToList())
+            {
+                StripEmptyPropertyNames(propertySchema, $"{location}/properties/{propertyName}", visited);
+            }
+        }
+
+        if (concreteSchema.Items != null)
+            StripEmptyPropertyNames(concreteSchema.Items, $"{location}/items", visited);
+
+        if (concreteSchema.AdditionalProperties != null)
+            StripEmptyPropertyNames(concreteSchema.AdditionalProperties, $"{location}/additionalProperties", visited);
+
+        if (concreteSchema.AllOf != null)
+        {
+            for (var i = 0; i < concreteSchema.AllOf.Count; i++)
+            {
+                StripEmptyPropertyNames(concreteSchema.AllOf[i], $"{location}/allOf/{i}", visited);
+            }
+        }
+
+        if (concreteSchema.AnyOf != null)
+        {
+            for (var i = 0; i < concreteSchema.AnyOf.Count; i++)
+            {
+                StripEmptyPropertyNames(concreteSchema.AnyOf[i], $"{location}/anyOf/{i}", visited);
+            }
+        }
+
+        if (concreteSchema.OneOf != null)
+        {
+            for (var i = 0; i < concreteSchema.OneOf.Count; i++)
+            {
+                StripEmptyPropertyNames(concreteSchema.OneOf[i], $"{location}/oneOf/{i}", visited);
+            }
         }
     }
 
