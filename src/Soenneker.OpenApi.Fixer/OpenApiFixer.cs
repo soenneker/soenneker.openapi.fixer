@@ -282,6 +282,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
 
+            // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
+            json = InjectKiotaEnumValueNames(json);
+
             await _fileUtil.Write(targetFilePath, json, cancellationToken: cancellationToken);
 
             _logger.LogInformation($"Cleaned OpenAPI spec saved to {targetFilePath}");
@@ -2874,6 +2877,183 @@ public sealed class OpenApiFixer : IOpenApiFixer
         json = System.Text.RegularExpressions.Regex.Replace(json, @"\bFalse\s*\]", "false]");
 
         return json;
+    }
+
+    private string InjectKiotaEnumValueNames(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+
+        JsonNode? root;
+
+        try
+        {
+            root = JsonNode.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when injecting Kiota enum names");
+            return json;
+        }
+
+        if (root is null)
+            return json;
+
+        bool changed = InjectKiotaEnumValueNames(root, null);
+
+        return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+    }
+
+    private static bool InjectKiotaEnumValueNames(JsonNode? node, string? suggestedName)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+            {
+                bool changed = TryInjectKiotaEnumValueNames(obj, suggestedName);
+
+                foreach ((string key, JsonNode? child) in obj)
+                {
+                    switch (key)
+                    {
+                        case "schemas":
+                        case "properties":
+                            if (child is JsonObject namedChildren)
+                            {
+                                foreach ((string childName, JsonNode? namedChild) in namedChildren)
+                                {
+                                    changed |= InjectKiotaEnumValueNames(namedChild, childName);
+                                }
+                            }
+                            break;
+                        case "items":
+                            changed |= InjectKiotaEnumValueNames(child, $"{suggestedName ?? "Item"}Item");
+                            break;
+                        case "additionalProperties":
+                            changed |= InjectKiotaEnumValueNames(child, $"{suggestedName ?? "AdditionalProperty"}AdditionalProperty");
+                            break;
+                        default:
+                            changed |= InjectKiotaEnumValueNames(child, suggestedName);
+                            break;
+                    }
+                }
+
+                return changed;
+            }
+            case JsonArray array:
+            {
+                bool changed = false;
+
+                foreach (JsonNode? child in array)
+                {
+                    changed |= InjectKiotaEnumValueNames(child, suggestedName);
+                }
+
+                return changed;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryInjectKiotaEnumValueNames(JsonObject schemaObject, string? suggestedName)
+    {
+        if (schemaObject["enum"] is not JsonArray enumArray || enumArray.Count == 0)
+            return false;
+
+        var namesToInject = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (JsonNode? enumNode in enumArray)
+        {
+            if (enumNode is not JsonValue enumValue || !enumValue.TryGetValue(out string? enumText) || !ShouldInjectKiotaEnumName(enumText))
+                continue;
+
+            namesToInject[enumText] = BuildSafeEnumMemberName(enumText);
+        }
+
+        if (namesToInject.Count == 0)
+            return false;
+
+        bool changed = false;
+        JsonObject xMsEnum = schemaObject["x-ms-enum"] as JsonObject ?? new JsonObject();
+
+        if (schemaObject["x-ms-enum"] is null)
+        {
+            schemaObject["x-ms-enum"] = xMsEnum;
+            changed = true;
+        }
+
+        if (xMsEnum["name"] is null)
+        {
+            xMsEnum["name"] = BuildSafeEnumMemberName(suggestedName ?? "GeneratedEnum");
+            changed = true;
+        }
+
+        if (xMsEnum["modelAsString"] is null)
+        {
+            xMsEnum["modelAsString"] = false;
+            changed = true;
+        }
+
+        JsonArray valuesArray = xMsEnum["values"] as JsonArray ?? new JsonArray();
+
+        if (xMsEnum["values"] is null)
+        {
+            xMsEnum["values"] = valuesArray;
+            changed = true;
+        }
+
+        foreach ((string enumValue, string enumName) in namesToInject)
+        {
+            JsonObject? existingValue = valuesArray
+                                        .OfType<JsonObject>()
+                                        .FirstOrDefault(valueObject =>
+                                            valueObject["value"] is JsonValue value &&
+                                            value.TryGetValue(out string? existingEnumValue) &&
+                                            string.Equals(existingEnumValue, enumValue, StringComparison.Ordinal));
+
+            if (existingValue is null)
+            {
+                valuesArray.Add(new JsonObject
+                {
+                    ["value"] = enumValue,
+                    ["name"] = enumName
+                });
+                changed = true;
+                continue;
+            }
+
+            if (existingValue["name"] is not JsonValue nameValue ||
+                !nameValue.TryGetValue(out string? existingName) ||
+                string.IsNullOrWhiteSpace(existingName))
+            {
+                existingValue["name"] = enumName;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool ShouldInjectKiotaEnumName(string enumValue)
+    {
+        if (string.IsNullOrWhiteSpace(enumValue))
+            return false;
+
+        bool hasNonWhitespace = false;
+
+        foreach (char character in enumValue)
+        {
+            if (char.IsWhiteSpace(character))
+                continue;
+
+            hasNonWhitespace = true;
+
+            if (char.IsLetterOrDigit(character))
+                return false;
+        }
+
+        return hasNonWhitespace;
     }
 
     private void EnsureSecuritySchemes(OpenApiDocument document)
