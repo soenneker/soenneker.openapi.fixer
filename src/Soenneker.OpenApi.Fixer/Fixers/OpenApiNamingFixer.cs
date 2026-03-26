@@ -263,6 +263,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
 
         var newPaths = new OpenApiPaths();
+        var signatureToCanonicalPath = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, IOpenApiPathItem> kvp in doc.Paths)
         {
             string originalPath = kvp.Key;
@@ -338,10 +339,150 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 newPath = originalPath.Replace("/item", "/item_by_id");
             }
 
+            newPath = NormalizeAliasedPathSegments(newPath);
+
+            if (newPaths.TryGetValue(newPath, out IOpenApiPathItem? existingPathItem))
+            {
+                MergePathItems(existingPathItem, kvp.Value, originalPath, newPath);
+                continue;
+            }
+
+            string pathSignature = NormalizePathSignature(newPath);
+
+            if (signatureToCanonicalPath.TryGetValue(pathSignature, out string? canonicalPath) && newPaths.TryGetValue(canonicalPath, out IOpenApiPathItem? canonicalPathItem))
+            {
+                RenamePathParametersToCanonicalNames(kvp.Value, newPath, canonicalPath);
+                MergePathItems(canonicalPathItem, kvp.Value, originalPath, canonicalPath);
+                continue;
+            }
+
             newPaths.Add(newPath, kvp.Value);
+            signatureToCanonicalPath[pathSignature] = newPath;
         }
 
         doc.Paths = newPaths;
+    }
+
+    private string NormalizeAliasedPathSegments(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        string normalized = path.Replace("/(-/)", "/", StringComparison.Ordinal)
+                                .Replace("/-/", "/", StringComparison.Ordinal);
+
+        while (normalized.Contains("//", StringComparison.Ordinal))
+        {
+            normalized = normalized.Replace("//", "/", StringComparison.Ordinal);
+        }
+
+        if (!string.Equals(path, normalized, StringComparison.Ordinal))
+        {
+            _logger.LogInformation("Canonicalized aliased path '{OriginalPath}' to '{NormalizedPath}'", path, normalized);
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizePathSignature(string path) => Regex.Replace(path, @"\{[^/]+\}", "{}", RegexOptions.CultureInvariant);
+
+    private void RenamePathParametersToCanonicalNames(IOpenApiPathItem pathItem, string incomingPath, string canonicalPath)
+    {
+        string[] incomingNames = GetPathParameterNames(incomingPath);
+        string[] canonicalNames = GetPathParameterNames(canonicalPath);
+
+        if (incomingNames.Length != canonicalNames.Length)
+            return;
+
+        var renameMap = incomingNames.Zip(canonicalNames, static (incoming, canonical) => new { incoming, canonical })
+                                     .Where(pair => !string.Equals(pair.incoming, pair.canonical, StringComparison.Ordinal))
+                                     .ToDictionary(pair => pair.incoming, pair => pair.canonical, StringComparer.OrdinalIgnoreCase);
+
+        if (renameMap.Count == 0)
+            return;
+
+        _logger.LogInformation("Merging same-signature path '{IncomingPath}' into canonical path '{CanonicalPath}'", incomingPath, canonicalPath);
+
+        if (pathItem.Parameters != null)
+        {
+            foreach (IOpenApiParameter parameter in pathItem.Parameters)
+            {
+                RenamePathParameter(parameter, renameMap);
+            }
+        }
+
+        if (pathItem.Operations == null)
+            return;
+
+        foreach (OpenApiOperation operation in pathItem.Operations.Values)
+        {
+            if (operation?.Parameters == null)
+                continue;
+
+            foreach (IOpenApiParameter parameter in operation.Parameters)
+            {
+                RenamePathParameter(parameter, renameMap);
+            }
+        }
+    }
+
+    private static string[] GetPathParameterNames(string path) => Regex.Matches(path, @"\{([^/]+)\}", RegexOptions.CultureInvariant)
+                                                                     .Select(match => match.Groups[1].Value)
+                                                                     .ToArray();
+
+    private static void RenamePathParameter(IOpenApiParameter parameter, IReadOnlyDictionary<string, string> renameMap)
+    {
+        if (parameter is not OpenApiParameter concreteParameter || concreteParameter.In != ParameterLocation.Path || string.IsNullOrWhiteSpace(concreteParameter.Name))
+            return;
+
+        if (renameMap.TryGetValue(concreteParameter.Name, out string? canonicalName))
+        {
+            concreteParameter.Name = canonicalName;
+        }
+    }
+
+    private void MergePathItems(IOpenApiPathItem existingPathItem, IOpenApiPathItem incomingPathItem, string originalPath, string normalizedPath)
+    {
+        if (existingPathItem is not OpenApiPathItem existingConcrete || incomingPathItem is not OpenApiPathItem incomingConcrete)
+        {
+            _logger.LogWarning("Unable to merge normalized path '{NormalizedPath}' from '{OriginalPath}' because one of the path items is not mutable.", normalizedPath,
+                originalPath);
+            return;
+        }
+
+        if (incomingConcrete.Operations != null)
+        {
+            existingConcrete.Operations ??= new Dictionary<HttpMethod, OpenApiOperation>();
+
+            foreach ((HttpMethod method, OpenApiOperation operation) in incomingConcrete.Operations)
+            {
+                if (existingConcrete.Operations.ContainsKey(method))
+                {
+                    _logger.LogInformation("Dropping duplicate {Method} operation from aliased path '{OriginalPath}' after normalization to '{NormalizedPath}'", method,
+                        originalPath, normalizedPath);
+                    continue;
+                }
+
+                existingConcrete.Operations[method] = operation;
+            }
+        }
+
+        if (incomingConcrete.Parameters != null)
+        {
+            existingConcrete.Parameters ??= new List<IOpenApiParameter>();
+
+            foreach (IOpenApiParameter parameter in incomingConcrete.Parameters)
+            {
+                bool alreadyExists = existingConcrete.Parameters.Any(existing =>
+                    existing?.In == parameter?.In &&
+                    string.Equals(existing?.Name, parameter?.Name, StringComparison.OrdinalIgnoreCase));
+
+                if (!alreadyExists)
+                {
+                    existingConcrete.Parameters.Add(parameter);
+                }
+            }
+        }
     }
 
     /// <inheritdoc />
