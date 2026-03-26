@@ -3213,8 +3213,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static bool ShouldInjectKiotaEnumName(string enumValue)
     {
-        if (string.IsNullOrWhiteSpace(enumValue))
+        if (string.IsNullOrEmpty(enumValue))
             return false;
+
+        if (enumValue.All(char.IsWhiteSpace))
+            return true;
 
         bool hasNonWhitespace = false;
 
@@ -3436,8 +3439,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static string BuildSafeEnumMemberName(string enumValue)
     {
-        if (string.IsNullOrWhiteSpace(enumValue))
+        if (string.IsNullOrEmpty(enumValue))
             return "EnumValue";
+
+        if (enumValue.All(char.IsWhiteSpace))
+            return BuildWhitespaceOnlyEnumMemberName(enumValue);
 
         if (MultiCharacterEnumTokens.TryGetValue(enumValue, out string? combinedToken))
             return combinedToken;
@@ -3509,6 +3515,29 @@ public sealed class OpenApiFixer : IOpenApiFixer
         token = null;
         tokenLength = 0;
         return false;
+    }
+
+    private static string BuildWhitespaceOnlyEnumMemberName(string enumValue)
+    {
+        var builder = new StringBuilder(enumValue.Length * 8);
+
+        foreach (char character in enumValue)
+        {
+            builder.Append(character switch
+            {
+                ' ' => "Space",
+                '\t' => "Tab",
+                '\r' => "CarriageReturn",
+                '\n' => "LineFeed",
+                '\f' => "FormFeed",
+                '\v' => "VerticalTab",
+                _ when char.IsWhiteSpace(character) => "Whitespace",
+                _ => string.Empty
+            });
+        }
+
+        string sanitized = builder.ToString();
+        return string.IsNullOrWhiteSpace(sanitized) ? "EnumValue" : sanitized;
     }
 
     private static bool TryGetSchemaRefId(IOpenApiSchema schema, out string? id)
@@ -4340,6 +4369,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     os.Enum.Clear();
                     foreach (JsonNode e in filtered)
                         os.Enum.Add(e);
+
                 }
             }
 

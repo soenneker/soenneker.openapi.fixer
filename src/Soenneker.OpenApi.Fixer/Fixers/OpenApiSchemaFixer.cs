@@ -438,6 +438,13 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
 
                 if (defText is not null)
                 {
+                    if (string.IsNullOrWhiteSpace(defText))
+                    {
+                        concreteSchema.Default = null;
+                        _logger.LogWarning("Removed whitespace-only enum default on '{SchemaTitle}' because Kiota cannot emit a valid enum default reference", schema.Title ?? "(no title)");
+                    }
+                    else
+                    {
                     if (enumByText.TryGetValue(defText, out JsonNode? matchingEnumElement))
                     {
                         if (!ReferenceEquals(schema.Default, matchingEnumElement))
@@ -454,6 +461,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             concreteSchema.Default = first;
                             _logger.LogWarning("Replaced invalid enum default on '{SchemaTitle}' with first enum member", schema.Title ?? "(no title)");
                         }
+                    }
                     }
                 }
             }
