@@ -155,6 +155,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineSchemas(document!, cancellationToken);
             LogState("After STAGE 3A: Transformations", document!);
 
+            MergeAmbiguousOneOfSchemas(document!);
+            LogState("After STAGE 3A.1: MergeAmbiguousOneOfSchemas", document!);
+
             EnsureDiscriminatorForOneOf(document!);
 
             _logger.LogInformation("Removing shadowed untyped properties…");
@@ -546,6 +549,135 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 _logger.LogWarning("Could not cast schema to OpenApiSchema for discriminator injection");
             }
         }
+    }
+
+    private void MergeAmbiguousOneOfSchemas(OpenApiDocument doc)
+    {
+        if (doc == null)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+        int normalized = 0;
+
+        static void AddBranch(List<IOpenApiSchema> merged, HashSet<string> seenRefs, IOpenApiSchema? branch)
+        {
+            if (branch == null)
+                return;
+
+            if (TryGetSchemaRefId(branch, out string? refId) && !string.IsNullOrEmpty(refId))
+            {
+                if (!seenRefs.Add(refId))
+                    return;
+            }
+            else if (merged.Contains(branch))
+            {
+                return;
+            }
+
+            merged.Add(branch);
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema == null || !visited.Add(schema))
+                return;
+
+            if (schema is not OpenApiSchema concrete)
+                return;
+
+            if (concrete.OneOf is { Count: > 0 } oneOf && concrete.AnyOf is { Count: > 0 } anyOf)
+            {
+                var merged = new List<IOpenApiSchema>(oneOf.Count + anyOf.Count);
+                var seenRefs = new HashSet<string>(StringComparer.Ordinal);
+
+                foreach (IOpenApiSchema branch in oneOf)
+                    AddBranch(merged, seenRefs, branch);
+                foreach (IOpenApiSchema branch in anyOf)
+                    AddBranch(merged, seenRefs, branch);
+
+                concrete.OneOf = merged;
+                concrete.AnyOf = null;
+                normalized++;
+            }
+
+            if (concrete.Properties != null)
+            {
+                foreach (IOpenApiSchema property in concrete.Properties.Values)
+                    Visit(property);
+            }
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AllOf)
+                    Visit(child);
+            }
+
+            if (concrete.OneOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.OneOf)
+                    Visit(child);
+            }
+
+            if (concrete.AnyOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AnyOf)
+                    Visit(child);
+            }
+
+            if (concrete.Not != null)
+                Visit(concrete.Not);
+        }
+
+        if (doc.Components?.Schemas != null)
+        {
+            foreach (IOpenApiSchema schema in doc.Components.Schemas.Values)
+                Visit(schema);
+        }
+
+        if (doc.Paths != null)
+        {
+            foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+            {
+                if (pathItem?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                {
+                    if (operation?.RequestBody?.Content != null)
+                    {
+                        foreach (IOpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                            Visit(mediaType?.Schema);
+                    }
+
+                    if (operation?.Responses != null)
+                    {
+                        foreach (IOpenApiResponse response in operation.Responses.Values)
+                        {
+                            if (response?.Content == null)
+                                continue;
+
+                            foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                                Visit(mediaType?.Schema);
+                        }
+                    }
+
+                    if (operation?.Parameters != null)
+                    {
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                            Visit(parameter?.Schema);
+                    }
+                }
+            }
+        }
+
+        if (normalized > 0)
+            _logger.LogInformation("Normalized {Count} schemas that declared both oneOf and anyOf into a single oneOf union", normalized);
     }
 
     /// <summary>
