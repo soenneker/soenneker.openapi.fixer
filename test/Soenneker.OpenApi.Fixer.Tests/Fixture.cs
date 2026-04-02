@@ -4,7 +4,6 @@ using Serilog;
 using Soenneker.Fixtures.Unit;
 using Soenneker.Utils.Test;
 using Soenneker.OpenApi.Fixer.Registrars;
-using Soenneker.Utils.Directory.Registrars;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
 
@@ -27,7 +26,6 @@ public sealed class Fixture : UnitFixture
         IConfiguration config = TestUtil.BuildConfig();
         services.AddSingleton(config);
 
-        services.AddDirectoryUtilAsScoped();
         services.AddOpenApiFixerAsScoped();
     }
 }

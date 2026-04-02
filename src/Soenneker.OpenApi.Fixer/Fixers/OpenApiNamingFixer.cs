@@ -17,7 +17,7 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// </summary>
 public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
-    private static readonly SearchValues<char> AllowedIdPunctuation = SearchValues.Create("_-.");
+    private static readonly SearchValues<char> _allowedIdPunctuation = SearchValues.Create("_-.");
 
     private readonly ILogger<OpenApiNamingFixer> _logger;
     private readonly IOpenApiReferenceFixer _referenceFixer;
@@ -394,9 +394,9 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         if (incomingNames.Length != canonicalNames.Length)
             return;
 
-        var renameMap = incomingNames.Zip(canonicalNames, static (incoming, canonical) => new { incoming, canonical })
-                                     .Where(pair => !string.Equals(pair.incoming, pair.canonical, StringComparison.Ordinal))
-                                     .ToDictionary(pair => pair.incoming, pair => pair.canonical, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> renameMap = incomingNames.Zip(canonicalNames, static (incoming, canonical) => new { incoming, canonical })
+                                                            .Where(pair => !string.Equals(pair.incoming, pair.canonical, StringComparison.Ordinal))
+                                                            .ToDictionary(pair => pair.incoming, pair => pair.canonical, StringComparer.OrdinalIgnoreCase);
 
         if (renameMap.Count == 0)
             return;
@@ -528,7 +528,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
     /// <inheritdoc />
     public bool IsValidIdentifier(string id) =>
-        !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || AllowedIdPunctuation.Contains(c));
+        !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || _allowedIdPunctuation.Contains(c));
 
     /// <inheritdoc />
     public string GenerateSafePart(string? input, string fallback = "unnamed")

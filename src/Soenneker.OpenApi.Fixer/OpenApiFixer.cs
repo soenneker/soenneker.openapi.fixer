@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Utils.Process.Abstract;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,7 +15,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using Soenneker.Extensions.Task;
-using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.OpenApi.Fixer.Abstract;
@@ -26,11 +24,11 @@ namespace Soenneker.OpenApi.Fixer;
 ///<inheritdoc cref="IOpenApiFixer"/>
 public sealed class OpenApiFixer : IOpenApiFixer
 {
-    private static readonly Regex GeneratedEnumMemberRegex = new(
+    private static readonly Regex _generatedEnumMemberRegex = new(
         @"(?<prefix>\[EnumMember\(Value = ""(?<value>(?:[^""\\]|\\.)*)""\)\]\s*#pragma warning disable CS1591\s*)(?<name>[^\r\n,]+)(?<suffix>,\s*#pragma warning restore CS1591)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static readonly Dictionary<string, string> MultiCharacterEnumTokens = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> _multiCharacterEnumTokens = new(StringComparer.Ordinal)
     {
         ["!="] = "ExclamationEqual",
         ["!~"] = "ExclamationTilde",
@@ -39,7 +37,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         ["=="] = "DoubleEqual"
     };
 
-    private static readonly Dictionary<char, string> EnumSymbolTokens = new()
+    private static readonly Dictionary<char, string> _enumSymbolTokens = new()
     {
         ['!'] = "Exclamation",
         ['"'] = "Quote",
@@ -75,25 +73,20 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private readonly ILogger<OpenApiFixer> _logger;
 
-    private readonly IProcessUtil _processUtil;
     private readonly IOpenApiDescriptionFixer _descriptionFixer;
     private readonly IOpenApiReferenceFixer _referenceFixer;
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
-    private readonly IDirectoryUtil _directoryUtil;
     private readonly IFileUtil _fileUtil;
 
-    public OpenApiFixer(ILogger<OpenApiFixer> logger, IProcessUtil processUtil, IOpenApiDescriptionFixer descriptionFixer,
-        IOpenApiReferenceFixer referenceFixer, IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer,
-        IDirectoryUtil directoryUtil, IFileUtil fileUtil)
+    public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
+        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IFileUtil fileUtil)
     {
         _logger = logger;
-        _processUtil = processUtil;
         _descriptionFixer = descriptionFixer;
         _referenceFixer = referenceFixer;
         _namingFixer = namingFixer;
         _schemaFixer = schemaFixer;
-        _directoryUtil = directoryUtil;
         _fileUtil = fileUtil;
     }
 
@@ -3101,6 +3094,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                     changed |= InjectKiotaEnumValueNames(namedChild, childName);
                                 }
                             }
+
                             break;
                         case "items":
                             changed |= InjectKiotaEnumValueNames(child, $"{suggestedName ?? "Item"}Item");
@@ -3181,12 +3175,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach ((string enumValue, string enumName) in namesToInject)
         {
-            JsonObject? existingValue = valuesArray
-                                        .OfType<JsonObject>()
-                                        .FirstOrDefault(valueObject =>
-                                            valueObject["value"] is JsonValue value &&
-                                            value.TryGetValue(out string? existingEnumValue) &&
-                                            string.Equals(existingEnumValue, enumValue, StringComparison.Ordinal));
+            JsonObject? existingValue = valuesArray.OfType<JsonObject>()
+                                                   .FirstOrDefault(valueObject =>
+                                                       valueObject["value"] is JsonValue value && value.TryGetValue(out string? existingEnumValue) &&
+                                                       string.Equals(existingEnumValue, enumValue, StringComparison.Ordinal));
 
             if (existingValue is null)
             {
@@ -3199,9 +3191,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
-            if (existingValue["name"] is not JsonValue nameValue ||
-                !nameValue.TryGetValue(out string? existingName) ||
-                string.IsNullOrWhiteSpace(existingName))
+            if (existingValue["name"] is not JsonValue nameValue || !nameValue.TryGetValue(out string? existingName) || string.IsNullOrWhiteSpace(existingName))
             {
                 existingValue["name"] = enumName;
                 changed = true;
@@ -3347,19 +3337,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    public async ValueTask GenerateKiota(string fixedPath, string clientName, string libraryName, string targetDir,
-        CancellationToken cancellationToken = default)
-    {
-        await _directoryUtil.Create(targetDir, cancellationToken: cancellationToken).NoSync();
-
-        string outputDir = $"src/{libraryName}";
-        await _processUtil.Start("kiota", targetDir, $"generate -l CSharp -d \"{fixedPath}\" -o {outputDir} -c {clientName} -n {libraryName} --ebc --cc",
-                              waitForExit: true, cancellationToken: cancellationToken)
-                          .NoSync();
-
-        await SanitizeGeneratedEnumMembers(targetDir, cancellationToken).NoSync();
-    }
-
     public async ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken = default)
     {
         if (!Directory.Exists(generatedRoot))
@@ -3369,37 +3346,38 @@ public sealed class OpenApiFixer : IOpenApiFixer
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string original = await _fileUtil.Read(filePath, cancellationToken: cancellationToken).NoSync();
+            string original = await _fileUtil.Read(filePath, cancellationToken: cancellationToken)
+                                             .NoSync();
 
-            if (!original.Contains("GeneratedCode(\"Kiota\"", StringComparison.Ordinal) &&
-                !original.Contains("<auto-generated/>", StringComparison.Ordinal))
+            if (!original.Contains("GeneratedCode(\"Kiota\"", StringComparison.Ordinal) && !original.Contains("<auto-generated/>", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            string sanitized = SanitizeGeneratedEnumMembers(original);
+            string sanitized = SanitizeGeneratedEnumMembersForContent(original);
 
             if (!string.Equals(original, sanitized, StringComparison.Ordinal))
-                await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
+                await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken)
+                               .NoSync();
         }
     }
 
-    private static string SanitizeGeneratedEnumMembers(string fileContents)
+    private static string SanitizeGeneratedEnumMembersForContent(string fileContents)
     {
-        MatchCollection matches = GeneratedEnumMemberRegex.Matches(fileContents);
+        MatchCollection matches = _generatedEnumMemberRegex.Matches(fileContents);
 
         if (matches.Count == 0)
             return fileContents;
 
-        var usedNames = matches.Select(match => match.Groups["name"]
-                                                     .Value
-                                                     .Trim())
-                               .Where(name => name.Length > 0)
-                               .ToHashSet(StringComparer.Ordinal);
+        HashSet<string> usedNames = matches.Select(match => match.Groups["name"]
+                                                                 .Value.Trim())
+                                           .Where(name => name.Length > 0)
+                                           .ToHashSet(StringComparer.Ordinal);
 
-        return GeneratedEnumMemberRegex.Replace(fileContents, match =>
+        return _generatedEnumMemberRegex.Replace(fileContents, match =>
         {
-            string currentName = match.Groups["name"].Value.Trim();
+            string currentName = match.Groups["name"]
+                                      .Value.Trim();
 
             if (IsValidEnumMemberIdentifier(currentName))
                 return match.Value;
@@ -3432,7 +3410,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         do
         {
             uniqueCandidate = $"{safeCandidate}_{suffix++}";
-        } while (usedNames.Contains(uniqueCandidate));
+        }
+        while (usedNames.Contains(uniqueCandidate));
 
         return uniqueCandidate;
     }
@@ -3445,7 +3424,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (enumValue.All(char.IsWhiteSpace))
             return BuildWhitespaceOnlyEnumMemberName(enumValue);
 
-        if (MultiCharacterEnumTokens.TryGetValue(enumValue, out string? combinedToken))
+        if (_multiCharacterEnumTokens.TryGetValue(enumValue, out string? combinedToken))
             return combinedToken;
 
         var builder = new StringBuilder(enumValue.Length * 2);
@@ -3479,7 +3458,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
-            if (EnumSymbolTokens.TryGetValue(character, out string? symbolToken))
+            if (_enumSymbolTokens.TryGetValue(character, out string? symbolToken))
             {
                 builder.Append(symbolToken);
                 capitalizeNext = true;
@@ -3499,7 +3478,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private static bool TryGetMultiCharacterEnumToken(string value, int startIndex, out string? token, out int tokenLength)
     {
-        foreach ((string symbol, string mappedToken) in MultiCharacterEnumTokens)
+        foreach ((string symbol, string mappedToken) in _multiCharacterEnumTokens)
         {
             if (startIndex + symbol.Length > value.Length)
                 continue;
@@ -3602,11 +3581,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 foreach ((string propName, IOpenApiSchema propSchema) in concrete.Properties)
                 {
-                    if (propSchema is OpenApiSchema prop &&
-                        prop.Enum is { Count: > 0 } &&
-                        prop.Default is JsonValue defaultValue &&
-                        defaultValue.GetValueKind() == JsonValueKind.String &&
-                        string.Equals(propName, "type", StringComparison.OrdinalIgnoreCase))
+                    if (propSchema is OpenApiSchema prop && prop.Enum is { Count: > 0 } && prop.Default is JsonValue defaultValue &&
+                        defaultValue.GetValueKind() == JsonValueKind.String && string.Equals(propName, "type", StringComparison.OrdinalIgnoreCase))
                     {
                         prop.Default = null;
                     }
@@ -3663,8 +3639,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             if (concrete.Type == JsonSchemaType.String &&
                 (string.Equals(concrete.Format, "uuid", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(concrete.Format, "uuid4", StringComparison.OrdinalIgnoreCase)) &&
-                concrete.Default is JsonValue defaultValue &&
+                 string.Equals(concrete.Format, "uuid4", StringComparison.OrdinalIgnoreCase)) && concrete.Default is JsonValue defaultValue &&
                 defaultValue.GetValueKind() == JsonValueKind.String)
             {
                 concrete.Default = null;
@@ -4369,7 +4344,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     os.Enum.Clear();
                     foreach (JsonNode e in filtered)
                         os.Enum.Add(e);
-
                 }
             }
 
@@ -4904,8 +4878,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return true;
         }
 
-        if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id &&
-            comps.TryGetValue(id, out IOpenApiSchema? target) && target is OpenApiSchema targetSchema)
+        if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id && comps.TryGetValue(id, out IOpenApiSchema? target) &&
+            target is OpenApiSchema targetSchema)
         {
             resolved = targetSchema;
             return true;
@@ -4948,9 +4922,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         IOpenApiSchema Rewrite(IOpenApiSchema schema)
         {
-            if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id &&
-                comps.TryGetValue(id, out IOpenApiSchema? target) && target is OpenApiSchema targetSchema &&
-                IsPureMapSchema(targetSchema))
+            if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id && comps.TryGetValue(id, out IOpenApiSchema? target) &&
+                target is OpenApiSchema targetSchema && IsPureMapSchema(targetSchema))
             {
                 return new OpenApiSchema
                 {
@@ -5328,10 +5301,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Kiota can generate a broken ApiException.Message override for wrappers shaped like
             // { errors: [ { message: "..." } ] }. Adding a root-level message property steers
             // generation toward a safe string-backed override while preserving the array payload.
-            if (container.Properties is { } containerProps &&
-                !containerProps.ContainsKey("message") &&
-                containerProps.TryGetValue("errors", out IOpenApiSchema? errorsSchema) &&
-                TryGetArrayItemSchema(errorsSchema, out IOpenApiSchema? itemSchema) &&
+            if (container.Properties is { } containerProps && !containerProps.ContainsKey("message") &&
+                containerProps.TryGetValue("errors", out IOpenApiSchema? errorsSchema) && TryGetArrayItemSchema(errorsSchema, out IOpenApiSchema? itemSchema) &&
                 HasDirectStringMessage(itemSchema, new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance)))
             {
                 containerProps["message"] = new OpenApiSchema
@@ -5349,8 +5320,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema == null)
                 return false;
 
-            if (schema is OpenApiSchemaReference schemaRef &&
-                schemaRef.Reference.Type == ReferenceType.Schema &&
+            if (schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Type == ReferenceType.Schema &&
                 !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
                 doc.Components.Schemas.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? referencedSchema))
             {
@@ -5369,8 +5339,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema == null || !visited.Add(schema))
                 return false;
 
-            if (schema is OpenApiSchemaReference schemaRef &&
-                schemaRef.Reference.Type == ReferenceType.Schema &&
+            if (schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Type == ReferenceType.Schema &&
                 !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
                 doc.Components.Schemas.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? referencedSchema))
             {
@@ -5380,16 +5349,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema is not OpenApiSchema concrete)
                 return false;
 
-            if (concrete.Properties is { } props &&
-                props.TryGetValue("message", out IOpenApiSchema? messageSchema))
+            if (concrete.Properties is { } props && props.TryGetValue("message", out IOpenApiSchema? messageSchema))
             {
-                if (messageSchema is OpenApiSchemaReference messageRef &&
-                    messageRef.Reference.Type == ReferenceType.Schema &&
+                if (messageSchema is OpenApiSchemaReference messageRef && messageRef.Reference.Type == ReferenceType.Schema &&
                     !string.IsNullOrWhiteSpace(messageRef.Reference.Id) &&
                     doc.Components.Schemas.TryGetValue(messageRef.Reference.Id, out IOpenApiSchema? referencedMessageSchema))
                 {
-                    return referencedMessageSchema is OpenApiSchema referencedMessageConcrete &&
-                           referencedMessageConcrete.Type == JsonSchemaType.String;
+                    return referencedMessageSchema is OpenApiSchema referencedMessageConcrete && referencedMessageConcrete.Type == JsonSchemaType.String;
                 }
 
                 if (messageSchema is OpenApiSchema concreteMessage && concreteMessage.Type == JsonSchemaType.String)
@@ -5421,7 +5387,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (concreteSchema.Properties is { Count: > 0 })
         {
             string[] invalidKeys = concreteSchema.Properties.Keys.Where(string.IsNullOrWhiteSpace)
-                                              .ToArray();
+                                                 .ToArray();
 
             foreach (string invalidKey in invalidKeys)
             {
@@ -5432,7 +5398,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (invalidKeys.Length > 0 && concreteSchema.Required is { Count: > 0 })
             {
                 concreteSchema.Required = concreteSchema.Required.Where(required => !string.IsNullOrWhiteSpace(required))
-                                                     .ToHashSet(StringComparer.Ordinal);
+                                                        .ToHashSet(StringComparer.Ordinal);
 
                 if (concreteSchema.Required.Count == 0)
                     concreteSchema.Required = null;

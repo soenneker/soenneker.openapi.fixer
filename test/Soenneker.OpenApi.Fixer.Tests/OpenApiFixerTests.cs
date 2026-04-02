@@ -4,7 +4,6 @@ using Soenneker.Tests.FixturedUnit;
 using System.IO;
 using System.Threading.Tasks;
 using Soenneker.Facts.Manual;
-using Soenneker.Utils.Directory.Abstract;
 using Xunit;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
@@ -13,22 +12,19 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiFixerTests : FixturedUnitTest
 {
     private readonly IOpenApiFixer _util;
-    private readonly IDirectoryUtil _directoryUtil;
 
     public OpenApiFixerTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
     {
         _util = Resolve<IOpenApiFixer>(true);
-        _directoryUtil = Resolve<IDirectoryUtil>(true);
     }
 
     [Fact]
     public void Default()
     {
-
     }
 
     [ManualFact]
-   // [LocalFact]
+    // [LocalFact]
     public async ValueTask ProcessHubSpot()
     {
         const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";
@@ -39,10 +35,10 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(sourcePath, fixedPath, CancellationToken);
 
-        await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.Create(targetDir);
+        //await _directoryUtil.DeleteIfExists(targetDir);
+        //await _directoryUtil.Create(targetDir);
 
-        await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, CancellationToken);
     }
 
     [ManualFact]
@@ -56,10 +52,10 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, CancellationToken);
 
-        await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.Create(targetDir);
+        //await _directoryUtil.DeleteIfExists(targetDir);
+        //await _directoryUtil.Create(targetDir);
 
-        await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, CancellationToken);
     }
 
     [ManualFact]
@@ -73,10 +69,10 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, CancellationToken);
 
-        await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.Create(targetDir);
+        //await _directoryUtil.DeleteIfExists(targetDir);
+        //await _directoryUtil.Create(targetDir);
 
-        await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
     }
 
     [ManualFact]
@@ -90,9 +86,9 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
 
         await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
 
-        await _directoryUtil.DeleteIfExists(targetDir);
-        await _directoryUtil.Create(targetDir);
+        //await _directoryUtil.DeleteIfExists(targetDir);
+        //await _directoryUtil.Create(targetDir);
 
-        await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
     }
 }
