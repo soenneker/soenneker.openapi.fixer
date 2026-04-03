@@ -49,7 +49,7 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
         <PackageReference Include="Microsoft.OpenApi" Version="3.5.1" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2135" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2136" />
         <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.21" />
     </ItemGroup>
 </Project>
