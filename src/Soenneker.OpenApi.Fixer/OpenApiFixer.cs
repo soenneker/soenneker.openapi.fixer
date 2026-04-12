@@ -2730,6 +2730,54 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return $"{safeOpId}_{statusCode}";
     }
 
+    private static bool IsPrimitiveEnvelopeMetadata(IOpenApiSchema schema)
+    {
+        if (schema is OpenApiSchemaReference)
+            return false;
+
+        if (schema is not OpenApiSchema concreteSchema)
+            return false;
+
+        if (concreteSchema.Type == JsonSchemaType.Array)
+            return concreteSchema.Items is not OpenApiSchemaReference;
+
+        return concreteSchema.Type != JsonSchemaType.Object &&
+               concreteSchema.Properties?.Any() != true &&
+               concreteSchema.AllOf?.Any() != true &&
+               concreteSchema.AnyOf?.Any() != true &&
+               concreteSchema.OneOf?.Any() != true;
+    }
+
+    private static bool IsSimpleCollectionEnvelope(OpenApiSchema schema)
+    {
+        if (schema.Type != JsonSchemaType.Object || schema.Properties?.Any() != true)
+            return false;
+
+        int anchoredCollectionCount = 0;
+
+        foreach ((string _, IOpenApiSchema propertySchema) in schema.Properties)
+        {
+            if (propertySchema is OpenApiSchemaReference)
+            {
+                anchoredCollectionCount++;
+                continue;
+            }
+
+            if (propertySchema is OpenApiSchema concretePropertySchema &&
+                concretePropertySchema.Type == JsonSchemaType.Array &&
+                concretePropertySchema.Items is OpenApiSchemaReference)
+            {
+                anchoredCollectionCount++;
+                continue;
+            }
+
+            if (!IsPrimitiveEnvelopeMetadata(propertySchema))
+                return false;
+        }
+
+        return anchoredCollectionCount == 1;
+    }
+
     private void ExtractInlineSchemas(OpenApiDocument document, CancellationToken cancellationToken)
     {
         static bool IsSimpleEnvelope(OpenApiSchema s) =>
@@ -2828,6 +2876,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                 if (schemaResp == null || schemaResp is OpenApiSchemaReference)
                                     continue;
                                 if (schemaResp is OpenApiSchema concreteSchemaResp1 && IsSimpleEnvelope(concreteSchemaResp1))
+                                    continue;
+                                if (schemaResp is OpenApiSchema concreteSchemaRespEnvelope && IsSimpleCollectionEnvelope(concreteSchemaRespEnvelope))
                                     continue;
                                 if (schemaResp is not OpenApiSchema concreteSchemaResp2)
                                     continue;

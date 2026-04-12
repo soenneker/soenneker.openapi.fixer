@@ -217,6 +217,84 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [Fact]
+    public void ExtractInlineSchemas_should_not_promote_simple_collection_envelopes()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["ActionsSecret"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object
+                    }
+                }
+            },
+            Paths = new OpenApiPaths
+            {
+                ["/repos/{owner}/{repo}/actions/secrets"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new OpenApiOperation
+                        {
+                            OperationId = "ActionsListRepoSecrets",
+                            Responses = new OpenApiResponses
+                            {
+                                ["200"] = new OpenApiResponse
+                                {
+                                    Description = "Success",
+                                    Content = new Dictionary<string, IOpenApiMediaType>
+                                    {
+                                        ["application/json"] = new OpenApiMediaType
+                                        {
+                                            Schema = new OpenApiSchema
+                                            {
+                                                Type = JsonSchemaType.Object,
+                                                Required = new HashSet<string>
+                                                {
+                                                    "total_count",
+                                                    "secrets"
+                                                },
+                                                Properties = new Dictionary<string, IOpenApiSchema>
+                                                {
+                                                    ["total_count"] = new OpenApiSchema
+                                                    {
+                                                        Type = JsonSchemaType.Integer
+                                                    },
+                                                    ["secrets"] = new OpenApiSchema
+                                                    {
+                                                        Type = JsonSchemaType.Array,
+                                                        Items = new OpenApiSchemaReference("ActionsSecret")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, CancellationToken);
+
+        Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets200"));
+
+        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
+        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
+        var response = Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
+        var mediaType = Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
+        var inlineSchema = Assert.IsType<OpenApiSchema>(mediaType.Schema);
+
+        Assert.Equal(JsonSchemaType.Object, inlineSchema.Type);
+        Assert.True(inlineSchema.Properties.ContainsKey("secrets"));
+    }
+
+    [Fact]
     public void FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
     {
         var document = new OpenApiDocument
