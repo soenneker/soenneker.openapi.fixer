@@ -89,6 +89,67 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.Equal("GitTag", schemaReference.Reference.Id);
     }
 
+    [Fact]
+    public async ValueTask Fix_should_promote_inline_object_properties_to_pascalized_component_names()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "code-scanning-variant-analysis": {
+                                        "type": "object",
+                                        "properties": {
+                                          "skipped_repositories": {
+                                            "type": "object",
+                                            "properties": {
+                                              "not_found_repos": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "repository_count": {
+                                                    "type": "integer"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+
+            await _util.Fix(sourcePath, targetPath, CancellationToken);
+
+            string fixedSpec = await File.ReadAllTextAsync(targetPath, CancellationToken);
+
+            Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositories\": {", fixedSpec);
+            Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\": {", fixedSpec);
+            Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositories\"", fixedSpec);
+            Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\"", fixedSpec);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
     [ManualFact]
     // [LocalFact]
     public async ValueTask ProcessHubSpot()

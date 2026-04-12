@@ -145,6 +145,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             WrapPrimitiveRequestBodies(document!);
 
             ExtractInlineArrayItemSchemas(document!);
+            ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
             LogState("After STAGE 3A: Transformations", document!);
 
@@ -2688,12 +2689,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
-    private void AddComponentSchema(OpenApiDocument doc, string compName, OpenApiSchema schema)
+    private string AddComponentSchema(OpenApiDocument doc, string compName, OpenApiSchema schema)
     {
         if (string.IsNullOrWhiteSpace(compName))
         {
             _logger.LogWarning("Skipped adding a component schema because its generated name was empty.");
-            return;
+            return string.Empty;
         }
 
         string validatedName = _namingFixer.ValidateComponentName(compName);
@@ -2703,6 +2704,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // In v2.3, Title is read-only, so we can't modify it directly
             doc.Components.Schemas[validatedName] = schema;
         }
+
+        return validatedName;
     }
 
     private void ExtractInlineSchemas(OpenApiDocument document, CancellationToken cancellationToken)
@@ -2773,9 +2776,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             var baseName = $"{safeOpId}";
                             string compName = ReserveUniqueSchemaName(comps, baseName, $"RequestBody_{safeMedia}");
 
+                            string finalComponentName = compName;
+
                             if (schemaReq is OpenApiSchema concreteSchemaReq2)
-                                AddComponentSchema(document, compName, concreteSchemaReq2);
-                            media.Schema = new OpenApiSchemaReference(compName);
+                                finalComponentName = AddComponentSchema(document, compName, concreteSchemaReq2);
+
+                            media.Schema = new OpenApiSchemaReference(finalComponentName);
                         }
                     }
 
@@ -2806,15 +2812,65 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                 var baseName = $"{safeOpId}_{statusCode}";
                                 string compName = ReserveUniqueSchemaName(comps, baseName, $"Response_{safeMedia}");
 
+                                string finalComponentName = compName;
+
                                 if (schemaResp is OpenApiSchema concreteSchemaResp2)
-                                    AddComponentSchema(document, compName, concreteSchemaResp2);
-                                media.Schema = new OpenApiSchemaReference(compName);
+                                    finalComponentName = AddComponentSchema(document, compName, concreteSchemaResp2);
+
+                                media.Schema = new OpenApiSchemaReference(finalComponentName);
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private void ExtractInlineObjectPropertySchemas(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas == null)
+            return;
+
+        bool changed;
+
+        do
+        {
+            changed = false;
+
+            foreach ((string schemaName, IOpenApiSchema schemaInterface) in document.Components.Schemas.ToList())
+            {
+                if (schemaInterface is not OpenApiSchema schema || schema.Properties == null)
+                    continue;
+
+                foreach ((string propertyName, IOpenApiSchema propertySchemaInterface) in schema.Properties.ToList())
+                {
+                    if (propertySchemaInterface is not OpenApiSchema propertySchema || propertySchemaInterface is OpenApiSchemaReference)
+                        continue;
+
+                    bool hasInlineObjectShape = propertySchema.Type == JsonSchemaType.Object ||
+                                                propertySchema.Properties?.Any() == true ||
+                                                propertySchema.AllOf?.Any() == true ||
+                                                propertySchema.AnyOf?.Any() == true ||
+                                                propertySchema.OneOf?.Any() == true;
+
+                    if (!hasInlineObjectShape)
+                        continue;
+
+                    string baseName = $"{schemaName}_{propertyName}";
+                    string reservedName = ReserveUniqueSchemaName(document.Components.Schemas, baseName, "Property");
+                    string finalComponentName = AddComponentSchema(document, reservedName, propertySchema);
+
+                    if (string.IsNullOrWhiteSpace(finalComponentName))
+                        continue;
+
+                    schema.Properties[propertyName] = new OpenApiSchemaReference(finalComponentName);
+                    changed = true;
+
+                    _logger.LogInformation("Promoted inline property schema '{Schema}.{Property}' to components schema '{ComponentName}'",
+                        schemaName, propertyName, finalComponentName);
+                }
+            }
+        } while (changed);
     }
 
     private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
@@ -3282,7 +3338,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (document?.Components?.Schemas == null)
             return;
 
-        var newSchemas = new Dictionary<string, OpenApiSchema>();
         var counter = 0;
 
         foreach ((string? schemaName, IOpenApiSchema? schema) in document.Components.Schemas.ToList())
@@ -3296,44 +3351,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
 
             var itemName = $"{schemaName}_item";
-            while (document.Components.Schemas.ContainsKey(itemName) || newSchemas.ContainsKey(itemName))
+            while (document.Components.Schemas.ContainsKey(itemName))
             {
                 itemName = $"{schemaName}_item_{++counter}";
             }
 
-            if (itemsSchema is OpenApiSchema concreteItemsSchema)
-            {
-                // In v2.3, Title is read-only, so we need to create a new schema
-                var newSchema = new OpenApiSchema
-                {
-                    Type = concreteItemsSchema.Type,
-                    Properties = concreteItemsSchema.Properties,
-                    Required = concreteItemsSchema.Required,
-                    Description = concreteItemsSchema.Description,
-                    Format = concreteItemsSchema.Format,
-                    Enum = concreteItemsSchema.Enum,
-                    Items = concreteItemsSchema.Items,
-                    AdditionalProperties = concreteItemsSchema.AdditionalProperties,
-                    AllOf = concreteItemsSchema.AllOf,
-                    OneOf = concreteItemsSchema.OneOf,
-                    AnyOf = concreteItemsSchema.AnyOf,
-                    Discriminator = concreteItemsSchema.Discriminator,
-                    Title = itemName
-                };
-                newSchemas[itemName] = newSchema;
-            }
-
             if (schema is OpenApiSchema concreteSchema)
             {
-                concreteSchema.Items = new OpenApiSchemaReference(itemName);
+                string finalItemName = itemName;
+
+                if (itemsSchema is OpenApiSchema concreteItemsSchema)
+                    finalItemName = AddComponentSchema(document, itemName, concreteItemsSchema);
+
+                concreteSchema.Items = new OpenApiSchemaReference(finalItemName);
             }
 
-            _logger.LogInformation("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName, itemName);
-        }
-
-        foreach ((string key, OpenApiSchema val) in newSchemas)
-        {
-            document.Components.Schemas[key] = val;
+            _logger.LogInformation("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
+                _namingFixer.ValidateComponentName(itemName));
         }
     }
 
