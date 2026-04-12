@@ -295,6 +295,58 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [Fact]
+    public void ExtractInlineObjectPropertySchemas_should_not_promote_composed_collection_properties()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["WorkersBindings"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Array,
+                        Items = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.Object
+                        }
+                    },
+                    ["WorkersNamespaceScriptAndVersionSettingsItem"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["bindings"] = new OpenApiSchema
+                            {
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchemaReference("WorkersBindings"),
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.Array,
+                                        Items = new OpenApiSchema
+                                        {
+                                            Type = JsonSchemaType.Object
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
+
+        Assert.False(document.Components.Schemas.ContainsKey("WorkersNamespaceScriptAndVersionSettingsItemBindings"));
+
+        var container = Assert.IsType<OpenApiSchema>(document.Components.Schemas["WorkersNamespaceScriptAndVersionSettingsItem"]);
+        Assert.NotNull(container.Properties);
+        Assert.IsType<OpenApiSchema>(container.Properties["bindings"]);
+    }
+
+    [Fact]
     public void FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
     {
         var document = new OpenApiDocument

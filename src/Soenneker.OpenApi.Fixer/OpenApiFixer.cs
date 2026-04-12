@@ -2904,6 +2904,37 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (document.Components?.Schemas == null)
             return;
 
+        static bool IsPromotableInlineObjectShape(IOpenApiSchema schema)
+        {
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema)
+                return false;
+
+            bool hasOwnObjectMembers = concreteSchema.Properties?.Any() == true ||
+                                       concreteSchema.AdditionalProperties is OpenApiSchema ||
+                                       concreteSchema.PatternProperties?.Any() == true;
+
+            if (concreteSchema.Type == JsonSchemaType.Object && hasOwnObjectMembers)
+                return true;
+
+            static bool BranchesContainPromotableInlineObject(IList<IOpenApiSchema>? branches)
+            {
+                if (branches == null)
+                    return false;
+
+                foreach (IOpenApiSchema branch in branches)
+                {
+                    if (IsPromotableInlineObjectShape(branch))
+                        return true;
+                }
+
+                return false;
+            }
+
+            return BranchesContainPromotableInlineObject(concreteSchema.AllOf) ||
+                   BranchesContainPromotableInlineObject(concreteSchema.AnyOf) ||
+                   BranchesContainPromotableInlineObject(concreteSchema.OneOf);
+        }
+
         bool changed;
 
         do
@@ -2920,13 +2951,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (propertySchemaInterface is not OpenApiSchema propertySchema || propertySchemaInterface is OpenApiSchemaReference)
                         continue;
 
-                    bool hasInlineObjectShape = propertySchema.Type == JsonSchemaType.Object ||
-                                                propertySchema.Properties?.Any() == true ||
-                                                propertySchema.AllOf?.Any() == true ||
-                                                propertySchema.AnyOf?.Any() == true ||
-                                                propertySchema.OneOf?.Any() == true;
-
-                    if (!hasInlineObjectShape)
+                    if (!IsPromotableInlineObjectShape(propertySchema))
                         continue;
 
                     string baseName = $"{schemaName}_{propertyName}";
