@@ -1,11 +1,14 @@
 using Microsoft.OpenApi;
 using Soenneker.Facts.Local;
+using Soenneker.OpenApi.Fixer;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.Tests.FixturedUnit;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading.Tasks;
 using Soenneker.Facts.Manual;
 using Xunit;
@@ -148,6 +151,136 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
             File.Delete(sourcePath);
             File.Delete(targetPath);
         }
+    }
+
+    [Fact]
+    public void ExtractInlineSchemas_should_preserve_semantic_response_schema_titles()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>()
+            },
+            Paths = new OpenApiPaths
+            {
+                ["/repos/{owner}/{repo}/actions/secrets"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new OpenApiOperation
+                        {
+                            OperationId = "ActionsListRepoSecrets",
+                            Responses = new OpenApiResponses
+                            {
+                                ["200"] = new OpenApiResponse
+                                {
+                                    Description = "Success",
+                                    Content = new Dictionary<string, IOpenApiMediaType>
+                                    {
+                                        ["application/json"] = new OpenApiMediaType
+                                        {
+                                            Schema = new OpenApiSchema
+                                            {
+                                                Title = "Repository Secrets",
+                                                Type = JsonSchemaType.Object,
+                                                Properties = new Dictionary<string, IOpenApiSchema>
+                                                {
+                                                    ["total_count"] = new OpenApiSchema
+                                                    {
+                                                        Type = JsonSchemaType.Integer
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, CancellationToken);
+
+        Assert.True(document.Components.Schemas.ContainsKey("RepositorySecrets"));
+        Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets_200"));
+
+        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
+        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
+        var response = Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
+        var mediaType = Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
+        var schemaReference = Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
+
+        Assert.Equal("RepositorySecrets", schemaReference.Reference.Id);
+    }
+
+    [Fact]
+    public void FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["CreateWidgetapplicationJson"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["name"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.String
+                            }
+                        }
+                    }
+                }
+            },
+            Paths = new OpenApiPaths
+            {
+                ["/widgets"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Post] = new OpenApiOperation
+                        {
+                            OperationId = "CreateWidget",
+                            RequestBody = new OpenApiRequestBody
+                            {
+                                Content = new Dictionary<string, IOpenApiMediaType>
+                                {
+                                    ["application/json"] = new OpenApiMediaType
+                                    {
+                                        Schema = new OpenApiSchemaReference("CreateWidgetapplicationJson")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "FixContentTypeWrapperCollisions", document);
+
+        Assert.False(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson"));
+        Assert.True(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson_Body"));
+
+        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/widgets"]);
+        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Post]);
+        var mediaType = Assert.IsType<OpenApiMediaType>(operation.RequestBody.Content["application/json"]);
+        var schemaReference = Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
+
+        Assert.Equal("CreateWidgetapplicationJson_Body", schemaReference.Reference.Id);
+    }
+
+    private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
+    {
+        MethodInfo method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.NotNull(method);
+        method.Invoke(target, args);
     }
 
     [ManualFact]

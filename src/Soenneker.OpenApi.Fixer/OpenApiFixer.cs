@@ -423,14 +423,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             foreach ((string media, IOpenApiMediaType mt) in op.RequestBody.Content)
             {
-                var expectedWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
-                if (doc.Components.Schemas.ContainsKey(expectedWrapperName))
+                string rawWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
+                string normalizedWrapperName = _namingFixer.ValidateComponentName(rawWrapperName);
+                string? existingWrapperName = doc.Components.Schemas.ContainsKey(rawWrapperName)
+                    ? rawWrapperName
+                    : doc.Components.Schemas.ContainsKey(normalizedWrapperName)
+                        ? normalizedWrapperName
+                        : null;
+
+                if (existingWrapperName != null && doc.Components.Schemas.TryGetValue(existingWrapperName, out IOpenApiSchema? schema))
                 {
-                    string newName = ReserveUniqueSchemaName(doc.Components.Schemas, expectedWrapperName, "Body");
-                    _logger.LogWarning("Schema '{Old}' collides with Kiota wrapper in operation '{Op}'. Renaming to '{New}'.", expectedWrapperName,
+                    string newName = ReserveUniqueSchemaName(doc.Components.Schemas, existingWrapperName, "Body");
+                    _logger.LogWarning("Schema '{Old}' collides with Kiota wrapper in operation '{Op}'. Renaming to '{New}'.", existingWrapperName,
                         op.OperationId!, newName);
 
-                    renameMap[expectedWrapperName] = newName;
+                    doc.Components.Schemas.Remove(existingWrapperName);
+                    doc.Components.Schemas[newName] = schema;
+                    renameMap[existingWrapperName] = newName;
                 }
             }
         }
@@ -2708,6 +2717,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return validatedName;
     }
 
+    private string DetermineInlineResponseComponentBaseName(OpenApiSchema schema, string safeOpId, string statusCode)
+    {
+        if (!string.IsNullOrWhiteSpace(schema.Title))
+        {
+            string titleBasedName = _namingFixer.ValidateComponentName(schema.Title);
+
+            if (!string.IsNullOrWhiteSpace(titleBasedName))
+                return titleBasedName;
+        }
+
+        return $"{safeOpId}_{statusCode}";
+    }
+
     private void ExtractInlineSchemas(OpenApiDocument document, CancellationToken cancellationToken)
     {
         static bool IsSimpleEnvelope(OpenApiSchema s) =>
@@ -2807,15 +2829,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                     continue;
                                 if (schemaResp is OpenApiSchema concreteSchemaResp1 && IsSimpleEnvelope(concreteSchemaResp1))
                                     continue;
+                                if (schemaResp is not OpenApiSchema concreteSchemaResp2)
+                                    continue;
 
                                 string safeMedia = _namingFixer.ValidateComponentName(_namingFixer.GenerateSafePart(mediaType, "media"));
-                                var baseName = $"{safeOpId}_{statusCode}";
+                                string baseName = DetermineInlineResponseComponentBaseName(concreteSchemaResp2, safeOpId, statusCode);
                                 string compName = ReserveUniqueSchemaName(comps, baseName, $"Response_{safeMedia}");
 
                                 string finalComponentName = compName;
 
-                                if (schemaResp is OpenApiSchema concreteSchemaResp2)
-                                    finalComponentName = AddComponentSchema(document, compName, concreteSchemaResp2);
+                                finalComponentName = AddComponentSchema(document, compName, concreteSchemaResp2);
 
                                 media.Schema = new OpenApiSchemaReference(finalComponentName);
                             }
