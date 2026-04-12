@@ -490,16 +490,8 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     {
         if (string.IsNullOrWhiteSpace(input))
             return string.Empty;
-        using var psb = new PooledStringBuilder(input.Length);
-        foreach (char c in input)
-        {
-            if (char.IsLetterOrDigit(c) || c == '_')
-                psb.Append(c);
-            else
-                psb.Append('_');
-        }
 
-        return psb.ToString();
+        return SanitizeComponentIdentifier(input);
     }
 
     /// <summary>
@@ -551,14 +543,41 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             return "UnnamedComponent";
         }
 
-        string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+        return SanitizeComponentIdentifier(name);
+    }
 
-        if (!char.IsLetter(sanitized[0]))
+    private static string SanitizeComponentIdentifier(string input)
+    {
+        using var psb = new PooledStringBuilder(input.Length);
+
+        bool nextAlphaNumericStartsNewPart = true;
+
+        foreach (char c in input)
         {
-            sanitized = "C" + sanitized;
+            if (!char.IsLetterOrDigit(c))
+            {
+                nextAlphaNumericStartsNewPart = true;
+                continue;
+            }
+
+            if (psb.Length == 0 && !char.IsLetter(c))
+            {
+                psb.Append('C');
+            }
+
+            if (nextAlphaNumericStartsNewPart && char.IsLetter(c))
+            {
+                psb.Append(char.ToUpperInvariant(c));
+            }
+            else
+            {
+                psb.Append(c);
+            }
+
+            nextAlphaNumericStartsNewPart = false;
         }
 
-        return sanitized;
+        return psb.ToString();
     }
 }
 
