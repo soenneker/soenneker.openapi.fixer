@@ -40,6 +40,8 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
         foreach (string key in schemas.Keys.ToList())
         {
+            existingKeys.Remove(key);
+
             // Use strict validation suitable for Kiota: only [A-Za-z0-9_] and starts with a letter.
             // Also rename if our canonical validation would change the name.
             string validated = ValidateComponentName(key);
@@ -66,6 +68,10 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 mapping[key] = newKey;
                 existingKeys.Add(newKey);
                 _logger.LogInformation("Renamed schema '{OldName}' to '{NewName}'", key, newKey);
+            }
+            else
+            {
+                existingKeys.Add(key);
             }
         }
 
@@ -96,6 +102,8 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
         foreach (string key in schemas.Keys.ToList())
         {
+            existingKeys.Remove(key);
+
             if (!IsValidIdentifier(key))
             {
                 string baseName = SanitizeName(key);
@@ -111,6 +119,10 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
                 mapping[key] = newKey;
                 existingKeys.Add(newKey);
+            }
+            else
+            {
+                existingKeys.Add(key);
             }
         }
 

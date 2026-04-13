@@ -93,6 +93,39 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [Fact]
+    public void RenameInvalidComponentSchemas_should_not_suffix_when_only_conflict_is_same_key_different_case()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["artifact"] = new OpenApiSchema
+                    {
+                        Title = "Artifact",
+                        Type = JsonSchemaType.Object
+                    },
+                    ["repository"] = new OpenApiSchema
+                    {
+                        Title = "Repository",
+                        Type = JsonSchemaType.Object
+                    }
+                }
+            }
+        };
+
+        _namingFixer.RenameInvalidComponentSchemas(document);
+
+        Assert.True(document.Components.Schemas.ContainsKey("Artifact"));
+        Assert.True(document.Components.Schemas.ContainsKey("Repository"));
+        Assert.False(document.Components.Schemas.ContainsKey("Artifact_1"));
+        Assert.False(document.Components.Schemas.ContainsKey("Repository_1"));
+        Assert.False(document.Components.Schemas.ContainsKey("artifact"));
+        Assert.False(document.Components.Schemas.ContainsKey("repository"));
+    }
+
+    [Fact]
     public async ValueTask Fix_should_promote_inline_object_properties_to_pascalized_component_names()
     {
         string sourcePath = Path.GetTempFileName();
