@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Soenneker.Facts.Manual;
 using Xunit;
@@ -178,6 +179,205 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
             Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\": {", fixedSpec);
             Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositories\"", fixedSpec);
             Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\"", fixedSpec);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Fact]
+    public async ValueTask Fix_should_not_transform_int32_id_fields_by_default()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/widgets/{widgetId}": {
+                                      "get": {
+                                        "operationId": "GetWidget",
+                                        "parameters": [
+                                          {
+                                            "name": "widgetId",
+                                            "in": "path",
+                                            "required": true,
+                                            "schema": {
+                                              "type": "integer",
+                                              "format": "int32"
+                                            }
+                                          },
+                                          {
+                                            "name": "page",
+                                            "in": "query",
+                                            "schema": {
+                                              "type": "integer",
+                                              "format": "int32"
+                                            }
+                                          }
+                                        ],
+                                        "responses": {
+                                          "200": {
+                                            "description": "Success",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "$ref": "#/components/schemas/Widget"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "Widget": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          },
+                                          "organizationId": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          },
+                                          "count": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+
+            await _util.Fix(sourcePath, targetPath, CancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "id"));
+            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "organizationId"));
+            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
+            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
+            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Fact]
+    public async ValueTask Fix_should_transform_int32_id_fields_when_option_enabled()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/widgets/{widgetId}": {
+                                      "get": {
+                                        "operationId": "GetWidget",
+                                        "parameters": [
+                                          {
+                                            "name": "widgetId",
+                                            "in": "path",
+                                            "required": true,
+                                            "schema": {
+                                              "type": "integer",
+                                              "format": "int32"
+                                            }
+                                          },
+                                          {
+                                            "name": "page",
+                                            "in": "query",
+                                            "schema": {
+                                              "type": "integer",
+                                              "format": "int32"
+                                            }
+                                          }
+                                        ],
+                                        "responses": {
+                                          "200": {
+                                            "description": "Success",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "$ref": "#/components/schemas/Widget"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "Widget": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          },
+                                          "organizationId": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          },
+                                          "count": {
+                                            "type": "integer",
+                                            "format": "int32"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
+            {
+                Int32IdTransform = true
+            }, CancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "id"));
+            Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "organizationId"));
+            Assert.Equal("int64", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
+            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
+            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
         }
         finally
         {
@@ -444,6 +644,29 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         MethodInfo method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!;
         Assert.NotNull(method);
         method.Invoke(target, args);
+    }
+
+    private static async ValueTask<JsonNode> ReadJsonNode(string path)
+    {
+        string contents = await File.ReadAllTextAsync(path);
+        return JsonNode.Parse(contents)!;
+    }
+
+    private static string? GetComponentPropertyFormat(JsonNode root, string schemaName, string propertyName)
+    {
+        return root["components"]?["schemas"]?[schemaName]?["properties"]?[propertyName]?["format"]?.GetValue<string>();
+    }
+
+    private static string? GetOperationParameterFormat(JsonNode root, string path, string httpMethod, string parameterName)
+    {
+        JsonArray? parameters = root["paths"]?[path]?[httpMethod]?["parameters"] as JsonArray;
+
+        JsonObject? parameter = parameters?
+                                .OfType<JsonNode>()
+                                .Select(node => node as JsonObject)
+                                .FirstOrDefault(node => string.Equals(node?["name"]?.GetValue<string>(), parameterName, System.StringComparison.Ordinal));
+
+        return parameter?["schema"]?["format"]?.GetValue<string>();
     }
 
     [ManualFact]

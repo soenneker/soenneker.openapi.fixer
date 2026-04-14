@@ -77,23 +77,32 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiReferenceFixer _referenceFixer;
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
+    private readonly IOpenApiInt32IdFixer _int32IdFixer;
     private readonly IFileUtil _fileUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
-        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IFileUtil fileUtil)
+        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IFileUtil fileUtil)
     {
         _logger = logger;
         _descriptionFixer = descriptionFixer;
         _referenceFixer = referenceFixer;
         _namingFixer = namingFixer;
         _schemaFixer = schemaFixer;
+        _int32IdFixer = int32IdFixer;
         _fileUtil = fileUtil;
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
     {
+        await Fix(sourceFilePath, targetFilePath, null, cancellationToken).NoSync();
+    }
+
+    public async ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default)
+    {
         try
         {
+            options ??= new OpenApiFixerOptions();
+
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
             await ReadAndValidateOpenApi(sourceFilePath, cancellationToken)
                 .NoSync();
@@ -257,6 +266,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             InlinePrimitivePropertyRefs(document);
             EnsureInlineObjectTypes(document!);
             EnsureNoNullSchemas(document);
+
+            if (options.Int32IdTransform)
+            {
+                _int32IdFixer.Transform(document);
+                LogState("After STAGE 6A: TransformInt32IdsToInt64", document);
+            }
 
             // Kiota (and some other generators) fail on duplicate branches in anyOf/oneOf/allOf (e.g. duplicated $ref entries).
             _schemaFixer.DeduplicateCompositionBranches(document);

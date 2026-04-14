@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Text.RegularExpressions;
 using Soenneker.Utils.PooledStringBuilders;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
+using Soenneker.Extensions.String;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -28,7 +29,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         _referenceFixer = referenceFixer;
     }
 
-    /// <inheritdoc />
     public void RenameInvalidComponentSchemas(OpenApiDocument document)
     {
         IDictionary<string, IOpenApiSchema>? schemas = document.Components?.Schemas;
@@ -166,7 +166,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                     }
 
                     operation.OperationId = uniqueId;
-                    _logger.LogDebug($"Assigned deterministic OperationId: {operation.OperationId}");
+                    _logger.LogDebug("Assigned deterministic OperationId: {OperationId}", operation.OperationId);
                 }
                 else
                 {
@@ -212,7 +212,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    /// <inheritdoc />
     public void ResolveSchemaOperationNameCollisions(OpenApiDocument doc)
     {
         if (doc.Components?.Schemas == null || doc.Paths == null)
@@ -251,9 +250,8 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         {
             foreach ((string oldKey, string newKey) in mapping)
             {
-                if (doc.Components.Schemas.TryGetValue(oldKey, out IOpenApiSchema? schema))
+                if (doc.Components.Schemas.Remove(oldKey, out IOpenApiSchema? schema))
                 {
-                    doc.Components.Schemas.Remove(oldKey);
                     // In v2.3, Title is read-only, so we can't modify it directly
                     doc.Components.Schemas[newKey] = schema;
                 }
@@ -513,8 +511,9 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     /// <inheritdoc />
     public string NormalizeOperationId(string input)
     {
-        if (string.IsNullOrWhiteSpace(input))
+        if (input.IsNullOrWhiteSpace())
             return string.Empty;
+
         // Remove parentheses segments like (-deprecated)
         string noParens = Regex.Replace(input, "[()]+", string.Empty);
         // Replace any non-alphanumeric with '-'
