@@ -94,7 +94,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
     {
-        await Fix(sourceFilePath, targetFilePath, null, cancellationToken).NoSync();
+        await Fix(sourceFilePath, targetFilePath, null, cancellationToken)
+            .NoSync();
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default)
@@ -440,11 +441,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 string rawWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
                 string normalizedWrapperName = _namingFixer.ValidateComponentName(rawWrapperName);
-                string? existingWrapperName = doc.Components.Schemas.ContainsKey(rawWrapperName)
-                    ? rawWrapperName
-                    : doc.Components.Schemas.ContainsKey(normalizedWrapperName)
-                        ? normalizedWrapperName
-                        : null;
+                string? existingWrapperName = doc.Components.Schemas.ContainsKey(rawWrapperName) ? rawWrapperName :
+                    doc.Components.Schemas.ContainsKey(normalizedWrapperName) ? normalizedWrapperName : null;
 
                 if (existingWrapperName != null && doc.Components.Schemas.TryGetValue(existingWrapperName, out IOpenApiSchema? schema))
                 {
@@ -2756,11 +2754,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (concreteSchema.Type == JsonSchemaType.Array)
             return concreteSchema.Items is not OpenApiSchemaReference;
 
-        return concreteSchema.Type != JsonSchemaType.Object &&
-               concreteSchema.Properties?.Any() != true &&
-               concreteSchema.AllOf?.Any() != true &&
-               concreteSchema.AnyOf?.Any() != true &&
-               concreteSchema.OneOf?.Any() != true;
+        return concreteSchema.Type != JsonSchemaType.Object && concreteSchema.Properties?.Any() != true && concreteSchema.AllOf?.Any() != true &&
+               concreteSchema.AnyOf?.Any() != true && concreteSchema.OneOf?.Any() != true;
     }
 
     private static bool IsSimpleCollectionEnvelope(OpenApiSchema schema)
@@ -2778,8 +2773,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
-            if (propertySchema is OpenApiSchema concretePropertySchema &&
-                concretePropertySchema.Type == JsonSchemaType.Array &&
+            if (propertySchema is OpenApiSchema concretePropertySchema && concretePropertySchema.Type == JsonSchemaType.Array &&
                 concretePropertySchema.Items is OpenApiSchemaReference)
             {
                 anchoredCollectionCount++;
@@ -2924,8 +2918,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema)
                 return false;
 
-            bool hasOwnObjectMembers = concreteSchema.Properties?.Any() == true ||
-                                       concreteSchema.AdditionalProperties is OpenApiSchema ||
+            bool hasOwnObjectMembers = concreteSchema.Properties?.Any() == true || concreteSchema.AdditionalProperties is OpenApiSchema ||
                                        concreteSchema.PatternProperties?.Any() == true;
 
             if (concreteSchema.Type == JsonSchemaType.Object && hasOwnObjectMembers)
@@ -2945,8 +2938,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 return false;
             }
 
-            return BranchesContainPromotableInlineObject(concreteSchema.AllOf) ||
-                   BranchesContainPromotableInlineObject(concreteSchema.AnyOf) ||
+            return BranchesContainPromotableInlineObject(concreteSchema.AllOf) || BranchesContainPromotableInlineObject(concreteSchema.AnyOf) ||
                    BranchesContainPromotableInlineObject(concreteSchema.OneOf);
         }
 
@@ -2979,11 +2971,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     schema.Properties[propertyName] = new OpenApiSchemaReference(finalComponentName);
                     changed = true;
 
-                    _logger.LogInformation("Promoted inline property schema '{Schema}.{Property}' to components schema '{ComponentName}'",
-                        schemaName, propertyName, finalComponentName);
+                    _logger.LogInformation("Promoted inline property schema '{Schema}.{Property}' to components schema '{ComponentName}'", schemaName,
+                        propertyName, finalComponentName);
                 }
             }
-        } while (changed);
+        }
+        while (changed);
     }
 
     private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
