@@ -1,9 +1,9 @@
 using Microsoft.OpenApi;
-using Soenneker.Facts.Local;
+using Soenneker.Tests.Attributes.Local;
 using Soenneker.OpenApi.Fixer;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
-using Soenneker.Tests.FixturedUnit;
+using Soenneker.Tests.HostedUnit;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -12,28 +12,27 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Soenneker.Facts.Manual;
-using Xunit;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
 
-[Collection("Collection")]
-public sealed class OpenApiFixerTests : FixturedUnitTest
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public sealed class OpenApiFixerTests : HostedUnitTest
 {
     private readonly IOpenApiFixer _util;
     private readonly IOpenApiNamingFixer _namingFixer;
 
-    public OpenApiFixerTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public OpenApiFixerTests(Host host) : base(host)
     {
         _util = Resolve<IOpenApiFixer>(true);
         _namingFixer = Resolve<IOpenApiNamingFixer>(true);
     }
 
-    [Fact]
+    [Test]
     public void Default()
     {
     }
 
-    [Fact]
+    [Test]
     public void RenameInvalidComponentSchemas_should_pascalize_separator_based_schema_names_and_update_refs()
     {
         var document = new OpenApiDocument
@@ -93,7 +92,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.Equal("GitTag", schemaReference.Reference.Id);
     }
 
-    [Fact]
+    [Test]
     public void RenameInvalidComponentSchemas_should_not_suffix_when_only_conflict_is_same_key_different_case()
     {
         var document = new OpenApiDocument
@@ -126,7 +125,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.False(document.Components.Schemas.ContainsKey("repository"));
     }
 
-    [Fact]
+    [Test]
     public async ValueTask Fix_should_promote_inline_object_properties_to_pascalized_component_names()
     {
         string sourcePath = Path.GetTempFileName();
@@ -187,7 +186,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         }
     }
 
-    [Fact]
+    [Test]
     public async ValueTask Fix_should_not_transform_int32_id_fields_by_default()
     {
         string sourcePath = Path.GetTempFileName();
@@ -285,7 +284,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         }
     }
 
-    [Fact]
+    [Test]
     public async ValueTask Fix_should_transform_int32_id_fields_when_option_enabled()
     {
         string sourcePath = Path.GetTempFileName();
@@ -386,7 +385,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         }
     }
 
-    [Fact]
+    [Test]
     public void ExtractInlineSchemas_should_preserve_semantic_response_schema_titles()
     {
         var document = new OpenApiDocument
@@ -449,7 +448,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.Equal("RepositorySecrets", schemaReference.Reference.Id);
     }
 
-    [Fact]
+    [Test]
     public void ExtractInlineSchemas_should_not_promote_simple_collection_envelopes()
     {
         var document = new OpenApiDocument
@@ -527,7 +526,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.True(inlineSchema.Properties.ContainsKey("secrets"));
     }
 
-    [Fact]
+    [Test]
     public void ExtractInlineObjectPropertySchemas_should_not_promote_composed_collection_properties()
     {
         var document = new OpenApiDocument
@@ -579,7 +578,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
         Assert.IsType<OpenApiSchema>(container.Properties["bindings"]);
     }
 
-    [Fact]
+    [Test]
     public void FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
     {
         var document = new OpenApiDocument
@@ -670,7 +669,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [ManualFact]
-    // [LocalFact]
+    // [LocalOnly]
     public async ValueTask ProcessHubSpot()
     {
         const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";
@@ -688,7 +687,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [ManualFact]
-    //[LocalFact]
+    //[LocalOnly]
     public async ValueTask ProcessCoinbase()
     {
         const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\spec3fixed.json";
@@ -705,7 +704,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [ManualFact]
-    //[LocalFact]
+    //[LocalOnly]
     public async ValueTask ProcessTelnyx()
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
@@ -722,7 +721,7 @@ public sealed class OpenApiFixerTests : FixturedUnitTest
     }
 
     [ManualFact]
-    //[LocalFact]
+    //[LocalOnly]
     public async ValueTask ProcessCloudflare()
     {
         const string fixedPath = @"c:\cloudflare\spec3fixed.json";
