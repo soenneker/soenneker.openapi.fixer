@@ -11,7 +11,6 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using Soenneker.Facts.Manual;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
 
@@ -668,7 +667,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         return parameter?["schema"]?["format"]?.GetValue<string>();
     }
 
-    [ManualFact]
+    [Skip("Manual")]
     // [LocalOnly]
     public async ValueTask ProcessHubSpot()
     {
@@ -686,7 +685,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         //await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, CancellationToken);
     }
 
-    [ManualFact]
+    [Skip("Manual")]
     //[LocalOnly]
     public async ValueTask ProcessCoinbase()
     {
@@ -703,7 +702,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         //await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, CancellationToken);
     }
 
-    [ManualFact]
+    [Skip("Manual")]
     //[LocalOnly]
     public async ValueTask ProcessTelnyx()
     {
@@ -720,7 +719,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         //await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
     }
 
-    [ManualFact]
+    [Skip("Manual")]
     //[LocalOnly]
     public async ValueTask ProcessCloudflare()
     {
