@@ -78,10 +78,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(document.Components.Schemas.ContainsKey("GitTag")).IsTrue();
         await Assert.That(document.Components.Schemas.ContainsKey("git-tag")).IsFalse();
 
-        var pathItem = document.Paths["/git/tags/{sha}"]!;
-        var operation = pathItem.Operations[HttpMethod.Get]!;
-        var response = operation.Responses["200"]!;
-        var mediaType = response.Content["application/json"]!;
+        IOpenApiPathItem pathItem = document.Paths["/git/tags/{sha}"]!;
+        OpenApiOperation operation = pathItem.Operations[HttpMethod.Get]!;
+        IOpenApiResponse response = operation.Responses["200"]!;
+        IOpenApiMediaType mediaType = response.Content["application/json"]!;
         var schemaReference = mediaType.Schema as OpenApiSchemaReference;
 
         await Assert.That(schemaReference).IsNotNull();
@@ -435,10 +435,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(document.Components.Schemas.ContainsKey("RepositorySecrets")).IsTrue();
         await Assert.That(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets_200")).IsFalse();
 
-        var pathItem = document.Paths["/repos/{owner}/{repo}/actions/secrets"]!;
-        var operation = pathItem.Operations[HttpMethod.Get]!;
-        var response = operation.Responses["200"]!;
-        var mediaType = response.Content["application/json"]!;
+        IOpenApiPathItem pathItem = document.Paths["/repos/{owner}/{repo}/actions/secrets"]!;
+        OpenApiOperation operation = pathItem.Operations[HttpMethod.Get]!;
+        IOpenApiResponse response = operation.Responses["200"]!;
+        IOpenApiMediaType mediaType = response.Content["application/json"]!;
         var schemaReference = mediaType.Schema as OpenApiSchemaReference;
 
         await Assert.That(schemaReference).IsNotNull();
@@ -513,10 +513,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         await Assert.That(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets200")).IsFalse();
 
-        var pathItem = document.Paths["/repos/{owner}/{repo}/actions/secrets"]!;
-        var operation = pathItem.Operations[HttpMethod.Get]!;
-        var response = operation.Responses["200"]!;
-        var mediaType = response.Content["application/json"]!;
+        IOpenApiPathItem pathItem = document.Paths["/repos/{owner}/{repo}/actions/secrets"]!;
+        OpenApiOperation operation = pathItem.Operations[HttpMethod.Get]!;
+        IOpenApiResponse response = operation.Responses["200"]!;
+        IOpenApiMediaType mediaType = response.Content["application/json"]!;
         var inlineSchema = mediaType.Schema as OpenApiSchema;
 
         await Assert.That(inlineSchema).IsNotNull();
@@ -629,9 +629,9 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson")).IsFalse();
         await Assert.That(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson_Body")).IsTrue();
 
-        var pathItem = document.Paths["/widgets"]!;
-        var operation = pathItem.Operations[HttpMethod.Post]!;
-        var mediaType = operation.RequestBody!.Content["application/json"];
+        IOpenApiPathItem pathItem = document.Paths["/widgets"]!;
+        OpenApiOperation operation = pathItem.Operations[HttpMethod.Post]!;
+        IOpenApiMediaType mediaType = operation.RequestBody!.Content["application/json"];
         var schemaReference = mediaType.Schema as OpenApiSchemaReference;
 
         await Assert.That(schemaReference).IsNotNull();
