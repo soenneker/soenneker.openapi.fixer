@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Xunit;
 
 namespace Soenneker.OpenApi.Fixer.Tests;
 
@@ -76,19 +77,19 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         _namingFixer.RenameInvalidComponentSchemas(document);
 
-        Assert.True(document.Components.Schemas.ContainsKey("GitTag"));
-        Assert.False(document.Components.Schemas.ContainsKey("git-tag"));
+        Xunit.Assert.True(document.Components.Schemas.ContainsKey("GitTag"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("git-tag"));
 
-        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/git/tags/{sha}"]);
-        var operations = Assert.IsAssignableFrom<IDictionary<HttpMethod, OpenApiOperation>>(pathItem.Operations);
-        var operation = Assert.IsType<OpenApiOperation>(operations[HttpMethod.Get]);
-        var responses = Assert.IsAssignableFrom<OpenApiResponses>(operation.Responses);
-        var response = Assert.IsType<OpenApiResponse>(responses["200"]);
-        var content = Assert.IsAssignableFrom<IDictionary<string, IOpenApiMediaType>>(response.Content);
-        var mediaType = Assert.IsType<OpenApiMediaType>(content["application/json"]);
-        var schemaReference = Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
+        var pathItem = Xunit.Assert.IsType<OpenApiPathItem>(document.Paths["/git/tags/{sha}"]);
+        var operations = Xunit.Assert.IsAssignableFrom<IDictionary<HttpMethod, OpenApiOperation>>(pathItem.Operations);
+        var operation = Xunit.Assert.IsType<OpenApiOperation>(operations[HttpMethod.Get]);
+        var responses = Xunit.Assert.IsAssignableFrom<OpenApiResponses>(operation.Responses);
+        var response = Xunit.Assert.IsType<OpenApiResponse>(responses["200"]);
+        var content = Xunit.Assert.IsAssignableFrom<IDictionary<string, IOpenApiMediaType>>(response.Content);
+        var mediaType = Xunit.Assert.IsType<OpenApiMediaType>(content["application/json"]);
+        var schemaReference = Xunit.Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
 
-        Assert.Equal("GitTag", schemaReference.Reference.Id);
+        Xunit.Assert.Equal("GitTag", schemaReference.Reference.Id);
     }
 
     [Test]
@@ -116,12 +117,12 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         _namingFixer.RenameInvalidComponentSchemas(document);
 
-        Assert.True(document.Components.Schemas.ContainsKey("Artifact"));
-        Assert.True(document.Components.Schemas.ContainsKey("Repository"));
-        Assert.False(document.Components.Schemas.ContainsKey("Artifact_1"));
-        Assert.False(document.Components.Schemas.ContainsKey("Repository_1"));
-        Assert.False(document.Components.Schemas.ContainsKey("artifact"));
-        Assert.False(document.Components.Schemas.ContainsKey("repository"));
+        Xunit.Assert.True(document.Components.Schemas.ContainsKey("Artifact"));
+        Xunit.Assert.True(document.Components.Schemas.ContainsKey("Repository"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("Artifact_1"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("Repository_1"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("artifact"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("repository"));
     }
 
     [Test]
@@ -167,16 +168,16 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
 
-            await _util.Fix(sourcePath, targetPath, CancellationToken);
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
 
-            string fixedSpec = await File.ReadAllTextAsync(targetPath, CancellationToken);
+            string fixedSpec = await File.ReadAllTextAsync(targetPath, System.Threading.CancellationToken.None);
 
-            Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositories\": {", fixedSpec);
-            Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\": {", fixedSpec);
-            Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositories\"", fixedSpec);
-            Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\"", fixedSpec);
+            Xunit.Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositories\": {", fixedSpec);
+            Xunit.Assert.Contains("\"CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\": {", fixedSpec);
+            Xunit.Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositories\"", fixedSpec);
+            Xunit.Assert.Contains("\"$ref\": \"#/components/schemas/CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\"", fixedSpec);
         }
         finally
         {
@@ -264,17 +265,17 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
 
-            await _util.Fix(sourcePath, targetPath, CancellationToken);
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
 
             JsonNode root = await ReadJsonNode(targetPath);
 
-            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "id"));
-            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "organizationId"));
-            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
-            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
-            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
+            Xunit.Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "id"));
+            Xunit.Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "organizationId"));
+            Xunit.Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
+            Xunit.Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
+            Xunit.Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
         }
         finally
         {
@@ -362,20 +363,20 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, CancellationToken);
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
 
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
             {
                 Int32IdTransform = true
-            }, CancellationToken);
+            }, System.Threading.CancellationToken.None);
 
             JsonNode root = await ReadJsonNode(targetPath);
 
-            Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "id"));
-            Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "organizationId"));
-            Assert.Equal("int64", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
-            Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
-            Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
+            Xunit.Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "id"));
+            Xunit.Assert.Equal("int64", GetComponentPropertyFormat(root, "Widget", "organizationId"));
+            Xunit.Assert.Equal("int64", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "widgetId"));
+            Xunit.Assert.Equal("int32", GetComponentPropertyFormat(root, "Widget", "count"));
+            Xunit.Assert.Equal("int32", GetOperationParameterFormat(root, "/widgets/{widgetId}", "get", "page"));
         }
         finally
         {
@@ -433,18 +434,18 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             }
         };
 
-        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, CancellationToken);
+        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, System.Threading.CancellationToken.None);
 
-        Assert.True(document.Components.Schemas.ContainsKey("RepositorySecrets"));
-        Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets_200"));
+        Xunit.Assert.True(document.Components.Schemas.ContainsKey("RepositorySecrets"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets_200"));
 
-        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
-        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
-        var response = Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
-        var mediaType = Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
-        var schemaReference = Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
+        var pathItem = Xunit.Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
+        var operation = Xunit.Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
+        var response = Xunit.Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
+        var mediaType = Xunit.Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
+        var schemaReference = Xunit.Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
 
-        Assert.Equal("RepositorySecrets", schemaReference.Reference.Id);
+        Xunit.Assert.Equal("RepositorySecrets", schemaReference.Reference.Id);
     }
 
     [Test]
@@ -511,18 +512,18 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             }
         };
 
-        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, CancellationToken);
+        InvokePrivateVoidMethod(_util, "ExtractInlineSchemas", document, System.Threading.CancellationToken.None);
 
-        Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets200"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("ActionsListRepoSecrets200"));
 
-        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
-        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
-        var response = Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
-        var mediaType = Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
-        var inlineSchema = Assert.IsType<OpenApiSchema>(mediaType.Schema);
+        var pathItem = Xunit.Assert.IsType<OpenApiPathItem>(document.Paths["/repos/{owner}/{repo}/actions/secrets"]);
+        var operation = Xunit.Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Get]);
+        var response = Xunit.Assert.IsType<OpenApiResponse>(operation.Responses["200"]);
+        var mediaType = Xunit.Assert.IsType<OpenApiMediaType>(response.Content["application/json"]);
+        var inlineSchema = Xunit.Assert.IsType<OpenApiSchema>(mediaType.Schema);
 
-        Assert.Equal(JsonSchemaType.Object, inlineSchema.Type);
-        Assert.True(inlineSchema.Properties.ContainsKey("secrets"));
+        Xunit.Assert.Equal(JsonSchemaType.Object, inlineSchema.Type);
+        Xunit.Assert.True(inlineSchema.Properties.ContainsKey("secrets"));
     }
 
     [Test]
@@ -570,11 +571,11 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
 
-        Assert.False(document.Components.Schemas.ContainsKey("WorkersNamespaceScriptAndVersionSettingsItemBindings"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("WorkersNamespaceScriptAndVersionSettingsItemBindings"));
 
-        var container = Assert.IsType<OpenApiSchema>(document.Components.Schemas["WorkersNamespaceScriptAndVersionSettingsItem"]);
-        Assert.NotNull(container.Properties);
-        Assert.IsType<OpenApiSchema>(container.Properties["bindings"]);
+        var container = Xunit.Assert.IsType<OpenApiSchema>(document.Components.Schemas["WorkersNamespaceScriptAndVersionSettingsItem"]);
+        Xunit.Assert.NotNull(container.Properties);
+        Xunit.Assert.IsType<OpenApiSchema>(container.Properties["bindings"]);
     }
 
     [Test]
@@ -626,21 +627,21 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         InvokePrivateVoidMethod(_util, "FixContentTypeWrapperCollisions", document);
 
-        Assert.False(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson"));
-        Assert.True(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson_Body"));
+        Xunit.Assert.False(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson"));
+        Xunit.Assert.True(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson_Body"));
 
-        var pathItem = Assert.IsType<OpenApiPathItem>(document.Paths["/widgets"]);
-        var operation = Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Post]);
-        var mediaType = Assert.IsType<OpenApiMediaType>(operation.RequestBody.Content["application/json"]);
-        var schemaReference = Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
+        var pathItem = Xunit.Assert.IsType<OpenApiPathItem>(document.Paths["/widgets"]);
+        var operation = Xunit.Assert.IsType<OpenApiOperation>(pathItem.Operations[HttpMethod.Post]);
+        var mediaType = Xunit.Assert.IsType<OpenApiMediaType>(operation.RequestBody.Content["application/json"]);
+        var schemaReference = Xunit.Assert.IsType<OpenApiSchemaReference>(mediaType.Schema);
 
-        Assert.Equal("CreateWidgetapplicationJson_Body", schemaReference.Reference.Id);
+        Xunit.Assert.Equal("CreateWidgetapplicationJson_Body", schemaReference.Reference.Id);
     }
 
     private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
     {
         MethodInfo method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!;
-        Assert.NotNull(method);
+        Xunit.Assert.NotNull(method);
         method.Invoke(target, args);
     }
 
@@ -677,12 +678,12 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         File.Delete(fixedPath);
 
-        await _util.Fix(sourcePath, fixedPath, CancellationToken);
+        await _util.Fix(sourcePath, fixedPath, System.Threading.CancellationToken.None);
 
         //await _directoryUtil.DeleteIfExists(targetDir);
         //await _directoryUtil.Create(targetDir);
 
-        //await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "HubSpotOpenApiClient", "Soenneker.HubSpot.OpenApiClient", targetDir, System.Threading.CancellationToken.None);
     }
 
     [Skip("Manual")]
@@ -694,12 +695,12 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         File.Delete(fixedPath);
 
-        await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, CancellationToken);
+        await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, System.Threading.CancellationToken.None);
 
         //await _directoryUtil.DeleteIfExists(targetDir);
         //await _directoryUtil.Create(targetDir);
 
-        //await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "CoinbaseOpenApiClient", "Soenneker.Coinbase.OpenApiClient", targetDir, System.Threading.CancellationToken.None);
     }
 
     [Skip("Manual")]
@@ -711,12 +712,12 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         File.Delete(fixedPath);
 
-        await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, CancellationToken);
+        await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, System.Threading.CancellationToken.None);
 
         //await _directoryUtil.DeleteIfExists(targetDir);
         //await _directoryUtil.Create(targetDir);
 
-        //await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "TelnyxOpenApiClient", "Soenneker.Telnyx.OpenApiClient", targetDir, System.Threading.CancellationToken.None);
     }
 
     [Skip("Manual")]
@@ -728,11 +729,11 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         File.Delete(fixedPath);
 
-        await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, CancellationToken);
+        await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, System.Threading.CancellationToken.None);
 
         //await _directoryUtil.DeleteIfExists(targetDir);
         //await _directoryUtil.Create(targetDir);
 
-        //await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, CancellationToken);
+        //await _util.GenerateKiota(fixedPath, "CloudflareOpenApiClient", "Soenneker.Cloudflare.OpenApiClient", targetDir, System.Threading.CancellationToken.None);
     }
 }
