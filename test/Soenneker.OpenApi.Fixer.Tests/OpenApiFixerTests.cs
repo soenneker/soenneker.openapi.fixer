@@ -382,6 +382,83 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_strip_date_suffixes_from_generated_names_when_option_enabled()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/assistant_control_2026-04/assistants": {
+                                      "get": {
+                                        "operationId": "assistant-control-2026-04-list-assistants",
+                                        "responses": {
+                                          "500": {
+                                            "description": "Error",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "$ref": "#/components/schemas/AssistantControl202604ErrorResponse"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "AssistantControl202604ErrorResponse": {
+                                        "type": "object",
+                                        "properties": {
+                                          "message": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
+            {
+                StripDateSuffixesFromGeneratedNames = true
+            }, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            await Assert.That(root["paths"]?["/assistant_control/assistants"]).IsNotNull();
+            await Assert.That(root["paths"]?["/assistant_control_2026-04/assistants"]).IsNull();
+            await Assert.That(root["paths"]?["/assistant_control/assistants"]?["get"]?["operationId"]?.GetValue<string>())
+                        .IsEqualTo("assistant-control-list-assistants");
+            await Assert.That(root["components"]?["schemas"]?["AssistantControlErrorResponse"]).IsNotNull();
+            await Assert.That(root["components"]?["schemas"]?["AssistantControl202604ErrorResponse"]).IsNull();
+            await Assert.That(root["paths"]?["/assistant_control/assistants"]?["get"]?["responses"]?["500"]?["content"]?["application/json"]?["schema"]?["$ref"]
+                                  ?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/AssistantControlErrorResponse");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask ExtractInlineSchemas_should_preserve_semantic_response_schema_titles()
     {
         var document = new OpenApiDocument

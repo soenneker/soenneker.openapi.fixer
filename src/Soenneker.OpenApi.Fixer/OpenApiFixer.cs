@@ -125,6 +125,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             EnsureSecuritySchemes(document!);
             _namingFixer.RenameConflictingPaths(document!);
 
+            if (options.StripDateSuffixesFromGeneratedNames)
+                _namingFixer.StripDateSuffixesFromGeneratedNames(document!);
+
             _namingFixer.RenameInvalidComponentSchemas(document!);
 
             _logger.LogInformation("Resolving collisions between operation IDs and schema names...");

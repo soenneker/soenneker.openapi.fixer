@@ -19,6 +19,9 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
     private static readonly SearchValues<char> _allowedIdPunctuation = SearchValues.Create("_-.");
+    private static readonly Regex _pathDateSuffixRegex = new(@"_(?:19|20)\d{2}-\d{2}(?=/|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _operationIdDateSuffixRegex = new(@"-(?:19|20)\d{2}-\d{2}(?=-|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _schemaDateSuffixRegex = new(@"(?<=[A-Za-z])(?:19|20)\d{4}(?=[A-Z_]|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly ILogger<OpenApiNamingFixer> _logger;
     private readonly IOpenApiReferenceFixer _referenceFixer;
@@ -373,6 +376,103 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         doc.Paths = newPaths;
     }
 
+    /// <inheritdoc />
+    public void StripDateSuffixesFromGeneratedNames(OpenApiDocument doc)
+    {
+        StripDateSuffixesFromPathPrefixes(doc);
+        StripDateSuffixesFromOperationIds(doc);
+        StripDateSuffixesFromSchemaNames(doc);
+    }
+
+    private void StripDateSuffixesFromPathPrefixes(OpenApiDocument doc)
+    {
+        if (doc.Paths == null || doc.Paths.Count == 0)
+            return;
+
+        var newPaths = new OpenApiPaths();
+
+        foreach ((string path, IOpenApiPathItem pathItem) in doc.Paths)
+        {
+            string normalizedPath = _pathDateSuffixRegex.Replace(path, "");
+
+            if (newPaths.ContainsKey(normalizedPath))
+                throw new InvalidOperationException($"Cannot strip date suffix from path '{path}' because '{normalizedPath}' already exists.");
+
+            newPaths[normalizedPath] = pathItem;
+
+            if (!string.Equals(path, normalizedPath, StringComparison.Ordinal))
+                _logger.LogInformation("Stripped date suffix from path '{Path}' to '{NormalizedPath}'", path, normalizedPath);
+        }
+
+        doc.Paths = newPaths;
+    }
+
+    private void StripDateSuffixesFromOperationIds(OpenApiDocument doc)
+    {
+        if (doc.Paths == null)
+            return;
+
+        foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+        {
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                if (string.IsNullOrWhiteSpace(operation.OperationId))
+                    continue;
+
+                string normalizedOperationId = _operationIdDateSuffixRegex.Replace(operation.OperationId!, "");
+
+                if (!string.Equals(operation.OperationId, normalizedOperationId, StringComparison.Ordinal))
+                {
+                    _logger.LogInformation("Stripped date suffix from operationId '{OperationId}' to '{NormalizedOperationId}'", operation.OperationId,
+                        normalizedOperationId);
+                    operation.OperationId = normalizedOperationId;
+                }
+            }
+        }
+    }
+
+    private void StripDateSuffixesFromSchemaNames(OpenApiDocument doc)
+    {
+        IDictionary<string, IOpenApiSchema>? schemas = doc.Components?.Schemas;
+        if (schemas == null || schemas.Count == 0)
+            return;
+
+        var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
+        var reservedNames = new HashSet<string>(schemas.Keys, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string key in schemas.Keys.ToList())
+        {
+            string normalizedName = _schemaDateSuffixRegex.Replace(key, "");
+
+            if (string.Equals(key, normalizedName, StringComparison.Ordinal))
+                continue;
+
+            reservedNames.Remove(key);
+
+            if (reservedNames.Contains(normalizedName))
+                throw new InvalidOperationException($"Cannot strip date suffix from schema '{key}' because '{normalizedName}' already exists.");
+
+            mapping[key] = normalizedName;
+            reservedNames.Add(normalizedName);
+        }
+
+        if (mapping.Count == 0)
+            return;
+
+        foreach ((string oldKey, string newKey) in mapping)
+        {
+            IOpenApiSchema schema = schemas[oldKey];
+            schemas.Remove(oldKey);
+            schemas[newKey] = schema;
+            _logger.LogInformation("Stripped date suffix from schema '{OldName}' to '{NewName}'", oldKey, newKey);
+        }
+
+        _referenceFixer.UpdateAllReferences(doc, mapping);
+    }
+
     private string NormalizeAliasedPathSegments(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -591,4 +691,3 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         return psb.ToString();
     }
 }
-

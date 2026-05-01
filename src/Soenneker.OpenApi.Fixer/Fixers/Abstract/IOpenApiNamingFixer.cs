@@ -45,6 +45,12 @@ public interface IOpenApiNamingFixer
     void RenameConflictingPaths(OpenApiDocument doc);
 
     /// <summary>
+    /// Removes trailing date version tokens from generated path prefixes, operation IDs, and schema names.
+    /// </summary>
+    /// <param name="doc">The OpenAPI document to fix.</param>
+    void StripDateSuffixesFromGeneratedNames(OpenApiDocument doc);
+
+    /// <summary>
     /// Sanitizes a name by removing invalid characters and ensuring it starts with a letter.
     /// </summary>
     /// <param name="input">The input string to sanitize.</param>
