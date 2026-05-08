@@ -23,311 +23,260 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 
     public void ReplaceAllRefs(OpenApiDocument document, string oldKey, string newKey)
     {
-        var oldRef = $"#/components/schemas/{oldKey}";
-        var newRef = $"#/components/schemas/{newKey}";
-
-        var visited = new HashSet<IOpenApiSchema>();
-
-        void Recurse(IOpenApiSchema? schema, string? context = null)
+        UpdateAllReferences(document, new Dictionary<string, string>
         {
-            if (schema == null || !visited.Add(schema))
-                return;
-
-            if (schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.ReferenceV3 == oldRef)
-            {
-                _logger.LogInformation("Rewriting $ref from '{OldRef}' to '{NewRef}' at {Context}", oldRef, newRef, context ?? "unknown location");
-                // Note: This case is handled by the parent context that calls this method
-                // The actual replacement happens at the parent level where the reference is stored
-            }
-
-            if (schema.Properties != null)
-            {
-                foreach (KeyValuePair<string, IOpenApiSchema> kvp in schema.Properties.ToList())
-                {
-                    if (kvp.Value is OpenApiSchemaReference propSchemaRef && propSchemaRef.Reference.ReferenceV3 == oldRef)
-                    {
-                        _logger.LogInformation("Replacing schema reference in properties from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                        schema.Properties[kvp.Key] = new OpenApiSchemaReference(newKey);
-                    }
-                    else
-                    {
-                        Recurse(kvp.Value, $"{context ?? "schema"}.properties.{kvp.Key}");
-                    }
-                }
-            }
-
-            // For read-only properties, we need to cast to concrete type to modify them
-            if (schema is OpenApiSchema concreteSchema)
-            {
-                if (concreteSchema.Items != null)
-                {
-                    if (concreteSchema.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.ReferenceV3 == oldRef)
-                    {
-                        _logger.LogInformation("Replacing schema reference in items from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                        concreteSchema.Items = new OpenApiSchemaReference(newKey);
-                    }
-                    else
-                    {
-                        Recurse(concreteSchema.Items, $"{context ?? "schema"}.items");
-                    }
-                }
-
-                if (concreteSchema.AllOf != null)
-                {
-                    for (int i = 0; i < concreteSchema.AllOf.Count; i++)
-                    {
-                        if (concreteSchema.AllOf[i] is OpenApiSchemaReference allOfRef && allOfRef.Reference.ReferenceV3 == oldRef)
-                        {
-                            _logger.LogInformation("Replacing schema reference in allOf[{0}] from '{OldRef}' to '{NewRef}'", i, oldRef, newRef);
-                            concreteSchema.AllOf[i] = new OpenApiSchemaReference(newKey);
-                        }
-                        else
-                        {
-                            Recurse(concreteSchema.AllOf[i], $"{context ?? "schema"}.allOf[{i}]");
-                        }
-                    }
-                }
-
-                if (concreteSchema.AnyOf != null)
-                {
-                    for (int i = 0; i < concreteSchema.AnyOf.Count; i++)
-                    {
-                        if (concreteSchema.AnyOf[i] is OpenApiSchemaReference anyOfRef && anyOfRef.Reference.ReferenceV3 == oldRef)
-                        {
-                            _logger.LogInformation("Replacing schema reference in anyOf[{0}] from '{OldRef}' to '{NewRef}'", i, oldRef, newRef);
-                            concreteSchema.AnyOf[i] = new OpenApiSchemaReference(newKey);
-                        }
-                        else
-                        {
-                            Recurse(concreteSchema.AnyOf[i], $"{context ?? "schema"}.anyOf[{i}]");
-                        }
-                    }
-                }
-
-                if (concreteSchema.OneOf != null)
-                {
-                    for (int i = 0; i < concreteSchema.OneOf.Count; i++)
-                    {
-                        if (concreteSchema.OneOf[i] is OpenApiSchemaReference oneOfRef && oneOfRef.Reference.ReferenceV3 == oldRef)
-                        {
-                            _logger.LogInformation("Replacing schema reference in oneOf[{0}] from '{OldRef}' to '{NewRef}'", i, oldRef, newRef);
-                            concreteSchema.OneOf[i] = new OpenApiSchemaReference(newKey);
-                        }
-                        else
-                        {
-                            Recurse(concreteSchema.OneOf[i], $"{context ?? "schema"}.oneOf[{i}]");
-                        }
-                    }
-                }
-
-                if (concreteSchema.AdditionalProperties != null)
-                {
-                    if (concreteSchema.AdditionalProperties is OpenApiSchemaReference additionalPropsRef && additionalPropsRef.Reference.ReferenceV3 == oldRef)
-                    {
-                        _logger.LogInformation("Replacing schema reference in additionalProperties from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                        concreteSchema.AdditionalProperties = new OpenApiSchemaReference(newKey);
-                    }
-                    else
-                    {
-                        Recurse(concreteSchema.AdditionalProperties, $"{context ?? "schema"}.additionalProperties");
-                    }
-                }
-            }
-        }
-
-        // Walk through all schemas in components
-        if (document.Components?.Schemas != null)
-        {
-            foreach ((string key, IOpenApiSchema schema) in document.Components.Schemas)
-                Recurse(schema, $"components.schemas.{key}");
-        }
-
-        // Walk through all paths and operations
-        if (document.Paths != null)
-        {
-            foreach ((string pathKey, var pathItem) in document.Paths)
-            {
-                if (pathItem?.Operations != null)
-                {
-                    foreach ((HttpMethod method, OpenApiOperation operation) in pathItem.Operations)
-                    {
-                        var operationContext = $"paths.{pathKey}.{method}";
-
-                        // Check request body
-                        if (operation.RequestBody?.Content != null)
-                        {
-                            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content)
-                            {
-                                if (mediaInterface is not OpenApiMediaType media)
-                                    continue;
-
-                                if (media.Schema is OpenApiSchemaReference mediaSchemaRef && mediaSchemaRef.Reference.ReferenceV3 == oldRef)
-                                {
-                                    _logger.LogInformation("Replacing schema reference in request body from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                                    media.Schema = new OpenApiSchemaReference(newKey);
-                                }
-                                else
-                                {
-                                    Recurse(media.Schema, $"{operationContext}.requestBody.{mediaType}");
-                                }
-                            }
-                        }
-
-                        // Check responses
-                        if (operation.Responses != null)
-                        {
-                            foreach ((string responseCode, var response) in operation.Responses)
-                            {
-                                if (response?.Content != null)
-                                {
-                                    foreach ((string mediaType, IOpenApiMediaType mediaInterface) in response.Content)
-                                    {
-                                        if (mediaInterface is not OpenApiMediaType media)
-                                            continue;
-
-                                        if (media.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
-                                        {
-                                            _logger.LogInformation("Replacing schema reference in response from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                                            media.Schema = new OpenApiSchemaReference(newKey);
-                                        }
-                                        else
-                                        {
-                                            Recurse(media.Schema, $"{operationContext}.responses[{responseCode}].{mediaType}");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Check parameters
-                        if (operation.Parameters != null)
-                        {
-                            foreach (var param in operation.Parameters)
-                            {
-                                if (param is OpenApiParameter concreteParam)
-                                {
-                                    if (concreteParam.Schema is OpenApiSchemaReference paramSchemaRef && paramSchemaRef.Reference.ReferenceV3 == oldRef)
-                                    {
-                                        _logger.LogInformation("Replacing schema reference in parameter from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                                        concreteParam.Schema = new OpenApiSchemaReference(newKey);
-                                    }
-                                    else
-                                    {
-                                        Recurse(concreteParam.Schema, $"{operationContext}.parameters[{param?.Name}]");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Check components for other reference types
-        if (document.Components != null)
-        {
-            // Check parameters
-            if (document.Components.Parameters != null)
-            {
-                foreach (IOpenApiParameter param in document.Components.Parameters.Values)
-                {
-                    if (param is OpenApiParameter concreteParam)
-                    {
-                        if (concreteParam.Schema is OpenApiSchemaReference paramSchemaRef && paramSchemaRef.Reference.ReferenceV3 == oldRef)
-                        {
-                            _logger.LogInformation("Replacing schema reference in component parameter from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                            concreteParam.Schema = new OpenApiSchemaReference(newKey);
-                        }
-                        else
-                        {
-                            Recurse(concreteParam.Schema, "components.parameters");
-                        }
-                    }
-                }
-            }
-
-            // Check request bodies
-            if (document.Components.RequestBodies != null)
-            {
-                foreach (var requestBody in document.Components.RequestBodies.Values)
-                {
-                    if (requestBody?.Content != null)
-                    {
-                        foreach (IOpenApiMediaType mediaInterface in requestBody.Content.Values)
-                        {
-                            if (mediaInterface is not OpenApiMediaType media)
-                                continue;
-
-                            if (media.Schema is OpenApiSchemaReference requestBodySchemaRef && requestBodySchemaRef.Reference.ReferenceV3 == oldRef)
-                            {
-                                _logger.LogInformation("Replacing schema reference in component request body from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                                media.Schema = new OpenApiSchemaReference(newKey);
-                            }
-                            else
-                            {
-                                Recurse(media.Schema, "components.requestBodies");
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Check responses
-            if (document.Components.Responses != null)
-            {
-                foreach (var response in document.Components.Responses.Values)
-                {
-                    if (response?.Content != null)
-                    {
-                        foreach (IOpenApiMediaType mediaInterface in response.Content.Values)
-                        {
-                            if (mediaInterface is not OpenApiMediaType media)
-                                continue;
-
-                            if (media.Schema is OpenApiSchemaReference responseSchemaRef && responseSchemaRef.Reference.ReferenceV3 == oldRef)
-                            {
-                                _logger.LogInformation("Replacing schema reference in component response from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                                media.Schema = new OpenApiSchemaReference(newKey);
-                            }
-                            else
-                            {
-                                Recurse(media.Schema, "components.responses");
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Check headers
-            if (document.Components.Headers != null)
-            {
-                foreach (IOpenApiHeader header in document.Components.Headers.Values)
-                {
-                    if (header is OpenApiHeader concreteHeader)
-                    {
-                        if (concreteHeader.Schema is OpenApiSchemaReference headerSchemaRef && headerSchemaRef.Reference.ReferenceV3 == oldRef)
-                        {
-                            _logger.LogInformation("Replacing schema reference in component header from '{OldRef}' to '{NewRef}'", oldRef, newRef);
-                            concreteHeader.Schema = new OpenApiSchemaReference(newKey);
-                        }
-                        else
-                        {
-                            Recurse(concreteHeader.Schema, "components.headers");
-                        }
-                    }
-                }
-            }
-        }
+            [oldKey] = newKey
+        });
     }
 
     /// <inheritdoc />
     public void UpdateAllReferences(OpenApiDocument doc, Dictionary<string, string> mapping)
     {
-        // Delegate to ReplaceAllRefs for each mapping pair
-        foreach ((string oldKey, string newKey) in mapping)
+        if (mapping.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+        var replacementCount = 0;
+
+        bool TryCreateReplacement(IOpenApiSchema? schema, out IOpenApiSchema replacement)
         {
-            ReplaceAllRefs(doc, oldKey, newKey);
+            replacement = null!;
+
+            if (schema is not OpenApiSchemaReference schemaRef)
+                return false;
+
+            string? referenceId = schemaRef.Reference.Id;
+            if (!string.IsNullOrWhiteSpace(referenceId) && mapping.TryGetValue(referenceId, out string? newKey))
+            {
+                replacement = new OpenApiSchemaReference(newKey);
+                return true;
+            }
+
+            string? referenceV3 = schemaRef.Reference.ReferenceV3;
+            const string schemaPrefix = "#/components/schemas/";
+
+            if (!string.IsNullOrWhiteSpace(referenceV3) && referenceV3.StartsWith(schemaPrefix, StringComparison.Ordinal) &&
+                mapping.TryGetValue(referenceV3[schemaPrefix.Length..], out newKey))
+            {
+                replacement = new OpenApiSchemaReference(newKey);
+                return true;
+            }
+
+            return false;
         }
+
+        void PatchSchema(IOpenApiSchema? schema)
+        {
+            if (schema == null || !visited.Add(schema))
+                return;
+
+            if (schema.Properties != null)
+            {
+                foreach (KeyValuePair<string, IOpenApiSchema> kvp in schema.Properties.ToList())
+                {
+                    if (TryCreateReplacement(kvp.Value, out IOpenApiSchema replacement))
+                    {
+                        schema.Properties[kvp.Key] = replacement;
+                        replacementCount++;
+                    }
+                    else
+                    {
+                        PatchSchema(kvp.Value);
+                    }
+                }
+            }
+
+            if (schema is not OpenApiSchema concreteSchema)
+                return;
+
+            if (concreteSchema.Items != null)
+            {
+                if (TryCreateReplacement(concreteSchema.Items, out IOpenApiSchema replacement))
+                {
+                    concreteSchema.Items = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(concreteSchema.Items);
+                }
+            }
+
+            if (concreteSchema.AllOf != null)
+                PatchSchemaList(concreteSchema.AllOf);
+
+            if (concreteSchema.AnyOf != null)
+                PatchSchemaList(concreteSchema.AnyOf);
+
+            if (concreteSchema.OneOf != null)
+                PatchSchemaList(concreteSchema.OneOf);
+
+            if (concreteSchema.AdditionalProperties != null)
+            {
+                if (TryCreateReplacement(concreteSchema.AdditionalProperties, out IOpenApiSchema replacement))
+                {
+                    concreteSchema.AdditionalProperties = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(concreteSchema.AdditionalProperties);
+                }
+            }
+        }
+
+        void PatchSchemaList(IList<IOpenApiSchema> schemas)
+        {
+            for (var i = 0; i < schemas.Count; i++)
+            {
+                if (TryCreateReplacement(schemas[i], out IOpenApiSchema replacement))
+                {
+                    schemas[i] = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(schemas[i]);
+                }
+            }
+        }
+
+        void PatchMediaContent(IDictionary<string, IOpenApiMediaType>? content)
+        {
+            if (content == null)
+                return;
+
+            foreach (IOpenApiMediaType mediaInterface in content.Values)
+            {
+                if (mediaInterface is not OpenApiMediaType media)
+                    continue;
+
+                if (TryCreateReplacement(media.Schema, out IOpenApiSchema replacement))
+                {
+                    media.Schema = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(media.Schema);
+                }
+            }
+        }
+
+        void PatchParameter(IOpenApiParameter? parameter)
+        {
+            if (parameter is not OpenApiParameter concreteParam)
+                return;
+
+            if (TryCreateReplacement(concreteParam.Schema, out IOpenApiSchema replacement))
+            {
+                concreteParam.Schema = replacement;
+                replacementCount++;
+            }
+            else
+            {
+                PatchSchema(concreteParam.Schema);
+            }
+        }
+
+        if (doc.Components?.Schemas != null)
+        {
+            foreach (KeyValuePair<string, IOpenApiSchema> kvp in doc.Components.Schemas.ToList())
+            {
+                if (TryCreateReplacement(kvp.Value, out IOpenApiSchema replacement))
+                {
+                    doc.Components.Schemas[kvp.Key] = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(kvp.Value);
+                }
+            }
+        }
+
+        if (doc.Paths != null)
+        {
+            foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+            {
+                if (pathItem?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    {
+                        PatchParameter(parameter);
+                    }
+                }
+
+                if (pathItem?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                {
+                    PatchMediaContent(operation.RequestBody?.Content);
+
+                    if (operation.Responses != null)
+                    {
+                        foreach (IOpenApiResponse response in operation.Responses.Values)
+                        {
+                            PatchMediaContent(response?.Content);
+                        }
+                    }
+
+                    if (operation.Parameters != null)
+                    {
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                        {
+                            PatchParameter(parameter);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (doc.Components?.Parameters != null)
+        {
+            foreach (IOpenApiParameter parameter in doc.Components.Parameters.Values)
+            {
+                PatchParameter(parameter);
+            }
+        }
+
+        if (doc.Components?.RequestBodies != null)
+        {
+            foreach (IOpenApiRequestBody requestBody in doc.Components.RequestBodies.Values)
+            {
+                PatchMediaContent(requestBody?.Content);
+            }
+        }
+
+        if (doc.Components?.Responses != null)
+        {
+            foreach (IOpenApiResponse response in doc.Components.Responses.Values)
+            {
+                PatchMediaContent(response?.Content);
+            }
+        }
+
+        if (doc.Components?.Headers != null)
+        {
+            foreach (IOpenApiHeader header in doc.Components.Headers.Values)
+            {
+                if (header is not OpenApiHeader concreteHeader)
+                    continue;
+
+                if (TryCreateReplacement(concreteHeader.Schema, out IOpenApiSchema replacement))
+                {
+                    concreteHeader.Schema = replacement;
+                    replacementCount++;
+                }
+                else
+                {
+                    PatchSchema(concreteHeader.Schema);
+                }
+            }
+        }
+
+        _logger.LogDebug("Updated {ReferenceCount} schema references across {MappingCount} schema renames.", replacementCount, mapping.Count);
     }
 
     /// <inheritdoc />
