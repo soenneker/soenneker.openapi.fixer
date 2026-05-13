@@ -266,6 +266,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             FlattenMapAllOfCompositions(document);
             InlineMapOnlySchemaReferences(document);
             NormalizeAllOfWrappers(document);
+            FlattenObjectAllOfCompositions(document);
 
             InlinePrimitivePropertyRefs(document);
             EnsureInlineObjectTypes(document!);
@@ -2239,6 +2240,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         bool IsMissing(OpenApiSchemaReference r) => string.IsNullOrWhiteSpace(r.Reference.Id) || !comps.ContainsKey(r.Reference.Id);
 
+        IOpenApiSchema ResolveComponent(IOpenApiSchema s)
+        {
+            while (s is OpenApiSchemaReference r && !string.IsNullOrWhiteSpace(r.Reference.Id) && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? target))
+            {
+                s = target;
+            }
+
+            return s;
+        }
+
         // Heuristic: when a referenced primitive component is missing (e.g., after prior inlining/cleanup),
         // infer the intended primitive type from the reference id instead of defaulting to string.
         static JsonSchemaType InferPrimitiveTypeFromId(string? id)
@@ -2271,8 +2282,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         bool IsPurePrimitive(IOpenApiSchema s)
         {
-            if (s is OpenApiSchemaReference r && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? target))
-                s = target;
+            s = ResolveComponent(s);
 
             if (s is not OpenApiSchema os)
                 return false;
@@ -2285,6 +2295,17 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return primitive && noShape && noEnum;
         }
 
+        bool IsPureArray(IOpenApiSchema s)
+        {
+            s = ResolveComponent(s);
+
+            if (s is not OpenApiSchema os)
+                return false;
+
+            return os.Type == JsonSchemaType.Array && os.Items != null && (os.Properties?.Count ?? 0) == 0 && (os.AllOf?.Count ?? 0) == 0 &&
+                   (os.AnyOf?.Count ?? 0) == 0 && (os.OneOf?.Count ?? 0) == 0;
+        }
+
         IOpenApiSchema InlineTarget(OpenApiSchemaReference r)
         {
             // When missing, fall back to a string (your example is an ID)
@@ -2294,7 +2315,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 return new OpenApiSchema { Type = inferred };
             }
 
-            IOpenApiSchema target = comps[r.Reference.Id];
+            IOpenApiSchema target = ResolveComponent(comps[r.Reference.Id]);
             if (IsPurePrimitive(target))
             {
                 var os = (OpenApiSchema)target;
@@ -2309,6 +2330,21 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     Pattern = os.Pattern,
                     Minimum = os.Minimum,
                     Maximum = os.Maximum
+                };
+            }
+
+            if (IsPureArray(target))
+            {
+                var os = (OpenApiSchema)target;
+
+                return new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array,
+                    Items = os.Items,
+                    Description = os.Description,
+                    MinItems = os.MinItems,
+                    MaxItems = os.MaxItems,
+                    UniqueItems = os.UniqueItems
                 };
             }
 
@@ -4832,6 +4868,101 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 container.Properties[propName] = replacement;
             }
         }
+    }
+
+    private static void FlattenObjectAllOfCompositions(OpenApiDocument doc)
+    {
+        if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
+            return;
+
+        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
+        var visited = new HashSet<OpenApiSchema>();
+
+        OpenApiSchema? Resolve(IOpenApiSchema? schema)
+        {
+            while (schema is OpenApiSchemaReference schemaRef &&
+                   !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
+                   comps.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? target))
+            {
+                schema = target;
+            }
+
+            return schema as OpenApiSchema;
+        }
+
+        static bool IsPlainObjectBranch(OpenApiSchema schema) =>
+            schema.Discriminator == null &&
+            schema.Type == JsonSchemaType.Object &&
+            schema.Properties is { Count: > 0 } &&
+            (schema.AnyOf?.Count ?? 0) == 0 &&
+            (schema.OneOf?.Count ?? 0) == 0;
+
+        void MergeObjectBranch(OpenApiSchema target, OpenApiSchema source)
+        {
+            target.Type = JsonSchemaType.Object;
+            target.Properties ??= new Dictionary<string, IOpenApiSchema>();
+
+            foreach ((string propertyName, IOpenApiSchema propertySchema) in source.Properties ?? new Dictionary<string, IOpenApiSchema>())
+            {
+                if (!target.Properties.ContainsKey(propertyName))
+                    target.Properties[propertyName] = propertySchema;
+            }
+
+            if (source.Required is { Count: > 0 })
+            {
+                target.Required ??= new HashSet<string>();
+                foreach (string required in source.Required)
+                    target.Required.Add(required);
+            }
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concrete || !visited.Add(concrete))
+                return;
+
+            if (concrete.Properties != null)
+                foreach (IOpenApiSchema property in concrete.Properties.Values)
+                    Visit(property);
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+            {
+                var remainingBranches = new List<IOpenApiSchema>();
+
+                foreach (IOpenApiSchema branch in concrete.AllOf)
+                {
+                    Visit(branch);
+                    OpenApiSchema? resolvedBranch = Resolve(branch);
+
+                    if (resolvedBranch != null && IsPlainObjectBranch(resolvedBranch))
+                    {
+                        MergeObjectBranch(concrete, resolvedBranch);
+                        continue;
+                    }
+
+                    remainingBranches.Add(branch);
+                }
+
+                concrete.AllOf = remainingBranches.Count > 0 ? remainingBranches : null;
+            }
+
+            if (concrete.AnyOf != null)
+                foreach (IOpenApiSchema branch in concrete.AnyOf)
+                    Visit(branch);
+
+            if (concrete.OneOf != null)
+                foreach (IOpenApiSchema branch in concrete.OneOf)
+                    Visit(branch);
+        }
+
+        foreach (IOpenApiSchema schema in comps.Values)
+            Visit(schema);
     }
 
     /// <summary>

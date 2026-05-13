@@ -89,6 +89,18 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             if (schema is not OpenApiSchema concreteSchema)
                 return;
 
+            if (concreteSchema.Discriminator?.Mapping != null)
+            {
+                foreach ((string mappingKey, OpenApiSchemaReference mappingReference) in concreteSchema.Discriminator.Mapping.ToList())
+                {
+                    if (TryCreateReplacement(mappingReference, out IOpenApiSchema replacement) && replacement is OpenApiSchemaReference replacementReference)
+                    {
+                        concreteSchema.Discriminator.Mapping[mappingKey] = replacementReference;
+                        replacementCount++;
+                    }
+                }
+            }
+
             if (concreteSchema.Items != null)
             {
                 if (TryCreateReplacement(concreteSchema.Items, out IOpenApiSchema replacement))

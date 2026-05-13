@@ -89,6 +89,49 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask RenameInvalidComponentSchemas_should_update_discriminator_mapping_refs()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["email-sending_EmailAttachment"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object
+                    },
+                    ["EmailSendingEmailBuilder"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Discriminator = new OpenApiDiscriminator
+                        {
+                            PropertyName = "type",
+                            Mapping = new Dictionary<string, OpenApiSchemaReference>
+                            {
+                                ["attachment"] = new("email-sending_EmailAttachment")
+                            }
+                        },
+                        OneOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchemaReference("email-sending_EmailAttachment")
+                        }
+                    }
+                }
+            }
+        };
+
+        _namingFixer.RenameInvalidComponentSchemas(document);
+
+        var builder = document.Components.Schemas["EmailSendingEmailBuilder"] as OpenApiSchema;
+
+        await Assert.That(document.Components.Schemas.ContainsKey("EmailSendingEmailAttachment")).IsTrue();
+        await Assert.That(builder).IsNotNull();
+        await Assert.That(builder!.Discriminator!.Mapping!["attachment"].Reference.Id).IsEqualTo("EmailSendingEmailAttachment");
+        await Assert.That((builder.OneOf![0] as OpenApiSchemaReference)!.Reference.Id).IsEqualTo("EmailSendingEmailAttachment");
+    }
+
+    [Test]
     public async ValueTask RenameInvalidComponentSchemas_should_not_suffix_when_only_conflict_is_same_key_different_case()
     {
         var document = new OpenApiDocument
@@ -655,6 +698,93 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask InlinePrimitivePropertyRefs_should_inline_array_component_property_refs()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["Messages"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Array,
+                        Items = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.String
+                        }
+                    },
+                    ["Response"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["errors"] = new OpenApiSchemaReference("Messages")
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "InlinePrimitivePropertyRefs", document);
+
+        var response = document.Components.Schemas["Response"] as OpenApiSchema;
+        var errors = response!.Properties!["errors"] as OpenApiSchema;
+
+        await Assert.That(errors).IsNotNull();
+        await Assert.That(errors!.Type).IsEqualTo(JsonSchemaType.Array);
+        await Assert.That(errors.Items).IsNotNull();
+    }
+
+    [Test]
+    public async ValueTask FlattenObjectAllOfCompositions_should_merge_plain_object_refs()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["Envelope"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Required = new HashSet<string> { "success" },
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["success"] = new OpenApiSchema { Type = JsonSchemaType.Boolean }
+                        }
+                    },
+                    ["Response"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        AllOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchemaReference("Envelope"),
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["result"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "FlattenObjectAllOfCompositions", document);
+
+        var response = document.Components.Schemas["Response"] as OpenApiSchema;
+
+        await Assert.That(response!.AllOf).IsNull();
+        await Assert.That(response.Properties!.ContainsKey("success")).IsTrue();
+        await Assert.That(response.Properties!.ContainsKey("result")).IsTrue();
+        await Assert.That(response.Required!.Contains("success")).IsTrue();
+    }
+
+    [Test]
     public async ValueTask FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
     {
         var document = new OpenApiDocument
@@ -717,7 +847,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
     private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
     {
-        MethodInfo? method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic);
 
         if (method is null)
             throw new InvalidOperationException($"Could not find private method '{methodName}'.");
