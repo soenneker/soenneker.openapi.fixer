@@ -915,6 +915,170 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             _logger.LogInformation("Deduplicated {Count} duplicate composition branches (anyOf/oneOf/allOf) across the document", removed);
     }
 
+    /// <inheritdoc />
+    public void NormalizeNullablePrimitiveCompositions(OpenApiDocument document)
+    {
+        if (document == null)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>();
+        var normalized = 0;
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return;
+
+            NormalizeComposition(concreteSchema.AnyOf, branches => concreteSchema.AnyOf = branches, concreteSchema, ref normalized);
+            NormalizeComposition(concreteSchema.OneOf, branches => concreteSchema.OneOf = branches, concreteSchema, ref normalized);
+
+            if (concreteSchema.Properties != null)
+                foreach (IOpenApiSchema property in concreteSchema.Properties.Values)
+                    Visit(property);
+
+            if (concreteSchema.Items != null)
+                Visit(concreteSchema.Items);
+
+            if (concreteSchema.AdditionalProperties != null)
+                Visit(concreteSchema.AdditionalProperties);
+
+            if (concreteSchema.AllOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.AllOf)
+                    Visit(branch);
+
+            if (concreteSchema.AnyOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.AnyOf)
+                    Visit(branch);
+
+            if (concreteSchema.OneOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.OneOf)
+                    Visit(branch);
+        }
+
+        if (document.Components?.Schemas != null)
+            foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
+                Visit(schema);
+
+        if (document.Paths != null)
+        {
+            foreach (IOpenApiPathItem pathItem in document.Paths.Values)
+            {
+                if (pathItem?.Parameters != null)
+                    foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                        if (parameter is OpenApiParameter concreteParameter)
+                            Visit(concreteParameter.Schema);
+
+                if (pathItem?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                {
+                    if (operation?.Parameters != null)
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                            if (parameter is OpenApiParameter concreteParameter)
+                                Visit(concreteParameter.Schema);
+
+                    if (operation?.RequestBody?.Content != null)
+                        foreach (IOpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                            if (mediaType is OpenApiMediaType concreteMediaType)
+                                Visit(concreteMediaType.Schema);
+
+                    if (operation?.Responses == null)
+                        continue;
+
+                    foreach (IOpenApiResponse response in operation.Responses.Values)
+                    {
+                        if (response?.Content != null)
+                            foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                                if (mediaType is OpenApiMediaType concreteMediaType)
+                                    Visit(concreteMediaType.Schema);
+
+                        if (response?.Headers != null)
+                            foreach (IOpenApiHeader header in response.Headers.Values)
+                                if (header is OpenApiHeader concreteHeader)
+                                    Visit(concreteHeader.Schema);
+                    }
+                }
+            }
+        }
+
+        if (normalized > 0)
+            _logger.LogInformation("Normalized {Count} nullable primitive anyOf/oneOf schemas", normalized);
+    }
+
+    private static void NormalizeComposition(IList<IOpenApiSchema>? branches, Action<List<IOpenApiSchema>?> assignBranches, OpenApiSchema target, ref int normalized)
+    {
+        if (branches is not { Count: 2 })
+            return;
+
+        OpenApiSchema? primitiveBranch = null;
+        var hasNullBranch = false;
+
+        foreach (IOpenApiSchema branch in branches)
+        {
+            if (branch is not OpenApiSchema concreteBranch)
+                return;
+
+            JsonSchemaType? branchType = concreteBranch.Type;
+
+            if (branchType.HasValue && branchType.Value == JsonSchemaType.Null && IsSimpleBranch(concreteBranch))
+            {
+                hasNullBranch = true;
+                continue;
+            }
+
+            if (IsPrimitiveSchema(concreteBranch))
+            {
+                primitiveBranch = concreteBranch;
+                continue;
+            }
+
+            return;
+        }
+
+        if (!hasNullBranch || primitiveBranch == null)
+            return;
+
+        target.Type = primitiveBranch.Type | JsonSchemaType.Null;
+        target.Format = primitiveBranch.Format;
+        target.Pattern = primitiveBranch.Pattern;
+        target.MinLength = primitiveBranch.MinLength;
+        target.MaxLength = primitiveBranch.MaxLength;
+        target.Minimum = primitiveBranch.Minimum;
+        target.Maximum = primitiveBranch.Maximum;
+        target.ExclusiveMinimum = primitiveBranch.ExclusiveMinimum;
+        target.ExclusiveMaximum = primitiveBranch.ExclusiveMaximum;
+        target.MultipleOf = primitiveBranch.MultipleOf;
+        target.Enum = primitiveBranch.Enum;
+        target.Default ??= primitiveBranch.Default;
+        target.Example ??= primitiveBranch.Example;
+        target.Description ??= primitiveBranch.Description;
+        assignBranches(null);
+        normalized++;
+    }
+
+    private static bool IsPrimitiveSchema(OpenApiSchema schema)
+    {
+        if (!schema.Type.HasValue)
+            return false;
+
+        JsonSchemaType type = schema.Type.Value;
+
+        return (type == JsonSchemaType.String || type == JsonSchemaType.Integer || type == JsonSchemaType.Number || type == JsonSchemaType.Boolean) &&
+               IsSimpleBranch(schema);
+    }
+
+    private static bool IsSimpleBranch(OpenApiSchema schema)
+    {
+        return (schema.Properties?.Count ?? 0) == 0 &&
+               schema.Items == null &&
+               schema.AdditionalProperties == null &&
+               (schema.AllOf?.Count ?? 0) == 0 &&
+               (schema.AnyOf?.Count ?? 0) == 0 &&
+               (schema.OneOf?.Count ?? 0) == 0 &&
+               schema.Discriminator == null;
+    }
+
     private static string? GetRefKey(IOpenApiSchema schema)
     {
         if (schema is OpenApiSchemaReference r)
@@ -998,4 +1162,3 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 }
-

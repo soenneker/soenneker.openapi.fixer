@@ -88,5 +88,11 @@ public interface IOpenApiSchemaFixer
     /// </summary>
     /// <param name="document">The OpenAPI document to fix.</param>
     void DeduplicateCompositionBranches(OpenApiDocument document);
+
+    /// <summary>
+    /// Collapses nullable primitive compositions such as <c>anyOf: [{ type: string }, { type: null }]</c> into a single nullable primitive schema.
+    /// </summary>
+    /// <param name="document">The OpenAPI document to fix.</param>
+    void NormalizeNullablePrimitiveCompositions(OpenApiDocument document);
 }
 

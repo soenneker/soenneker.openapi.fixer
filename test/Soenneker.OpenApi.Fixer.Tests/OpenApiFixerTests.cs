@@ -18,16 +18,58 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 {
     private readonly IOpenApiFixer _util;
     private readonly IOpenApiNamingFixer _namingFixer;
+    private readonly IOpenApiSchemaFixer _schemaFixer;
 
     public OpenApiFixerTests(Host host) : base(host)
     {
         _util = Resolve<IOpenApiFixer>(true);
         _namingFixer = Resolve<IOpenApiNamingFixer>(true);
+        _schemaFixer = Resolve<IOpenApiSchemaFixer>(true);
     }
 
     [Test]
     public void Default()
     {
+    }
+
+    [Test]
+    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["SharedConversation"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["created_by_user_id"] = new OpenApiSchema
+                            {
+                                Title = "Created By User Id",
+                                AnyOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchema { Type = JsonSchemaType.String },
+                                    new OpenApiSchema { Type = JsonSchemaType.Null }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        _schemaFixer.NormalizeNullablePrimitiveCompositions(document);
+
+        var sharedConversation = document.Components.Schemas["SharedConversation"] as OpenApiSchema;
+        var property = sharedConversation!.Properties!["created_by_user_id"] as OpenApiSchema;
+
+        await Assert.That(property).IsNotNull();
+        await Assert.That(property!.AnyOf).IsNull();
+        await Assert.That(property.Type!.Value.HasFlag(JsonSchemaType.String)).IsTrue();
+        await Assert.That(property.Type!.Value.HasFlag(JsonSchemaType.Null)).IsTrue();
     }
 
     [Test]

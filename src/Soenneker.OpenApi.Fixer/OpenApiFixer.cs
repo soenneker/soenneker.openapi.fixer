@@ -160,6 +160,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineArrayItemSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
+            _schemaFixer.NormalizeNullablePrimitiveCompositions(document!);
             LogState("After STAGE 3A: Transformations", document!);
 
             MergeAmbiguousOneOfSchemas(document!);
