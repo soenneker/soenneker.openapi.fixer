@@ -165,6 +165,44 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask RenameConflictingPaths_should_remove_empty_path_segments_from_trailing_slashes()
+    {
+        var document = new OpenApiDocument
+        {
+            Paths = new OpenApiPaths
+            {
+                ["/api/0/seer/models/"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new OpenApiOperation
+                        {
+                            OperationId = "ListModels"
+                        }
+                    }
+                },
+                ["/api/0/seer//models/{model_id}/"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new OpenApiOperation
+                        {
+                            OperationId = "RetrieveModel"
+                        }
+                    }
+                }
+            }
+        };
+
+        _namingFixer.RenameConflictingPaths(document);
+
+        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models")).IsTrue();
+        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models/{model_id}")).IsTrue();
+        await Assert.That(document.Paths.Keys.Any(path => path.Length > 1 && path.EndsWith("/", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(document.Paths.Keys.Any(path => path.Contains("//", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
     public async ValueTask Fix_should_promote_inline_object_properties_to_pascalized_component_names()
     {
         string sourcePath = Path.GetTempFileName();

@@ -352,7 +352,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 newPath = originalPath.Replace("/item", "/item_by_id");
             }
 
-            newPath = NormalizeAliasedPathSegments(newPath);
+            newPath = NormalizePathSegments(newPath);
 
             if (newPaths.TryGetValue(newPath, out IOpenApiPathItem? existingPathItem))
             {
@@ -473,7 +473,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         _referenceFixer.UpdateAllReferences(doc, mapping);
     }
 
-    private string NormalizeAliasedPathSegments(string path)
+    private string NormalizePathSegments(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return path;
@@ -486,9 +486,12 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             normalized = normalized.Replace("//", "/", StringComparison.Ordinal);
         }
 
+        if (normalized.Length > 1)
+            normalized = normalized.TrimEnd('/');
+
         if (!string.Equals(path, normalized, StringComparison.Ordinal))
         {
-            _logger.LogInformation("Canonicalized aliased path '{OriginalPath}' to '{NormalizedPath}'", path, normalized);
+            _logger.LogInformation("Canonicalized path '{OriginalPath}' to '{NormalizedPath}'", path, normalized);
         }
 
         return normalized;
