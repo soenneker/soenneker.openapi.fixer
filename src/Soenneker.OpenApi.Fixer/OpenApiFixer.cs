@@ -78,10 +78,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
     private readonly IOpenApiInt32IdFixer _int32IdFixer;
+    private readonly IOpenApiPreprocessingFixer _preprocessingFixer;
     private readonly IFileUtil _fileUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
-        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IFileUtil fileUtil)
+        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IOpenApiPreprocessingFixer preprocessingFixer,
+        IFileUtil fileUtil)
     {
         _logger = logger;
         _descriptionFixer = descriptionFixer;
@@ -89,6 +91,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         _namingFixer = namingFixer;
         _schemaFixer = schemaFixer;
         _int32IdFixer = int32IdFixer;
+        _preprocessingFixer = preprocessingFixer;
         _fileUtil = fileUtil;
     }
 
@@ -1325,6 +1328,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         //raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
         //    m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
+
+        raw = _preprocessingFixer.Fix(raw);
 
         return new MemoryStream(Encoding.UTF8.GetBytes(raw));
     }
@@ -3132,7 +3137,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
     {
-        await using MemoryStream stream = await _fileUtil.ReadToMemoryStream(filePath, cancellationToken: cancellationToken);
+        await using MemoryStream stream = await PreprocessSpecFile(filePath, cancellationToken);
 
         var reader = new OpenApiJsonReader(); // force JSON
         ReadResult read = await reader.ReadAsync(stream, new Uri(filePath), // base URI for relative $refs

@@ -33,6 +33,81 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_normalize_loose_boolean_schema_fields_before_reading()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/widgets": {
+                                      "get": {
+                                        "operationId": "GetWidgets",
+                                        "parameters": [
+                                          {
+                                            "name": "cursor",
+                                            "in": "query",
+                                            "schema": {
+                                              "type": "string",
+                                              "nullable": "0"
+                                            }
+                                          }
+                                        ],
+                                        "responses": {
+                                          "200": {
+                                            "description": "Success",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "type": "object",
+                                                  "readOnly": 0,
+                                                  "properties": {
+                                                    "id": {
+                                                      "type": "string"
+                                                    }
+                                                  }
+                                                },
+                                                "example": {
+                                                  "deprecated": "0"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            string fixedSpec = await File.ReadAllTextAsync(targetPath, System.Threading.CancellationToken.None);
+
+            await Assert.That(fixedSpec).DoesNotContain("\"nullable\": \"0\"");
+            await Assert.That(fixedSpec).DoesNotContain("\"readOnly\": 0");
+            await Assert.That(fixedSpec).Contains("\"deprecated\": \"0\"");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
     {
         var document = new OpenApiDocument

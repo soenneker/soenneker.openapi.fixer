@@ -22,6 +22,7 @@ public static class OpenApiFixerRegistrar
         services.TryAddSingleton<IOpenApiNamingFixer, OpenApiNamingFixer>();
         services.TryAddSingleton<IOpenApiSchemaFixer, OpenApiSchemaFixer>();
         services.TryAddSingleton<IOpenApiInt32IdFixer, OpenApiInt32IdFixer>();
+        services.TryAddSingleton<IOpenApiPreprocessingFixer, OpenApiPreprocessingFixer>();
         services.AddFileUtilAsSingleton();
 
         // Register main fixer
@@ -40,6 +41,7 @@ public static class OpenApiFixerRegistrar
         services.TryAddScoped<IOpenApiNamingFixer, OpenApiNamingFixer>();
         services.TryAddScoped<IOpenApiSchemaFixer, OpenApiSchemaFixer>();
         services.TryAddScoped<IOpenApiInt32IdFixer, OpenApiInt32IdFixer>();
+        services.TryAddScoped<IOpenApiPreprocessingFixer, OpenApiPreprocessingFixer>();
         services.AddFileUtilAsScoped();
 
         services.TryAddScoped<IOpenApiFixer, OpenApiFixer>();
