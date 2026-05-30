@@ -1525,10 +1525,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // 4. Replace refs in responses
             if (document.Components.Responses != null)
-                foreach (OpenApiResponse? resp in document.Components.Responses.Values)
+                foreach (IOpenApiResponse? resp in document.Components.Responses.Values)
                 {
-                    if (resp?.Content != null)
-                        foreach (OpenApiMediaType? mt in resp.Content.Values)
+                    if (resp is OpenApiResponse concreteResp && concreteResp.Content != null)
+                        foreach (OpenApiMediaType? mt in concreteResp.Content.Values)
                         {
                             if (mt?.Schema is OpenApiSchema concreteSchema)
                             {
