@@ -329,6 +329,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private void LogDanglingOrPrimitivePropertyRefs(OpenApiDocument doc)
     {
         IDictionary<string, IOpenApiSchema> comps = doc.Components?.Schemas ?? new Dictionary<string, IOpenApiSchema>();
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
 
         bool IsPrimitive(IOpenApiSchema s)
         {
@@ -352,7 +353,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     _logger.LogInformation("Property $ref points to primitive component '{Id}' at {Where}", id, where);
             }
 
-            if (s is OpenApiSchema os && os.Properties != null)
+            if (s is OpenApiSchema os && visited.Add(os) && os.Properties != null)
                 foreach ((string k, IOpenApiSchema v) in os.Properties)
                     Visit($"{where}.properties[{k}]", v);
         }
