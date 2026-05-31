@@ -2266,6 +2266,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (comps is null)
             return;
 
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
         bool IsMissing(OpenApiSchemaReference r) => string.IsNullOrWhiteSpace(r.Reference.Id) || !comps.ContainsKey(r.Reference.Id);
 
         IOpenApiSchema ResolveComponent(IOpenApiSchema s)
@@ -2390,6 +2392,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             if (s is OpenApiSchema os)
             {
+                if (!visited.Add(os))
+                    return;
+
                 if (os.Properties != null)
                 {
                     foreach (string key in os.Properties.Keys.ToList())
