@@ -517,6 +517,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             IList<IOpenApiSchema>? poly = schema.OneOf ?? schema.AnyOf;
             if (poly is not { Count: > 1 })
                 continue; // not polymorphic
+            if (!HasObjectLikeBranch(poly, doc.Components.Schemas))
+                continue; // primitive convenience union, not a polymorphic model
             if (schema.Discriminator != null)
                 continue; // already OK
 
@@ -573,6 +575,26 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 _logger.LogWarning("Could not cast schema to OpenApiSchema for discriminator injection");
             }
         }
+    }
+
+    private static bool HasObjectLikeBranch(IEnumerable<IOpenApiSchema> branches, IDictionary<string, IOpenApiSchema>? components)
+    {
+        foreach (IOpenApiSchema branch in branches)
+        {
+            IOpenApiSchema resolved = branch;
+            string? refId = GetSchemaRefId(branch);
+
+            if (refId is not null && components is not null && components.TryGetValue(refId, out IOpenApiSchema? target))
+                resolved = target;
+
+            if (resolved is OpenApiSchema schema &&
+                (schema.Type == JsonSchemaType.Object || schema.Properties is { Count: > 0 } || schema.AdditionalProperties != null))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void MergeAmbiguousOneOfSchemas(OpenApiDocument doc)
@@ -4633,8 +4655,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         resolved = target;
                     if (resolved is OpenApiSchema rs)
                     {
-                        if (rs.Type == JsonSchemaType.Object || (rs.Properties?.Any() == true) || rs.AdditionalProperties != null ||
-                            rs.AdditionalPropertiesAllowed)
+                        if (rs.Type == JsonSchemaType.Object || (rs.Properties?.Any() == true) || rs.AdditionalProperties != null)
                             return true;
                     }
                 }
@@ -4645,6 +4666,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             void ProcessUnion(IOpenApiSchema parent)
             {
                 if (parent is not OpenApiSchema pos)
+                    return;
+
+                if (!HasObjectBranch(parent))
                     return;
 
                 bool changedAny = false;

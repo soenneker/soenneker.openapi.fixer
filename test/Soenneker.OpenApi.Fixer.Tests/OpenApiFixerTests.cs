@@ -108,6 +108,70 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_preserve_primitive_only_oneof_unions()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "SendEmailRequest": {
+                                        "type": "object",
+                                        "properties": {
+                                          "to": {
+                                            "description": "Recipient email address. For multiple addresses, send as an array of strings.",
+                                            "oneOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? to = root["components"]?["schemas"]?["SendEmailRequest"]?["properties"]?["to"];
+
+            await Assert.That(to?["oneOf"]?.AsArray().Count).IsEqualTo(2);
+            await Assert.That(to?["oneOf"]?[0]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(to?["oneOf"]?[1]?["type"]?.GetValue<string>()).IsEqualTo("array");
+            await Assert.That(to?["oneOf"]?[1]?["items"]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(root.ToJsonString()).DoesNotContain("#/components/schemas/UnionBranch");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
     {
         var document = new OpenApiDocument
