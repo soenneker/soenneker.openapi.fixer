@@ -186,6 +186,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             LogState("After STAGE 4A: MergeAmbiguousOneOfSchemas", document!);
 
             ApplySchemaNormalizations(document!, cancellationToken);
+            RemoveDiscriminatorsFromNonObjectSchemas(document!);
             LogState("After STAGE 4B: ApplySchemaNormalizations", document!);
 
             FixErrorMessageArrayCollision(document!);
@@ -252,6 +253,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Fix properties declared as object that actually allOf an enum schema
             FixEnumAllOfObjectPropertyMismatch(document);
 
+            // Discriminators are only valid for object polymorphism. Drop any carried by primitive convenience unions before enum wrapper passes.
+            RemoveDiscriminatorsFromNonObjectSchemas(document);
+
             // Blanket safety: wrap any enum-like or primitive branches in unions so Kiota always sees classes
             ComprehensiveEnumWrapperFix(document);
 
@@ -273,6 +277,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             FlattenObjectAllOfCompositions(document);
 
             InlinePrimitivePropertyRefs(document);
+            WrapNonObjectUnionBranchesEverywhere(document);
             EnsureInlineObjectTypes(document!);
             EnsureNoNullSchemas(document);
 
@@ -292,6 +297,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Run discriminator-required pass one last time to guarantee required flags are present
             EnsureDiscriminatorRequiredEverywhere(document);
+            RemoveDiscriminatorsFromNonObjectSchemas(document);
 
             // Kiota can emit invalid assignments when discriminator enum properties carry string defaults.
             // Remove those defaults so generated C# compiles consistently.
@@ -518,6 +524,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             IList<IOpenApiSchema>? poly = schema.OneOf ?? schema.AnyOf;
             if (poly is not { Count: > 1 })
                 continue; // not polymorphic
+            if (schema is OpenApiSchema concretePolyParent && HasExplicitNonObjectType(concretePolyParent))
+                continue; // primitive convenience union, not a polymorphic model
             if (!HasObjectLikeBranch(poly, doc.Components.Schemas))
                 continue; // primitive convenience union, not a polymorphic model
             if (schema.Discriminator != null)
@@ -588,8 +596,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (refId is not null && components is not null && components.TryGetValue(refId, out IOpenApiSchema? target))
                 resolved = target;
 
-            if (resolved is OpenApiSchema schema &&
-                (schema.Type == JsonSchemaType.Object || schema.Properties is { Count: > 0 } || schema.AdditionalProperties != null))
+            if (resolved is OpenApiSchema schema && IsObjectLikeSchema(schema))
             {
                 return true;
             }
@@ -1706,7 +1713,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                 // If branch is (or resolves to) an enum-only schema, wrap it
                 if (resolved is OpenApiSchema rs && rs.Enum is { Count: > 0 } &&
-                    (rs.Type == null || (rs.Type != JsonSchemaType.Object && (rs.Properties == null || rs.Properties.Count == 0))))
+                    (rs.Type == null || (!HasSchemaType(rs, JsonSchemaType.Object) && (rs.Properties == null || rs.Properties.Count == 0))))
                 {
                     // Create wrapper component
                     string wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
@@ -1770,6 +1777,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 if (branches is not { Count: > 0 })
                     return;
+                if (!IsObjectLikeSchema(ps) && !HasObjectLikeBranch(branches, comps))
+                    return;
+
                 for (int i = 0; i < branches.Count; i++)
                 {
                     IOpenApiSchema b = branches[i];
@@ -1780,7 +1790,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         resolved = compSchema;
 
                     if (resolved is OpenApiSchema rs && rs.Enum is { Count: > 0 } &&
-                        (rs.Type == null || (rs.Type != JsonSchemaType.Object && (rs.Properties == null || rs.Properties.Count == 0))))
+                        (rs.Type == null || (!HasSchemaType(rs, JsonSchemaType.Object) && (rs.Properties == null || rs.Properties.Count == 0))))
                     {
                         string wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
                         var wrapper = new OpenApiSchema
@@ -1839,11 +1849,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 return IsObjectLike(resolved);
             if (s is OpenApiSchema os)
             {
-                if (os.Type == JsonSchemaType.Object)
-                    return true;
-                if (os.Properties?.Any() == true)
-                    return true;
-                if (os.AdditionalProperties != null || os.AdditionalPropertiesAllowed)
+                if (IsObjectLikeSchema(os))
                     return true;
                 if (os.AllOf != null && os.AllOf.Any(IsObjectLike))
                     return true;
@@ -1896,23 +1902,22 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            if ((schema.OneOf?.Any() == true || schema.AnyOf?.Any() == true) && schema.Discriminator == null)
+            IList<IOpenApiSchema>? polymorphicBranches = schema.OneOf ?? schema.AnyOf;
+            if (polymorphicBranches?.Any() == true && schema.Discriminator == null && schema is OpenApiSchema concreteSchema1 &&
+                !HasExplicitNonObjectType(concreteSchema1) && HasObjectLikeBranch(polymorphicBranches, comps))
             {
                 const string discName = "type";
-                if (schema is OpenApiSchema concreteSchema1)
+                concreteSchema1.Discriminator = new OpenApiDiscriminator { PropertyName = discName };
+                concreteSchema1.Properties ??= new Dictionary<string, IOpenApiSchema>();
+                if (!concreteSchema1.Properties.ContainsKey(discName))
                 {
-                    concreteSchema1.Discriminator = new OpenApiDiscriminator { PropertyName = discName };
-                    concreteSchema1.Properties ??= new Dictionary<string, IOpenApiSchema>();
-                    if (!concreteSchema1.Properties.ContainsKey(discName))
-                    {
-                        concreteSchema1.Properties[discName] = new OpenApiSchema
-                            { Type = JsonSchemaType.String, Title = discName, Description = "Union discriminator" };
-                    }
-
-                    concreteSchema1.Required ??= new HashSet<string>();
-                    if (!concreteSchema1.Required.Contains(discName))
-                        concreteSchema1.Required.Add(discName);
+                    concreteSchema1.Properties[discName] = new OpenApiSchema
+                        { Type = JsonSchemaType.String, Title = discName, Description = "Union discriminator" };
                 }
+
+                concreteSchema1.Required ??= new HashSet<string>();
+                if (!concreteSchema1.Required.Contains(discName))
+                    concreteSchema1.Required.Add(discName);
             }
 
             // ──────────────────────────────────────────────────────────────────
@@ -3914,19 +3919,131 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return false;
 
         // Any non-object types should be wrapped (arrays, strings, numbers, booleans, integers)
-        if (os.Type == JsonSchemaType.Array || os.Type == JsonSchemaType.String || os.Type == JsonSchemaType.Integer || os.Type == JsonSchemaType.Number ||
-            os.Type == JsonSchemaType.Boolean)
+        if (HasExplicitNonObjectType(os))
             return true;
 
         // Enum-only or effectively-enum (no object properties)
         bool hasEnum = os.Enum is { Count: > 0 };
-        bool isNotObject = os.Type != JsonSchemaType.Object;
+        bool isNotObject = !HasSchemaType(os, JsonSchemaType.Object);
         bool hasNoProps = os.Properties is null || os.Properties.Count == 0;
         if (hasEnum && (isNotObject || hasNoProps))
             return true;
 
         // Objects without properties but without enum can remain as objects
         return false;
+    }
+
+    private static bool HasSchemaType(OpenApiSchema schema, JsonSchemaType type)
+    {
+        return schema.Type?.HasFlag(type) == true;
+    }
+
+    private static bool IsObjectLikeSchema(OpenApiSchema schema)
+    {
+        return HasSchemaType(schema, JsonSchemaType.Object) || schema.Properties is { Count: > 0 } || schema.AdditionalProperties != null;
+    }
+
+    private static bool HasExplicitNonObjectType(OpenApiSchema schema)
+    {
+        if (schema.Type is null)
+            return false;
+
+        if (HasSchemaType(schema, JsonSchemaType.Object))
+            return false;
+
+        return HasSchemaType(schema, JsonSchemaType.Array) || HasSchemaType(schema, JsonSchemaType.String) || HasSchemaType(schema, JsonSchemaType.Integer) ||
+               HasSchemaType(schema, JsonSchemaType.Number) || HasSchemaType(schema, JsonSchemaType.Boolean);
+    }
+
+    private static void RemoveDiscriminatorsFromNonObjectSchemas(OpenApiDocument doc)
+    {
+        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
+        if (comps is null || comps.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        bool ShouldRemove(OpenApiSchema schema)
+        {
+            if (schema.Discriminator is null)
+                return false;
+
+            if (HasExplicitNonObjectType(schema))
+                return true;
+
+            IList<IOpenApiSchema>? branches = schema.OneOf ?? schema.AnyOf;
+            return branches is { Count: > 0 } && !HasObjectLikeBranch(branches, comps);
+        }
+
+        static bool IsSyntheticDiscriminatorProperty(IOpenApiSchema property, string discriminatorPropertyName)
+        {
+            if (property is not OpenApiSchema propertySchema)
+                return false;
+
+            if (string.Equals(propertySchema.Description, "Union discriminator", StringComparison.Ordinal) ||
+                string.Equals(propertySchema.Title, discriminatorPropertyName, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            bool stringOnly = HasSchemaType(propertySchema, JsonSchemaType.String) && propertySchema.Items is null && propertySchema.Properties is not { Count: > 0 } &&
+                              propertySchema.AllOf is not { Count: > 0 } && propertySchema.AnyOf is not { Count: > 0 } &&
+                              propertySchema.OneOf is not { Count: > 0 } && propertySchema.Enum is not { Count: > 0 };
+
+            return stringOnly;
+        }
+
+        static void RemoveDiscriminator(OpenApiSchema schema)
+        {
+            string discriminatorPropertyName = schema.Discriminator?.PropertyName ?? "type";
+            schema.Discriminator = null;
+
+            if (schema.Required?.Remove(discriminatorPropertyName) == true && schema.Required.Count == 0)
+                schema.Required = null;
+
+            if (schema.Properties?.TryGetValue(discriminatorPropertyName, out IOpenApiSchema? property) == true &&
+                IsSyntheticDiscriminatorProperty(property, discriminatorPropertyName))
+            {
+                schema.Properties.Remove(discriminatorPropertyName);
+                if (schema.Properties.Count == 0)
+                    schema.Properties = null;
+            }
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is null || !visited.Add(schema))
+                return;
+
+            if (schema is OpenApiSchema concrete)
+            {
+                if (ShouldRemove(concrete))
+                    RemoveDiscriminator(concrete);
+
+                if (concrete.Properties != null)
+                    foreach (IOpenApiSchema child in concrete.Properties.Values)
+                        Visit(child);
+
+                if (concrete.Items != null)
+                    Visit(concrete.Items);
+
+                if (concrete.AdditionalProperties != null)
+                    Visit(concrete.AdditionalProperties);
+
+                if (concrete.AllOf != null)
+                    foreach (IOpenApiSchema child in concrete.AllOf)
+                        Visit(child);
+
+                if (concrete.AnyOf != null)
+                    foreach (IOpenApiSchema child in concrete.AnyOf)
+                        Visit(child);
+
+                if (concrete.OneOf != null)
+                    foreach (IOpenApiSchema child in concrete.OneOf)
+                        Visit(child);
+            }
+        }
+
+        foreach (IOpenApiSchema schema in comps.Values)
+            Visit(schema);
     }
 
 
@@ -4677,7 +4794,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         resolved = target;
                     if (resolved is OpenApiSchema rs)
                     {
-                        if (rs.Type == JsonSchemaType.Object || (rs.Properties?.Any() == true) || rs.AdditionalProperties != null)
+                        if (IsObjectLikeSchema(rs))
                             return true;
                     }
                 }

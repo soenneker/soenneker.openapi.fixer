@@ -215,6 +215,161 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask ApplySchemaNormalizations_should_not_add_discriminator_to_primitive_only_union()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["CcInstanceType"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        AnyOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema { Type = JsonSchemaType.String }
+                        }
+                    }
+                }
+            },
+            Paths = new OpenApiPaths()
+        };
+
+        InvokePrivateVoidMethod(_util, "ApplySchemaNormalizations", document, System.Threading.CancellationToken.None);
+
+        var ccInstanceType = document.Components.Schemas["CcInstanceType"] as OpenApiSchema;
+
+        await Assert.That(ccInstanceType).IsNotNull();
+        await Assert.That(ccInstanceType!.Discriminator).IsNull();
+        await Assert.That(ccInstanceType.Properties?.ContainsKey("type") ?? false).IsFalse();
+        await Assert.That(ccInstanceType.Required?.Contains("type") ?? false).IsFalse();
+    }
+
+    [Test]
+    public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["CcInstanceType"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        AnyOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchemaReference("CcInstanceType_Wrapper")
+                        },
+                        Discriminator = new OpenApiDiscriminator { PropertyName = "type" },
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["type"] = new OpenApiSchema { Type = JsonSchemaType.String, Title = "type", Description = "Union discriminator" }
+                        },
+                        Required = new HashSet<string> { "type" }
+                    },
+                    ["CcInstanceType_Wrapper"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["value"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                        },
+                        Required = new HashSet<string> { "value" }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "RemoveDiscriminatorsFromNonObjectSchemas", document);
+
+        var ccInstanceType = document.Components.Schemas["CcInstanceType"] as OpenApiSchema;
+
+        await Assert.That(ccInstanceType).IsNotNull();
+        await Assert.That(ccInstanceType!.Discriminator).IsNull();
+        await Assert.That(ccInstanceType.Properties?.ContainsKey("type") ?? false).IsFalse();
+        await Assert.That(ccInstanceType.Required?.Contains("type") ?? false).IsFalse();
+    }
+
+    [Test]
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_wrap_primitive_branches_after_inlining()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["PrimitiveValue"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                    ["ObjectBranch"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["id"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                        }
+                    },
+                    ["Parent"] = new OpenApiSchema
+                    {
+                        OneOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchemaReference("ObjectBranch"),
+                            new OpenApiSchemaReference("PrimitiveValue")
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "InlinePrimitivePropertyRefs", document);
+
+        var parent = document.Components.Schemas["Parent"] as OpenApiSchema;
+        await Assert.That(parent!.OneOf![1] is OpenApiSchema).IsTrue();
+
+        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
+
+        var wrapperReference = parent.OneOf[1] as OpenApiSchemaReference;
+
+        await Assert.That(wrapperReference).IsNotNull();
+        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("ParentBranch2");
+        await Assert.That(document.Components.Schemas.ContainsKey("ParentBranch2")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
+    }
+
+    [Test]
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_treat_nullable_object_branches_as_object_like()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["Parent"] = new OpenApiSchema
+                    {
+                        AnyOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema { Type = JsonSchemaType.String },
+                            new OpenApiSchema { Type = JsonSchemaType.Object | JsonSchemaType.Null }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
+
+        var parent = document.Components.Schemas["Parent"] as OpenApiSchema;
+        var wrapperReference = parent!.AnyOf![0] as OpenApiSchemaReference;
+
+        await Assert.That(wrapperReference).IsNotNull();
+        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("ParentBranch1");
+        await Assert.That(document.Components.Schemas.ContainsKey("ParentBranch1")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
+    }
+
+    [Test]
     public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
     {
         var document = new OpenApiDocument
