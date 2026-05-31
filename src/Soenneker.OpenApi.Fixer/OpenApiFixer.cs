@@ -275,9 +275,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
             InlineMapOnlySchemaReferences(document);
             NormalizeAllOfWrappers(document);
             FlattenObjectAllOfCompositions(document);
+            FixEnumAllOfObjectPropertyMismatch(document);
 
             InlinePrimitivePropertyRefs(document);
             WrapNonObjectUnionBranchesEverywhere(document);
+            CollapseNonDiscriminatedInlineObjectUnions(document);
             EnsureInlineObjectTypes(document!);
             EnsureNoNullSchemas(document);
 
@@ -3953,6 +3955,142 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         return HasSchemaType(schema, JsonSchemaType.Array) || HasSchemaType(schema, JsonSchemaType.String) || HasSchemaType(schema, JsonSchemaType.Integer) ||
                HasSchemaType(schema, JsonSchemaType.Number) || HasSchemaType(schema, JsonSchemaType.Boolean);
+    }
+
+    private static void CollapseNonDiscriminatedInlineObjectUnions(OpenApiDocument doc)
+    {
+        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
+        if (comps is null || comps.Count == 0)
+            return;
+
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        static IList<IOpenApiSchema>? GetUnionBranches(OpenApiSchema schema)
+        {
+            if (schema.OneOf is { Count: > 0 })
+                return schema.OneOf;
+            if (schema.AnyOf is { Count: > 0 })
+                return schema.AnyOf;
+            return null;
+        }
+
+        static bool IsInlinePlainObjectBranch(IOpenApiSchema branch)
+        {
+            return branch is OpenApiSchema schema && schema.Discriminator is null && schema.Properties is { Count: > 0 } &&
+                   (schema.Type is null || schema.Type.Value.HasFlag(JsonSchemaType.Object));
+        }
+
+        static HashSet<string> RequiredSet(OpenApiSchema schema)
+        {
+            return schema.Required is { Count: > 0 } ? new HashSet<string>(schema.Required, StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        static void MergeEnumProperty(OpenApiSchema existing, OpenApiSchema incoming)
+        {
+            if (incoming.Enum is not { Count: > 0 })
+                return;
+
+            existing.Enum ??= [];
+
+            foreach (JsonNode? value in incoming.Enum)
+            {
+                if (value is null)
+                    continue;
+
+                string valueText = value.ToJsonString();
+                bool exists = existing.Enum.Any(existingValue => existingValue?.ToJsonString() == valueText);
+                if (!exists)
+                    existing.Enum.Add(value.DeepClone());
+            }
+
+            if (existing.Type is null && incoming.Type is not null)
+                existing.Type = incoming.Type;
+        }
+
+        static void MergeProperty(IDictionary<string, IOpenApiSchema> mergedProperties, string propertyName, IOpenApiSchema property)
+        {
+            if (!mergedProperties.TryGetValue(propertyName, out IOpenApiSchema? existingProperty))
+            {
+                mergedProperties[propertyName] = property;
+                return;
+            }
+
+            if (existingProperty is OpenApiSchema existingSchema && property is OpenApiSchema incomingSchema &&
+                existingSchema.Enum is { Count: > 0 } && incomingSchema.Enum is { Count: > 0 })
+            {
+                MergeEnumProperty(existingSchema, incomingSchema);
+            }
+        }
+
+        static void Collapse(OpenApiSchema schema, IList<IOpenApiSchema> branches)
+        {
+            var mergedProperties = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
+            HashSet<string>? required = null;
+
+            foreach (IOpenApiSchema branch in branches)
+            {
+                var branchSchema = (OpenApiSchema)branch;
+
+                foreach ((string propertyName, IOpenApiSchema property) in branchSchema.Properties!)
+                    MergeProperty(mergedProperties, propertyName, property);
+
+                HashSet<string> branchRequired = RequiredSet(branchSchema);
+                if (required is null)
+                    required = branchRequired;
+                else
+                    required.IntersectWith(branchRequired);
+            }
+
+            schema.Type = JsonSchemaType.Object;
+            schema.Properties = mergedProperties;
+            schema.Required = required is { Count: > 0 } ? required : null;
+
+            if (ReferenceEquals(schema.OneOf, branches))
+                schema.OneOf = null;
+            if (ReferenceEquals(schema.AnyOf, branches))
+                schema.AnyOf = null;
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is null || !visited.Add(schema))
+                return;
+
+            if (schema is not OpenApiSchema concrete)
+                return;
+
+            if (concrete.Discriminator is null && concrete.Properties is not { Count: > 0 })
+            {
+                IList<IOpenApiSchema>? branches = GetUnionBranches(concrete);
+                if (branches is { Count: > 1 } && branches.All(IsInlinePlainObjectBranch))
+                    Collapse(concrete, branches);
+            }
+
+            if (concrete.Properties != null)
+                foreach (IOpenApiSchema child in concrete.Properties.Values)
+                    Visit(child);
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+                foreach (IOpenApiSchema child in concrete.AllOf)
+                    Visit(child);
+
+            if (concrete.AnyOf != null)
+                foreach (IOpenApiSchema child in concrete.AnyOf)
+                    Visit(child);
+
+            if (concrete.OneOf != null)
+                foreach (IOpenApiSchema child in concrete.OneOf)
+                    Visit(child);
+        }
+
+        foreach (IOpenApiSchema schema in comps.Values)
+            Visit(schema);
     }
 
     private static void RemoveDiscriminatorsFromNonObjectSchemas(OpenApiDocument doc)

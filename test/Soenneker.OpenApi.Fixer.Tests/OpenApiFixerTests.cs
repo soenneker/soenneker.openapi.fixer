@@ -370,6 +370,111 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask CollapseNonDiscriminatedInlineObjectUnions_should_merge_inline_object_branches()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["DlpEntry"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        OneOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                Required = new HashSet<string> { "id", "type", "pattern" },
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                                    ["pattern"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                                    ["type"] = new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String,
+                                        Enum = [JsonValue.Create("custom")!]
+                                    }
+                                }
+                            },
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                Required = new HashSet<string> { "id", "type", "confidence" },
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                                    ["confidence"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                                    ["type"] = new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String,
+                                        Enum = [JsonValue.Create("predefined")!]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "CollapseNonDiscriminatedInlineObjectUnions", document);
+
+        var dlpEntry = document.Components.Schemas["DlpEntry"] as OpenApiSchema;
+        var typeProperty = dlpEntry!.Properties!["type"] as OpenApiSchema;
+
+        await Assert.That(dlpEntry.OneOf).IsNull();
+        await Assert.That(dlpEntry.Type).IsEqualTo(JsonSchemaType.Object);
+        await Assert.That(dlpEntry.Properties!.ContainsKey("pattern")).IsTrue();
+        await Assert.That(dlpEntry.Properties.ContainsKey("confidence")).IsTrue();
+        await Assert.That(dlpEntry.Required).IsEquivalentTo(["id", "type"]);
+        await Assert.That(typeProperty!.Enum!.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async ValueTask FixEnumAllOfObjectPropertyMismatch_should_replace_object_allof_enum_property_with_enum_ref()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["DlpDatasetUploadStatus"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        Enum = [JsonValue.Create("complete")!]
+                    },
+                    ["DlpEntryWithUploadStatus"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["upload_status"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchemaReference("DlpDatasetUploadStatus")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "FixEnumAllOfObjectPropertyMismatch", document);
+
+        var entry = document.Components.Schemas["DlpEntryWithUploadStatus"] as OpenApiSchema;
+        var uploadStatus = entry!.Properties!["upload_status"] as OpenApiSchemaReference;
+
+        await Assert.That(uploadStatus).IsNotNull();
+        await Assert.That(uploadStatus!.Reference.Id).IsEqualTo("DlpDatasetUploadStatus");
+    }
+
+    [Test]
     public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
     {
         var document = new OpenApiDocument
