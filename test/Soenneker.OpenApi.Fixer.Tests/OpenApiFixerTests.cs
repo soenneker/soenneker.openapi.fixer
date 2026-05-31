@@ -172,6 +172,49 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_use_contextual_wrapper_names_for_inline_branches()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["Widget"] = new OpenApiSchema
+                    {
+                        OneOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                                }
+                            },
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.String
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
+        await Assert.That(document.Components.Schemas.ContainsKey("WidgetBranch2")).IsTrue();
+
+        var widget = document.Components.Schemas["Widget"] as OpenApiSchema;
+        var wrapperReference = widget!.OneOf![1] as OpenApiSchemaReference;
+
+        await Assert.That(wrapperReference).IsNotNull();
+        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("WidgetBranch2");
+    }
+
+    [Test]
     public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
     {
         var document = new OpenApiDocument
@@ -1064,6 +1107,60 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(schemaReference!.Reference.Id).IsEqualTo("CreateWidgetapplicationJson_Body");
     }
 
+    [Test]
+    public async ValueTask NormalizeAllOfWrappers_should_not_wrap_existing_wrapper_value_into_itself()
+    {
+        var wrapper = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Required = new HashSet<string> { "value" },
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["value"] = new OpenApiSchema
+                {
+                    AllOf = new List<IOpenApiSchema>
+                    {
+                        new OpenApiSchemaReference("WorkersBindings"),
+                        new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.Array,
+                            Items = new OpenApiSchemaReference("WorkersBindingItem")
+                        }
+                    }
+                }
+            }
+        };
+
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["WorkersBindings"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Array,
+                        Items = new OpenApiSchemaReference("WorkersBindingItem")
+                    },
+                    ["WorkersBindingItem"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object
+                    },
+                    ["WorkersBindings_Wrapper"] = wrapper
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "NormalizeAllOfWrappers", document);
+
+        var valueSchema = wrapper.Properties!["value"] as OpenApiSchema;
+        bool selfWrapped = valueSchema?.AllOf?.OfType<OpenApiSchemaReference>()
+                                      .Any(reference => reference.Reference.Id == "WorkersBindings_Wrapper") == true;
+
+        await Assert.That(valueSchema).IsNotNull();
+        await Assert.That(selfWrapped).IsFalse();
+    }
+
     private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
     {
         MethodInfo? method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic);
@@ -1071,7 +1168,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         if (method is null)
             throw new InvalidOperationException($"Could not find private method '{methodName}'.");
 
-        method.Invoke(target, args);
+        method.Invoke(method.IsStatic ? null : target, args);
     }
 
     private static async ValueTask<JsonNode> ReadJsonNode(string path)

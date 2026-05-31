@@ -4642,7 +4642,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
         }
 
-        void ProcessSchema(IOpenApiSchema? s, IDictionary<string, IOpenApiSchema>? comps)
+        static string? AppendContext(string? contextName, string suffix)
+        {
+            if (string.IsNullOrWhiteSpace(suffix))
+                return contextName;
+            return string.IsNullOrWhiteSpace(contextName) ? suffix : $"{contextName}_{suffix}";
+        }
+
+        static string BuildInlineBranchBaseName(OpenApiSchema parent, string? contextName, int branchIndex)
+        {
+            if (!string.IsNullOrWhiteSpace(parent.Title))
+                return parent.Title!;
+            if (!string.IsNullOrWhiteSpace(contextName))
+                return $"{contextName}Branch{branchIndex + 1}";
+            return $"InlineBranch{branchIndex + 1}";
+        }
+
+        void ProcessSchema(IOpenApiSchema? s, IDictionary<string, IOpenApiSchema>? comps, string? contextName)
         {
             if (s is not OpenApiSchema os)
                 return;
@@ -4674,6 +4690,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (parent is not OpenApiSchema pos)
                     return;
 
+                if (string.IsNullOrWhiteSpace(contextName) && reverseLookup != null && reverseLookup.TryGetValue(pos, out string? resolvedContextName))
+                    contextName = resolvedContextName;
+
                 if (!HasObjectBranch(parent))
                     return;
 
@@ -4694,7 +4713,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         string? refId = GetSchemaRefId(b);
 
                         if (refId == null && reverseLookup != null && b is OpenApiSchema branchSchema &&
-                            reverseLookup.TryGetValue(branchSchema, out string mappedId))
+                            reverseLookup.TryGetValue(branchSchema, out string? mappedId))
                         {
                             refId = mappedId;
                         }
@@ -4705,7 +4724,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                         if (IsNonObjectLike(resolved) && !isWrapperAlready && (refId != null || allowInlineWrap))
                         {
-                            string baseName = refId ?? (pos.Title ?? "UnionBranch");
+                            string baseName = refId ?? BuildInlineBranchBaseName(pos, contextName, i);
                             string wrapperName = ReserveUniqueSchemaName(comps ?? new Dictionary<string, IOpenApiSchema>(), baseName, "Wrapper");
                             if (comps != null && !comps.ContainsKey(wrapperName) && !newSchemas.ContainsKey(wrapperName))
                             {
@@ -4742,36 +4761,39 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ProcessUnion(os);
 
             if (os.Properties != null)
-                foreach (IOpenApiSchema child in os.Properties.Values)
-                    ProcessSchema(child, comps);
+                foreach ((string propertyName, IOpenApiSchema child) in os.Properties)
+                    ProcessSchema(child, comps, AppendContext(contextName, propertyName));
             if (os.Items != null)
-                ProcessSchema(os.Items, comps);
+                ProcessSchema(os.Items, comps, AppendContext(contextName, "Item"));
             if (os.AllOf != null)
-                foreach (IOpenApiSchema c in os.AllOf)
-                    ProcessSchema(c, comps);
+                for (var i = 0; i < os.AllOf.Count; i++)
+                    ProcessSchema(os.AllOf[i], comps, AppendContext(contextName, $"AllOf{i + 1}"));
             if (os.AnyOf != null)
-                foreach (IOpenApiSchema c in os.AnyOf)
-                    ProcessSchema(c, comps);
+                for (var i = 0; i < os.AnyOf.Count; i++)
+                    ProcessSchema(os.AnyOf[i], comps, AppendContext(contextName, $"AnyOf{i + 1}"));
             if (os.OneOf != null)
-                foreach (IOpenApiSchema c in os.OneOf)
-                    ProcessSchema(c, comps);
+                for (var i = 0; i < os.OneOf.Count; i++)
+                    ProcessSchema(os.OneOf[i], comps, AppendContext(contextName, $"OneOf{i + 1}"));
             if (os.AdditionalProperties != null)
-                ProcessSchema(os.AdditionalProperties, comps);
+                ProcessSchema(os.AdditionalProperties, comps, AppendContext(contextName, "AdditionalProperties"));
         }
 
         if (comps != null)
         {
             // Process all existing schemas first
-            List<IOpenApiSchema> existingSchemas = comps.Values.ToList();
-            foreach (IOpenApiSchema s in existingSchemas)
-                ProcessSchema(s, comps);
+            List<KeyValuePair<string, IOpenApiSchema>> existingSchemas = comps.ToList();
+            foreach ((string schemaName, IOpenApiSchema s) in existingSchemas)
+                ProcessSchema(s, comps, schemaName);
 
             // Add new schemas after processing is complete
             foreach (KeyValuePair<string, IOpenApiSchema> kvp in newSchemas)
             {
-                comps[kvp.Key] = kvp.Value;
-                if (reverseLookup != null && kvp.Value != null && !reverseLookup.ContainsKey(kvp.Value))
-                    reverseLookup[kvp.Value] = kvp.Key;
+                if (kvp.Value is not { } schema)
+                    continue;
+
+                comps[kvp.Key] = schema;
+                if (reverseLookup != null && !reverseLookup.ContainsKey(schema))
+                    reverseLookup[schema] = kvp.Key;
             }
         }
 
@@ -4783,7 +4805,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (path?.Parameters != null)
                     foreach (var p in path.Parameters)
                         if (p?.Schema != null)
-                            ProcessSchema(p.Schema, comps);
+                            ProcessSchema(p.Schema, comps, AppendContext("PathParameter", p.Name ?? "Parameter"));
 
                 if (path?.Operations != null)
                     foreach (var op in path.Operations.Values)
@@ -4791,22 +4813,25 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         if (op?.Parameters != null)
                             foreach (var p in op.Parameters)
                                 if (p?.Schema != null)
-                                    ProcessSchema(p.Schema, comps);
+                                    ProcessSchema(p.Schema, comps, AppendContext(op?.OperationId ?? "OperationParameter", p.Name ?? "Parameter"));
                         if (op?.RequestBody is OpenApiRequestBody rb && rb.Content != null)
-                            foreach (var mt in rb.Content.Values)
+                            foreach ((string mediaType, IOpenApiMediaType mt) in rb.Content)
                                 if (mt?.Schema != null)
-                                    ProcessSchema(mt.Schema, comps);
+                                    ProcessSchema(mt.Schema, comps, AppendContext(op?.OperationId ?? "Operation", NormalizeMediaType(mediaType ?? "application/json")));
                         if (op?.Responses != null)
-                            foreach (var r in op.Responses.Values)
+                            foreach ((string statusCode, IOpenApiResponse r) in op.Responses)
                             {
                                 if (r?.Content != null)
-                                    foreach (var mt in r.Content.Values)
+                                    foreach ((string mediaType, IOpenApiMediaType mt) in r.Content)
                                         if (mt?.Schema != null)
-                                            ProcessSchema(mt.Schema, comps);
+                                            ProcessSchema(mt.Schema, comps,
+                                                AppendContext(AppendContext(op?.OperationId ?? "Operation", statusCode ?? "Response"),
+                                                    NormalizeMediaType(mediaType ?? "application/json")));
                                 if (r?.Headers != null)
-                                    foreach (var h in r.Headers.Values)
+                                    foreach ((string headerName, IOpenApiHeader h) in r.Headers)
                                         if (h?.Schema != null)
-                                            ProcessSchema(h.Schema, comps);
+                                            ProcessSchema(h.Schema, comps,
+                                                AppendContext(AppendContext(op?.OperationId ?? "Operation", statusCode ?? "Response"), headerName ?? "Header"));
                             }
                     }
             }
@@ -4851,6 +4876,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 string wrapperName = $"{baseRefId}_Wrapper";
                 if (!comps.ContainsKey(wrapperName))
                     wrapperName = ReserveUniqueSchemaName(comps, baseRefId, "Wrapper");
+
+                if (string.Equals(wrapperName, schemaEntry.Key, StringComparison.Ordinal) ||
+                    (comps.TryGetValue(wrapperName, out IOpenApiSchema? existingWrapper) && ReferenceEquals(existingWrapper, container)))
+                {
+                    continue;
+                }
 
                 var valueAllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference(baseRefId) };
                 foreach (IOpenApiSchema branch in propSchema.AllOf)
