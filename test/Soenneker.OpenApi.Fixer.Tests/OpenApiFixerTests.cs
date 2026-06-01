@@ -157,11 +157,13 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             JsonNode root = await ReadJsonNode(targetPath);
             JsonNode? to = root["components"]?["schemas"]?["SendEmailRequest"]?["properties"]?["to"];
+            JsonNode? toSchema = root["components"]?["schemas"]?["SendEmailRequestTo"];
 
-            await Assert.That(to?["oneOf"]?.AsArray().Count).IsEqualTo(2);
-            await Assert.That(to?["oneOf"]?[0]?["type"]?.GetValue<string>()).IsEqualTo("string");
-            await Assert.That(to?["oneOf"]?[1]?["type"]?.GetValue<string>()).IsEqualTo("array");
-            await Assert.That(to?["oneOf"]?[1]?["items"]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(to?["$ref"]?.GetValue<string>()).IsEqualTo("#/components/schemas/SendEmailRequestTo");
+            await Assert.That(toSchema?["oneOf"]?.AsArray().Count).IsEqualTo(2);
+            await Assert.That(toSchema?["oneOf"]?[0]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(toSchema?["oneOf"]?[1]?["type"]?.GetValue<string>()).IsEqualTo("array");
+            await Assert.That(toSchema?["oneOf"]?[1]?["items"]?["type"]?.GetValue<string>()).IsEqualTo("string");
             await Assert.That(root.ToJsonString()).DoesNotContain("#/components/schemas/UnionBranch");
         }
         finally
@@ -649,6 +651,90 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Naming_should_create_dotnet_safe_component_and_operation_names()
+    {
+        await Assert.That(_namingFixer.ValidateComponentName("api.dns-record[id]")).IsEqualTo("ApiDnsRecordId");
+        await Assert.That(_namingFixer.ValidateComponentName("123-response")).IsEqualTo("Value123Response");
+        await Assert.That(_namingFixer.ValidateComponentName("class")).IsEqualTo("ClassType");
+        await Assert.That(_namingFixer.ValidateComponentName("schema")).IsEqualTo("SchemaValue");
+        await Assert.That(_namingFixer.NormalizeOperationId("cloudflare.dns-records:list")).IsEqualTo("CloudflareDnsRecordsList");
+    }
+
+    [Test]
+    public async ValueTask EnsureUniqueOperationIds_should_generate_route_derived_pascal_case_ids_and_stable_suffixes()
+    {
+        var document = new OpenApiDocument
+        {
+            Paths = new OpenApiPaths
+            {
+                ["/zones/{zone_id}/dns_records"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new()
+                    }
+                },
+                ["/zones/{zone_id}/dns_records/{record_id}"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new()
+                        {
+                            OperationId = "list dns-records"
+                        }
+                    }
+                },
+                ["/accounts/{account_id}/dns-records"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Get] = new()
+                        {
+                            OperationId = "list_dns_records"
+                        }
+                    }
+                }
+            }
+        };
+
+        _namingFixer.NormalizeOperationIds(document);
+        _namingFixer.EnsureUniqueOperationIds(document);
+
+        await Assert.That(document.Paths["/zones/{zone_id}/dns_records"]!.Operations![HttpMethod.Get].OperationId)
+                    .IsEqualTo("GetZonesByZoneIdDnsRecords");
+        await Assert.That(document.Paths["/zones/{zone_id}/dns_records/{record_id}"]!.Operations![HttpMethod.Get].OperationId)
+                    .IsEqualTo("ListDnsRecords");
+        await Assert.That(document.Paths["/accounts/{account_id}/dns-records"]!.Operations![HttpMethod.Get].OperationId)
+                    .IsEqualTo("ListDnsRecords2");
+    }
+
+    [Test]
+    public async ValueTask RenameInvalidComponentSchemas_should_resolve_normalized_collisions_stably()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["dns-record"] = new OpenApiSchema { Type = JsonSchemaType.Object },
+                    ["DNS Record"] = new OpenApiSchema { Type = JsonSchemaType.Object },
+                    ["class"] = new OpenApiSchema { Type = JsonSchemaType.Object }
+                }
+            }
+        };
+
+        _namingFixer.RenameInvalidComponentSchemas(document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("DnsRecord")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("DnsRecord2")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("ClassType")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("dns-record")).IsFalse();
+        await Assert.That(document.Components.Schemas.ContainsKey("DNS Record")).IsFalse();
+        await Assert.That(document.Components.Schemas.ContainsKey("class")).IsFalse();
+    }
+
+    [Test]
     public async ValueTask RenameConflictingPaths_should_remove_empty_path_segments_from_trailing_slashes()
     {
         var document = new OpenApiDocument
@@ -681,7 +767,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         _namingFixer.RenameConflictingPaths(document);
 
         await Assert.That(document.Paths.ContainsKey("/api/0/seer/models")).IsTrue();
-        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models/{model_id}")).IsTrue();
+        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models/{modelId}")).IsTrue();
         await Assert.That(document.Paths.Keys.Any(path => path.Length > 1 && path.EndsWith("/", StringComparison.Ordinal))).IsFalse();
         await Assert.That(document.Paths.Keys.Any(path => path.Contains("//", StringComparison.Ordinal))).IsFalse();
     }
@@ -743,6 +829,395 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         finally
         {
             File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_promote_inline_request_and_response_schemas_to_contextual_names()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/zones/{zone_id}/dns_records": {
+                                      "post": {
+                                        "operationId": "create-dns-record",
+                                        "parameters": [
+                                          {
+                                            "name": "zone_id",
+                                            "in": "path",
+                                            "required": true,
+                                            "schema": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        ],
+                                        "requestBody": {
+                                          "content": {
+                                            "application/json": {
+                                              "schema": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "name": {
+                                                    "type": "string"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "responses": {
+                                          "201": {
+                                            "description": "Created",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "title": "response",
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "id": {
+                                                      "type": "string"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {}
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            const string normalizedPath = "/zones/{zoneId}/dns_records";
+
+            await Assert.That(root["paths"]?[normalizedPath]?["post"]?["operationId"]?.GetValue<string>())
+                        .IsEqualTo("CreateDnsRecord");
+            await Assert.That(root["components"]?["schemas"]?["CreateDnsRecordRequest"]).IsNotNull();
+            await Assert.That(root["components"]?["schemas"]?["CreateDnsRecord201Response"]).IsNotNull();
+            await Assert.That(root["paths"]?[normalizedPath]?["post"]?["requestBody"]?["content"]?["application/json"]?["schema"]?["$ref"]
+                              ?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/CreateDnsRecordRequest");
+            await Assert.That(root["paths"]?[normalizedPath]?["post"]?["responses"]?["201"]?["content"]?["application/json"]?["schema"]?["$ref"]
+                              ?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/CreateDnsRecord201Response");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_normalize_path_parameter_placeholders_without_changing_literal_segments()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/zones/{zone_identifier}/dns_records/{record_id}": {
+                                      "get": {
+                                        "operationId": "get-zone-record",
+                                        "parameters": [
+                                          {
+                                            "name": "zone_identifier",
+                                            "in": "path",
+                                            "required": true,
+                                            "schema": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          {
+                                            "name": "record_id",
+                                            "in": "path",
+                                            "required": true,
+                                            "schema": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        ],
+                                        "responses": {
+                                          "200": {
+                                            "description": "OK"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {}
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonObject paths = root["paths"]!.AsObject();
+            const string normalizedPath = "/zones/{zoneIdentifier}/dns_records/{recordId}";
+
+            await Assert.That(paths.ContainsKey(normalizedPath)).IsTrue();
+            await Assert.That(paths.ContainsKey("/zones/{zone_identifier}/dns_records/{record_id}")).IsFalse();
+
+            JsonArray parameters = paths[normalizedPath]?["get"]?["parameters"]?.AsArray() ?? [];
+            await Assert.That(parameters.Select(parameter => parameter?["name"]?.GetValue<string>()).OfType<string>().ToArray())
+                        .IsEquivalentTo(["zoneIdentifier", "recordId"]);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_promote_inline_enum_properties_and_parameters_to_pascalized_component_names()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/widgets": {
+                                      "get": {
+                                        "operationId": "list-widgets",
+                                        "parameters": [
+                                          {
+                                            "name": "status_type",
+                                            "in": "query",
+                                            "schema": {
+                                              "type": "string",
+                                              "enum": [
+                                                "created_at",
+                                                "COUNTRY_CODE"
+                                              ]
+                                            }
+                                          }
+                                        ],
+                                        "responses": {
+                                          "200": {
+                                            "description": "OK"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "Widget": {
+                                        "type": "object",
+                                        "properties": {
+                                          "status_type": {
+                                            "type": "string",
+                                            "enum": [
+                                              "active",
+                                              "paused"
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? schemas = root["components"]?["schemas"];
+
+            await Assert.That(schemas?["WidgetStatusType"]).IsNotNull();
+            await Assert.That(schemas?["ListWidgetsStatusTypeParameter"]).IsNotNull();
+            await Assert.That(schemas?["Widget"]?["properties"]?["status_type"]?["$ref"]?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/WidgetStatusType");
+            await Assert.That(root["paths"]?["/widgets"]?["get"]?["parameters"]?[0]?["schema"]?["$ref"]?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/ListWidgetsStatusTypeParameter");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_inject_safe_enum_member_names_for_nonstandard_wire_values()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "Status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "1",
+                                          "in-progress",
+                                          "class",
+                                          "!=",
+                                          "pending"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonArray values = root["components"]?["schemas"]?["Status"]?["x-ms-enum"]?["values"]?.AsArray() ?? [];
+
+            await Assert.That(GetEnumInjectedName(values, "1")).IsEqualTo("Value1");
+            await Assert.That(GetEnumInjectedName(values, "in-progress")).IsEqualTo("InProgress");
+            await Assert.That(GetEnumInjectedName(values, "class")).IsEqualTo("ClassValue");
+            await Assert.That(GetEnumInjectedName(values, "!=")).IsEqualTo("ExclamationEqual");
+            await Assert.That(GetEnumInjectedName(values, "pending")).IsEqualTo("Pending");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_inject_pascal_case_enum_member_names_for_common_openapi_values()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "AuditField": {
+                                        "type": "string",
+                                        "enum": [
+                                          "created_at",
+                                          "COUNTRY_CODE",
+                                          "openapi_v3",
+                                          "ssl_status",
+                                          "active"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonArray values = root["components"]?["schemas"]?["AuditField"]?["x-ms-enum"]?["values"]?.AsArray() ?? [];
+
+            await Assert.That(GetEnumInjectedName(values, "created_at")).IsEqualTo("CreatedAt");
+            await Assert.That(GetEnumInjectedName(values, "COUNTRY_CODE")).IsEqualTo("CountryCode");
+            await Assert.That(GetEnumInjectedName(values, "openapi_v3")).IsEqualTo("OpenApiV3");
+            await Assert.That(GetEnumInjectedName(values, "ssl_status")).IsEqualTo("SslStatus");
+            await Assert.That(GetEnumInjectedName(values, "active")).IsEqualTo("Active");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_process_cloudflare_unfixed_fixture()
+    {
+        string sourcePath = FindFixtureFile("cloudflare_unfixed.json");
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            await Assert.That(root["openapi"]).IsNotNull();
+            await Assert.That(root["paths"]?.AsObject().Count > 0).IsTrue();
+            await Assert.That(root["components"]?["schemas"]?.AsObject().Count > 0).IsTrue();
+        }
+        finally
+        {
             File.Delete(targetPath);
         }
     }
@@ -1009,7 +1484,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await Assert.That(root["paths"]?["/assistant_control/assistants"]).IsNotNull();
             await Assert.That(root["paths"]?["/assistant_control_2026-04/assistants"]).IsNull();
             await Assert.That(root["paths"]?["/assistant_control/assistants"]?["get"]?["operationId"]?.GetValue<string>())
-                        .IsEqualTo("assistant-control-list-assistants");
+                        .IsEqualTo("AssistantControlListAssistants");
             await Assert.That(root["components"]?["schemas"]?["AssistantControlErrorResponse"]).IsNotNull();
             await Assert.That(root["components"]?["schemas"]?["AssistantControl202604ErrorResponse"]).IsNull();
             await Assert.That(root["paths"]?["/assistant_control/assistants"]?["get"]?["responses"]?["500"]?["content"]?["application/json"]?["schema"]?["$ref"]
@@ -1220,6 +1695,306 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composed_properties()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["AbuseReportsErrorMessage"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["code"] = new OpenApiSchema
+                            {
+                                OneOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.Number
+                                    },
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineComposedSchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("AbuseReportsErrorMessageCode")).IsTrue();
+
+        var container = document.Components.Schemas["AbuseReportsErrorMessage"] as OpenApiSchema;
+        var codeReference = container!.Properties!["code"] as OpenApiSchemaReference;
+        var codeSchema = document.Components.Schemas["AbuseReportsErrorMessageCode"] as OpenApiSchema;
+
+        await Assert.That(codeReference).IsNotNull();
+        await Assert.That(codeReference!.Reference.Id).IsEqualTo("AbuseReportsErrorMessageCode");
+        await Assert.That(codeSchema!.OneOf!.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composition_branches_with_contextual_titles()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["AccessAppRequest"] = new OpenApiSchema
+                    {
+                        AnyOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema
+                            {
+                                Title = "Self Hosted Application",
+                                Type = JsonSchemaType.Object,
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["domain"] = new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineComposedSchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("AccessAppRequestSelfHostedApplication")).IsTrue();
+
+        var container = document.Components.Schemas["AccessAppRequest"] as OpenApiSchema;
+        var branchReference = container!.AnyOf![0] as OpenApiSchemaReference;
+
+        await Assert.That(branchReference).IsNotNull();
+        await Assert.That(branchReference!.Reference.Id).IsEqualTo("AccessAppRequestSelfHostedApplication");
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineComponentContentSchemas_should_promote_component_response_content_schemas()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>(),
+                Responses = new Dictionary<string, IOpenApiResponse>
+                {
+                    ["rulesets_Failure"] = new OpenApiResponse
+                    {
+                        Description = "Failure",
+                        Content = new Dictionary<string, IOpenApiMediaType>
+                        {
+                            ["application/json"] = new OpenApiMediaType
+                            {
+                                Schema = new OpenApiSchema
+                                {
+                                    Type = JsonSchemaType.Object,
+                                    Properties = new Dictionary<string, IOpenApiSchema>
+                                    {
+                                        ["result"] = new OpenApiSchema
+                                        {
+                                            Type = JsonSchemaType.Object
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineComponentContentSchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("RulesetsFailureResponse")).IsTrue();
+
+        var response = document.Components.Responses["rulesets_Failure"] as OpenApiResponse;
+        var reference = response!.Content!["application/json"].Schema as OpenApiSchemaReference;
+
+        await Assert.That(reference).IsNotNull();
+        await Assert.That(reference!.Reference.Id).IsEqualTo("RulesetsFailureResponse");
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_inline_array_item_objects()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["AaaMechanisms"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["email"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Array,
+                                Items = new OpenApiSchema
+                                {
+                                    Type = JsonSchemaType.Object,
+                                    Properties = new Dictionary<string, IOpenApiSchema>
+                                    {
+                                        ["id"] = new OpenApiSchema
+                                        {
+                                            Type = JsonSchemaType.String
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("AaaMechanismsEmailItem")).IsTrue();
+
+        var container = document.Components.Schemas["AaaMechanisms"] as OpenApiSchema;
+        var email = container!.Properties!["email"] as OpenApiSchema;
+        var itemReference = email!.Items as OpenApiSchemaReference;
+
+        await Assert.That(itemReference).IsNotNull();
+        await Assert.That(itemReference!.Reference.Id).IsEqualTo("AaaMechanismsEmailItem");
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_top_level_component_array_item_objects()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["GetCountryRead200ResponseResponseJson"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Array,
+                        Items = new OpenApiSchema
+                        {
+                            Type = JsonSchemaType.Object,
+                            Properties = new Dictionary<string, IOpenApiSchema>
+                            {
+                                ["success"] = new OpenApiSchema
+                                {
+                                    Type = JsonSchemaType.Boolean
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("GetCountryRead200ResponseResponseJsonItem")).IsTrue();
+
+        var response = document.Components.Schemas["GetCountryRead200ResponseResponseJson"] as OpenApiSchema;
+        var itemReference = response!.Items as OpenApiSchemaReference;
+
+        await Assert.That(itemReference).IsNotNull();
+        await Assert.That(itemReference!.Reference.Id).IsEqualTo("GetCountryRead200ResponseResponseJsonItem");
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_explicit_empty_object_properties()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["AaaAuditLogsV2OrgResource"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["request"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("AaaAuditLogsV2OrgResourceRequest")).IsTrue();
+
+        var container = document.Components.Schemas["AaaAuditLogsV2OrgResource"] as OpenApiSchema;
+        var requestReference = container!.Properties!["request"] as OpenApiSchemaReference;
+
+        await Assert.That(requestReference).IsNotNull();
+        await Assert.That(requestReference!.Reference.Id).IsEqualTo("AaaAuditLogsV2OrgResourceRequest");
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_schemas_with_object_members_even_when_type_is_wrong()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["LoadBalancerPoolsPatchPoolsRequest"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["value"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.String,
+                                Properties = new Dictionary<string, IOpenApiSchema>
+                                {
+                                    ["notification_email"] = new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineObjectPropertySchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("LoadBalancerPoolsPatchPoolsRequestValue")).IsTrue();
+
+        var container = document.Components.Schemas["LoadBalancerPoolsPatchPoolsRequest"] as OpenApiSchema;
+        var valueReference = container!.Properties!["value"] as OpenApiSchemaReference;
+        var valueSchema = document.Components.Schemas["LoadBalancerPoolsPatchPoolsRequestValue"] as OpenApiSchema;
+
+        await Assert.That(valueReference).IsNotNull();
+        await Assert.That(valueReference!.Reference.Id).IsEqualTo("LoadBalancerPoolsPatchPoolsRequestValue");
+        await Assert.That(valueSchema!.Type).IsEqualTo(JsonSchemaType.Object);
+    }
+
+    [Test]
     public async ValueTask InlinePrimitivePropertyRefs_should_inline_array_component_property_refs()
     {
         var document = new OpenApiDocument
@@ -1356,7 +2131,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         InvokePrivateVoidMethod(_util, "FixContentTypeWrapperCollisions", document);
 
         await Assert.That(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson")).IsFalse();
-        await Assert.That(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJson_Body")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("CreateWidgetapplicationJsonBody")).IsTrue();
 
         IOpenApiPathItem pathItem = document.Paths["/widgets"]!;
         OpenApiOperation operation = pathItem.Operations[HttpMethod.Post]!;
@@ -1364,7 +2139,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         var schemaReference = mediaType.Schema as OpenApiSchemaReference;
 
         await Assert.That(schemaReference).IsNotNull();
-        await Assert.That(schemaReference!.Reference.Id).IsEqualTo("CreateWidgetapplicationJson_Body");
+        await Assert.That(schemaReference!.Reference.Id).IsEqualTo("CreateWidgetapplicationJsonBody");
     }
 
     [Test]
@@ -1421,6 +2196,135 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(selfWrapped).IsFalse();
     }
 
+    [Test]
+    public async ValueTask NormalizeNonObjectAllOfCompositions_should_collapse_cloudflare_style_value_wrappers()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["ErrorMessage"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object
+                    },
+                    ["Region"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        Enum = new List<JsonNode>
+                        {
+                            JsonValue.Create("WNAM")!
+                        }
+                    },
+                    ["Uuid"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        AllOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.String,
+                                Format = "uuid"
+                            }
+                        }
+                    },
+                    ["Response"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["enabled"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.Boolean,
+                                        Description = "Whether the rule should run."
+                                    },
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.Object,
+                                        Default = JsonValue.Create(true)
+                                    }
+                                }
+                            },
+                            ["errors"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.Array,
+                                        Items = new OpenApiSchemaReference("ErrorMessage")
+                                    }
+                                }
+                            },
+                            ["region"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchemaReference("Region"),
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String,
+                                        Default = JsonValue.Create("WNAM")
+                                    }
+                                }
+                            },
+                            ["schema_id"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Object,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchemaReference("Uuid"),
+                                    new OpenApiSchema
+                                    {
+                                        Type = JsonSchemaType.String,
+                                        Description = "Schema identifier."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "NormalizeNonObjectAllOfCompositions", document);
+
+        var response = document.Components.Schemas["Response"] as OpenApiSchema;
+        var enabled = response!.Properties!["enabled"] as OpenApiSchema;
+        var errors = response.Properties["errors"] as OpenApiSchema;
+        var region = response.Properties["region"] as OpenApiSchema;
+        var schemaId = response.Properties["schema_id"] as OpenApiSchema;
+        var uuid = document.Components.Schemas["Uuid"] as OpenApiSchema;
+
+        await Assert.That(enabled!.Type).IsEqualTo(JsonSchemaType.Boolean);
+        await Assert.That(enabled.AllOf).IsNull();
+        await Assert.That(enabled.Default).IsNotNull();
+        await Assert.That(enabled.Description).IsEqualTo("Whether the rule should run.");
+
+        await Assert.That(errors!.Type).IsEqualTo(JsonSchemaType.Array);
+        await Assert.That(errors.AllOf).IsNull();
+        await Assert.That(errors.Items).IsNotNull();
+
+        await Assert.That(region!.Type).IsEqualTo(JsonSchemaType.String);
+        await Assert.That(region.AllOf).IsNull();
+        await Assert.That(region.Enum!.Count).IsEqualTo(1);
+        await Assert.That(region.Default).IsNotNull();
+
+        await Assert.That(uuid!.Type).IsEqualTo(JsonSchemaType.String);
+        await Assert.That(uuid.AllOf).IsNull();
+        await Assert.That(schemaId!.Type).IsEqualTo(JsonSchemaType.String);
+        await Assert.That(schemaId.Format).IsEqualTo("uuid");
+        await Assert.That(schemaId.Description).IsEqualTo("Schema identifier.");
+    }
+
     private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
     {
         MethodInfo? method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic);
@@ -1452,6 +2356,32 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 .FirstOrDefault(node => string.Equals(node?["name"]?.GetValue<string>(), parameterName, System.StringComparison.Ordinal));
 
         return parameter?["schema"]?["format"]?.GetValue<string>();
+    }
+
+    private static string? GetEnumInjectedName(JsonArray values, string enumValue)
+    {
+        JsonObject? valueObject = values.OfType<JsonNode>()
+                                        .Select(node => node as JsonObject)
+                                        .FirstOrDefault(node => string.Equals(node?["value"]?.GetValue<string>(), enumValue, StringComparison.Ordinal));
+
+        return valueObject?["name"]?.GetValue<string>();
+    }
+
+    private static string FindFixtureFile(string fileName)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+
+        while (directory != null)
+        {
+            string candidate = Path.Combine(directory.FullName, fileName);
+
+            if (File.Exists(candidate))
+                return candidate;
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate fixture '{fileName}' from '{AppContext.BaseDirectory}'.", fileName);
     }
 
     [Test]

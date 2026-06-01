@@ -133,14 +133,14 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             _namingFixer.RenameInvalidComponentSchemas(document!);
 
-            _logger.LogInformation("Resolving collisions between operation IDs and schema names...");
-            _namingFixer.ResolveSchemaOperationNameCollisions(document!);
-
-            _logger.LogInformation("Ensuring unique operation IDs...");
             _logger.LogInformation("Normalizing operation IDs...");
             _namingFixer.NormalizeOperationIds(document!);
 
+            _logger.LogInformation("Ensuring unique operation IDs...");
             _namingFixer.EnsureUniqueOperationIds(document!);
+
+            _logger.LogInformation("Resolving collisions between operation IDs and schema names...");
+            _namingFixer.ResolveSchemaOperationNameCollisions(document!);
 
             // STAGE 2: REFERENCE INTEGRITY & SCRUBBING
             _logger.LogInformation("Scrubbing all component references to fix broken links...");
@@ -161,6 +161,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
             WrapPrimitiveRequestBodies(document!);
 
             ExtractInlineArrayItemSchemas(document!);
+            ExtractInlineComponentContentSchemas(document!);
+            ExtractInlineComposedSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
             _schemaFixer.NormalizeNullablePrimitiveCompositions(document!);
@@ -271,6 +273,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Final safety net: ensure no union branch is a non-object (enums, primitives, arrays)
             WrapNonObjectUnionBranchesEverywhere(document);
+            NormalizeNonObjectAllOfCompositions(document);
             FlattenMapAllOfCompositions(document);
             InlineMapOnlySchemaReferences(document);
             NormalizeAllOfWrappers(document);
@@ -278,9 +281,15 @@ public sealed class OpenApiFixer : IOpenApiFixer
             FixEnumAllOfObjectPropertyMismatch(document);
 
             InlinePrimitivePropertyRefs(document);
+            NormalizeNonObjectAllOfCompositions(document);
             WrapNonObjectUnionBranchesEverywhere(document);
             CollapseNonDiscriminatedInlineObjectUnions(document);
             EnsureInlineObjectTypes(document!);
+            ExtractInlineSchemasCore(document!, cancellationToken, false);
+            ExtractInlineComponentContentSchemas(document!);
+            ExtractInlineComposedSchemas(document!);
+            ExtractInlineObjectPropertySchemas(document!);
+            ExtractInlineEnumSchemas(document!);
             EnsureNoNullSchemas(document);
 
             if (options.Int32IdTransform)
@@ -456,10 +465,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             foreach ((string media, IOpenApiMediaType mt) in op.RequestBody.Content)
             {
-                string rawWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
-                string normalizedWrapperName = _namingFixer.ValidateComponentName(rawWrapperName);
-                string? existingWrapperName = doc.Components.Schemas.ContainsKey(rawWrapperName) ? rawWrapperName :
-                    doc.Components.Schemas.ContainsKey(normalizedWrapperName) ? normalizedWrapperName : null;
+                string legacyWrapperName = $"{op.OperationId!}{media.Replace('/', '_')}";
+                string normalizedLegacyWrapperName = _namingFixer.ValidateComponentName(legacyWrapperName);
+                string canonicalWrapperName = OpenApiNameNormalizer.NormalizeComponentName($"{op.OperationId} {OpenApiNameNormalizer.NormalizeMediaTypeName(media)}");
+                string? existingWrapperName = doc.Components.Schemas.ContainsKey(legacyWrapperName) ? legacyWrapperName :
+                    doc.Components.Schemas.ContainsKey(normalizedLegacyWrapperName) ? normalizedLegacyWrapperName :
+                    doc.Components.Schemas.ContainsKey(canonicalWrapperName) ? canonicalWrapperName : null;
 
                 if (existingWrapperName != null && doc.Components.Schemas.TryGetValue(existingWrapperName, out IOpenApiSchema? schema))
                 {
@@ -1113,8 +1124,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 if (media.Schema is not OpenApiSchemaReference && !_schemaFixer.IsSchemaEmpty(media.Schema))
                 {
                     // Create a name for our new component.
-                    string newSchemaName =
-                        ReserveUniqueSchemaName(schemas, $"{operation.OperationId ?? "unnamed"}{mediaType.Replace("/", "_")}", "RequestBody");
+                    string mediaName = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
+                    string newSchemaName = ReserveUniqueSchemaName(schemas, $"{operation.OperationId ?? "UnnamedOperation"} {mediaName} Request", "RequestBody");
 
                     _logger.LogInformation("Extracting inline request body schema for '{MediaType}' in operation '{OpId}' to new component '{NewSchemaName}'.",
                         mediaType, operation.OperationId ?? "unnamed", newSchemaName);
@@ -2799,13 +2810,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             return string.Empty;
         }
 
-        string validatedName = _namingFixer.ValidateComponentName(compName);
+        doc.Components ??= new OpenApiComponents();
+        doc.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
 
-        if (!doc.Components.Schemas.ContainsKey(validatedName))
-        {
-            // In v2.3, Title is read-only, so we can't modify it directly
-            doc.Components.Schemas[validatedName] = schema;
-        }
+        string validatedName = OpenApiNameNormalizer.ReserveComponentName(doc.Components.Schemas.Keys, compName, "Schema");
+
+        doc.Components.Schemas[validatedName] = schema;
 
         return validatedName;
     }
@@ -2814,13 +2824,13 @@ public sealed class OpenApiFixer : IOpenApiFixer
     {
         if (!string.IsNullOrWhiteSpace(schema.Title))
         {
-            string titleBasedName = _namingFixer.ValidateComponentName(schema.Title);
+            string titleBasedName = OpenApiNameNormalizer.NormalizeComponentName(schema.Title, $"{safeOpId} {statusCode} Response");
 
             if (!string.IsNullOrWhiteSpace(titleBasedName))
                 return titleBasedName;
         }
 
-        return $"{safeOpId}_{statusCode}";
+        return OpenApiNameNormalizer.NormalizeComponentName($"{safeOpId} {statusCode} Response");
     }
 
     private static bool IsPrimitiveEnvelopeMetadata(IOpenApiSchema schema)
@@ -2869,6 +2879,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
     private void ExtractInlineSchemas(OpenApiDocument document, CancellationToken cancellationToken)
     {
+        ExtractInlineSchemasCore(document, cancellationToken, true);
+    }
+
+    private void ExtractInlineSchemasCore(OpenApiDocument document, CancellationToken cancellationToken, bool preserveSimpleEnvelopes)
+    {
         static bool IsSimpleEnvelope(OpenApiSchema s) =>
             s.Properties?.Count == 1 && s.Properties.TryGetValue("data", out IOpenApiSchema? p) && p is OpenApiSchemaReference &&
             (s.Required == null || s.Required.Count <= 1);
@@ -2889,7 +2904,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (operation == null)
                         continue;
 
-                    string safeOpId = _namingFixer.ValidateComponentName(_namingFixer.GenerateSafePart(operation.OperationId ?? "unnamed", opType.ToString()));
+                    string safeOpId = OpenApiNameNormalizer.NormalizeOperationId(operation.OperationId, opType, null);
 
                     if (operation.Parameters != null)
                     {
@@ -2930,10 +2945,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
                             if (subtype.Equals("json", StringComparison.OrdinalIgnoreCase))
                                 safeMedia = "";
                             else
-                                safeMedia = _namingFixer.ValidateComponentName(_namingFixer.GenerateSafePart(subtype, "media"));
+                                safeMedia = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
 
-                            var baseName = $"{safeOpId}";
-                            string compName = ReserveUniqueSchemaName(comps, baseName, $"RequestBody_{safeMedia}");
+                            string baseName = string.IsNullOrWhiteSpace(safeMedia) ? $"{safeOpId} Request" : $"{safeOpId} {safeMedia} Request";
+                            string compName = ReserveUniqueSchemaName(comps, baseName, "RequestBody");
 
                             string finalComponentName = compName;
 
@@ -2964,16 +2979,17 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                 IOpenApiSchema? schemaResp = media.Schema;
                                 if (schemaResp == null || schemaResp is OpenApiSchemaReference)
                                     continue;
-                                if (schemaResp is OpenApiSchema concreteSchemaResp1 && IsSimpleEnvelope(concreteSchemaResp1))
+                                if (preserveSimpleEnvelopes && schemaResp is OpenApiSchema concreteSchemaResp1 && IsSimpleEnvelope(concreteSchemaResp1))
                                     continue;
-                                if (schemaResp is OpenApiSchema concreteSchemaRespEnvelope && IsSimpleCollectionEnvelope(concreteSchemaRespEnvelope))
+                                if (preserveSimpleEnvelopes && schemaResp is OpenApiSchema concreteSchemaRespEnvelope &&
+                                    IsSimpleCollectionEnvelope(concreteSchemaRespEnvelope))
                                     continue;
                                 if (schemaResp is not OpenApiSchema concreteSchemaResp2)
                                     continue;
 
-                                string safeMedia = _namingFixer.ValidateComponentName(_namingFixer.GenerateSafePart(mediaType, "media"));
+                                string safeMedia = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
                                 string baseName = DetermineInlineResponseComponentBaseName(concreteSchemaResp2, safeOpId, statusCode);
-                                string compName = ReserveUniqueSchemaName(comps, baseName, $"Response_{safeMedia}");
+                                string compName = ReserveUniqueSchemaName(comps, baseName, $"Response{safeMedia}");
 
                                 string finalComponentName = compName;
 
@@ -2988,6 +3004,58 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
+    private void ExtractInlineComponentContentSchemas(OpenApiDocument document)
+    {
+        IDictionary<string, IOpenApiSchema>? comps = document.Components?.Schemas;
+        if (comps == null)
+            return;
+
+        void ExtractContentSchemas(IDictionary<string, IOpenApiMediaType>? content, string baseName)
+        {
+            if (content == null)
+                return;
+
+            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in content.ToList())
+            {
+                if (mediaInterface is not OpenApiMediaType media || media.Schema is null or OpenApiSchemaReference)
+                    continue;
+
+                if (media.Schema is not OpenApiSchema concreteSchema)
+                    continue;
+
+                string mediaName = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
+                string schemaBaseName = mediaName.Equals("Json", StringComparison.Ordinal) ? baseName : $"{baseName} {mediaName}";
+                string reservedName = ReserveUniqueSchemaName(comps, schemaBaseName, "Content");
+                string finalComponentName = AddComponentSchema(document, reservedName, concreteSchema);
+
+                if (string.IsNullOrWhiteSpace(finalComponentName))
+                    continue;
+
+                media.Schema = new OpenApiSchemaReference(finalComponentName);
+                _logger.LogInformation("Promoted component content schema '{Context}' to components schema '{ComponentName}'", schemaBaseName,
+                    finalComponentName);
+            }
+        }
+
+        if (document.Components?.RequestBodies != null)
+        {
+            foreach ((string requestBodyName, IOpenApiRequestBody requestBody) in document.Components.RequestBodies)
+            {
+                string baseName = OpenApiNameNormalizer.NormalizeComponentName($"{requestBodyName} Request");
+                ExtractContentSchemas(requestBody?.Content, baseName);
+            }
+        }
+
+        if (document.Components?.Responses != null)
+        {
+            foreach ((string responseName, IOpenApiResponse response) in document.Components.Responses)
+            {
+                string baseName = OpenApiNameNormalizer.NormalizeComponentName($"{responseName} Response");
+                ExtractContentSchemas(response?.Content, baseName);
+            }
+        }
+    }
+
     private void ExtractInlineObjectPropertySchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
@@ -2998,10 +3066,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema)
                 return false;
 
-            bool hasOwnObjectMembers = concreteSchema.Properties?.Any() == true || concreteSchema.AdditionalProperties is OpenApiSchema ||
-                                       concreteSchema.PatternProperties?.Any() == true;
+            bool hasOwnObjectMembers = HasOwnObjectMembers(concreteSchema);
+            bool hasArrayType = HasSchemaType(concreteSchema, JsonSchemaType.Array);
+            bool hasObjectType = HasSchemaType(concreteSchema, JsonSchemaType.Object);
+            bool hasComposition = concreteSchema.AllOf?.Any() == true || concreteSchema.AnyOf?.Any() == true || concreteSchema.OneOf?.Any() == true;
 
-            if (concreteSchema.Type == JsonSchemaType.Object && hasOwnObjectMembers)
+            if (!hasArrayType && (hasOwnObjectMembers || hasObjectType && !hasComposition))
                 return true;
 
             static bool BranchesContainPromotableInlineObject(IList<IOpenApiSchema>? branches)
@@ -3022,6 +3092,32 @@ public sealed class OpenApiFixer : IOpenApiFixer
                    BranchesContainPromotableInlineObject(concreteSchema.OneOf);
         }
 
+        static bool HasOwnObjectMembers(OpenApiSchema schema)
+        {
+            return schema.Properties?.Any() == true || schema.AdditionalProperties != null || schema.PatternProperties?.Any() == true;
+        }
+
+        bool TryPromoteInlineSchema(IOpenApiSchema schema, string baseName, out IOpenApiSchema reference)
+        {
+            reference = schema;
+
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || !IsPromotableInlineObjectShape(concreteSchema))
+                return false;
+
+            if (!HasSchemaType(concreteSchema, JsonSchemaType.Object) && HasOwnObjectMembers(concreteSchema))
+                concreteSchema.Type = JsonSchemaType.Object;
+
+            string reservedName = ReserveUniqueSchemaName(document.Components.Schemas, baseName, "Property");
+            string finalComponentName = AddComponentSchema(document, reservedName, concreteSchema);
+
+            if (string.IsNullOrWhiteSpace(finalComponentName))
+                return false;
+
+            reference = new OpenApiSchemaReference(finalComponentName);
+            _logger.LogInformation("Promoted inline property schema '{Context}' to components schema '{ComponentName}'", baseName, finalComponentName);
+            return true;
+        }
+
         bool changed;
 
         do
@@ -3030,7 +3126,23 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             foreach ((string schemaName, IOpenApiSchema schemaInterface) in document.Components.Schemas.ToList())
             {
-                if (schemaInterface is not OpenApiSchema schema || schema.Properties == null)
+                if (schemaInterface is not OpenApiSchema schema)
+                    continue;
+
+                if (schema.Items != null && TryPromoteInlineSchema(schema.Items, $"{schemaName} Item", out IOpenApiSchema componentItemReference))
+                {
+                    schema.Items = componentItemReference;
+                    changed = true;
+                }
+
+                if (schema.AdditionalProperties != null &&
+                    TryPromoteInlineSchema(schema.AdditionalProperties, $"{schemaName} AdditionalProperties", out IOpenApiSchema componentAdditionalReference))
+                {
+                    schema.AdditionalProperties = componentAdditionalReference;
+                    changed = true;
+                }
+
+                if (schema.Properties == null)
                     continue;
 
                 foreach ((string propertyName, IOpenApiSchema propertySchemaInterface) in schema.Properties.ToList())
@@ -3038,59 +3150,346 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     if (propertySchemaInterface is not OpenApiSchema propertySchema || propertySchemaInterface is OpenApiSchemaReference)
                         continue;
 
-                    if (!IsPromotableInlineObjectShape(propertySchema))
+                    string propertyContext = $"{schemaName} {propertyName}";
+
+                    if (TryPromoteInlineSchema(propertySchema, propertyContext, out IOpenApiSchema propertyReference))
+                    {
+                        schema.Properties[propertyName] = propertyReference;
+                        changed = true;
                         continue;
+                    }
 
-                    string baseName = $"{schemaName}_{propertyName}";
-                    string reservedName = ReserveUniqueSchemaName(document.Components.Schemas, baseName, "Property");
-                    string finalComponentName = AddComponentSchema(document, reservedName, propertySchema);
+                    if (propertySchema.Items != null &&
+                        TryPromoteInlineSchema(propertySchema.Items, $"{propertyContext} Item", out IOpenApiSchema itemReference))
+                    {
+                        propertySchema.Items = itemReference;
+                        changed = true;
+                    }
 
-                    if (string.IsNullOrWhiteSpace(finalComponentName))
-                        continue;
-
-                    schema.Properties[propertyName] = new OpenApiSchemaReference(finalComponentName);
-                    changed = true;
-
-                    _logger.LogInformation("Promoted inline property schema '{Schema}.{Property}' to components schema '{ComponentName}'", schemaName,
-                        propertyName, finalComponentName);
+                    if (propertySchema.AdditionalProperties != null &&
+                        TryPromoteInlineSchema(propertySchema.AdditionalProperties, $"{propertyContext} AdditionalProperties", out IOpenApiSchema additionalReference))
+                    {
+                        propertySchema.AdditionalProperties = additionalReference;
+                        changed = true;
+                    }
                 }
             }
         }
         while (changed);
     }
 
-    private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
+    private void ExtractInlineComposedSchemas(OpenApiDocument document)
     {
-        // Ensure a valid, non-empty component key baseline
-        string Sanitize(string? name, string fallback)
+        IDictionary<string, IOpenApiSchema>? comps = document.Components?.Schemas;
+        if (comps == null)
+            return;
+
+        static bool HasComposition(OpenApiSchema schema)
         {
-            if (string.IsNullOrWhiteSpace(name))
-                return fallback;
-            string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
-            if (string.IsNullOrWhiteSpace(sanitized))
-                sanitized = fallback;
-            if (!char.IsLetter(sanitized[0]))
-                sanitized = "C" + sanitized;
-            return sanitized;
+            return schema.AllOf?.Any() == true || schema.AnyOf?.Any() == true || schema.OneOf?.Any() == true;
         }
 
-        string candidate = Sanitize(baseName, "UnnamedComponent");
-        if (!comps.ContainsKey(candidate))
-            return candidate;
+        static bool IsPromotableCompositionBranch(OpenApiSchema schema)
+        {
+            static bool HasOwnObjectMembers(OpenApiSchema candidate)
+            {
+                return candidate.Properties?.Any() == true || candidate.PatternProperties?.Any() == true;
+            }
 
-        string withSuffix = Sanitize($"{baseName}_{fallbackSuffix}", "UnnamedComponent_Wrapper");
-        if (!comps.ContainsKey(withSuffix))
-            return withSuffix;
+            if (HasOwnObjectMembers(schema))
+                return true;
 
-        var i = 2;
-        string numbered;
+            return HasSchemaType(schema, JsonSchemaType.Array) && schema.Items is OpenApiSchema itemSchema && HasOwnObjectMembers(itemSchema);
+        }
+
+        var promotedSchemas = new Dictionary<IOpenApiSchema, string>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+        bool changed;
+
+        bool TryPromoteCore(OpenApiSchema concreteSchema, string baseName, out IOpenApiSchema replacement)
+        {
+            replacement = concreteSchema;
+
+            if (!promotedSchemas.TryGetValue(concreteSchema, out string? componentName))
+            {
+                string reservedName = ReserveUniqueSchemaName(comps, baseName, "Composed");
+                componentName = AddComponentSchema(document, reservedName, concreteSchema);
+
+                if (string.IsNullOrWhiteSpace(componentName))
+                    return false;
+
+                promotedSchemas[concreteSchema] = componentName;
+                _logger.LogInformation("Promoted inline composed schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
+            }
+
+            replacement = new OpenApiSchemaReference(componentName);
+            return true;
+        }
+
+        bool TryPromote(IOpenApiSchema? schema, string baseName, out IOpenApiSchema replacement)
+        {
+            replacement = schema ?? new OpenApiSchema();
+
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || !HasComposition(concreteSchema))
+                return false;
+
+            return TryPromoteCore(concreteSchema, baseName, out replacement);
+        }
+
+        bool TryPromoteBranch(IOpenApiSchema? schema, string baseName, out IOpenApiSchema replacement)
+        {
+            replacement = schema ?? new OpenApiSchema();
+
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || !IsPromotableCompositionBranch(concreteSchema))
+                return false;
+
+            return TryPromoteCore(concreteSchema, baseName, out replacement);
+        }
+
+        void VisitSchema(IOpenApiSchema? schema, string contextName, HashSet<IOpenApiSchema> visited)
+        {
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return;
+
+            if (concreteSchema.Properties != null)
+            {
+                foreach ((string propertyName, IOpenApiSchema propertySchema) in concreteSchema.Properties.ToList())
+                {
+                    string propertyContext = $"{contextName} {propertyName}";
+
+                    if (TryPromote(propertySchema, propertyContext, out IOpenApiSchema replacement))
+                    {
+                        concreteSchema.Properties[propertyName] = replacement;
+                        changed = true;
+                    }
+                    else
+                    {
+                        VisitSchema(propertySchema, propertyContext, visited);
+                    }
+                }
+            }
+
+            if (concreteSchema.Items != null)
+            {
+                string itemContext = $"{contextName} Item";
+
+                if (TryPromote(concreteSchema.Items, itemContext, out IOpenApiSchema replacement))
+                {
+                    concreteSchema.Items = replacement;
+                    changed = true;
+                }
+                else
+                {
+                    VisitSchema(concreteSchema.Items, itemContext, visited);
+                }
+            }
+
+            if (concreteSchema.AdditionalProperties != null)
+            {
+                string additionalPropertiesContext = $"{contextName} AdditionalProperties";
+
+                if (TryPromote(concreteSchema.AdditionalProperties, additionalPropertiesContext, out IOpenApiSchema replacement))
+                {
+                    concreteSchema.AdditionalProperties = replacement;
+                    changed = true;
+                }
+                else
+                {
+                    VisitSchema(concreteSchema.AdditionalProperties, additionalPropertiesContext, visited);
+                }
+            }
+
+            PromoteCompositionBranches(concreteSchema.AllOf, contextName, "AllOf", visited);
+            PromoteCompositionBranches(concreteSchema.AnyOf, contextName, "AnyOf", visited);
+            PromoteCompositionBranches(concreteSchema.OneOf, contextName, "OneOf", visited);
+        }
+
+        void PromoteCompositionBranches(IList<IOpenApiSchema>? branches, string contextName, string compositionKind, HashSet<IOpenApiSchema> visited)
+        {
+            if (branches == null)
+                return;
+
+            for (var i = 0; i < branches.Count; i++)
+            {
+                string branchContext = BuildCompositionBranchContext(contextName, branches[i], compositionKind, i + 1);
+
+                if (TryPromoteBranch(branches[i], branchContext, out IOpenApiSchema replacement))
+                {
+                    branches[i] = replacement;
+                    changed = true;
+                }
+                else
+                {
+                    VisitSchema(branches[i], branchContext, visited);
+                }
+            }
+        }
+
+        static string BuildCompositionBranchContext(string contextName, IOpenApiSchema schema, string compositionKind, int index)
+        {
+            if (schema is OpenApiSchema concreteSchema && !string.IsNullOrWhiteSpace(concreteSchema.Title))
+                return $"{contextName} {concreteSchema.Title}";
+
+            return $"{contextName} {compositionKind} {index}";
+        }
+
         do
         {
-            numbered = Sanitize($"{baseName}_{fallbackSuffix}_{i++}", "UnnamedComponent_Wrapper");
-        }
-        while (comps.ContainsKey(numbered));
+            changed = false;
+            var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
 
-        return numbered;
+            foreach ((string schemaName, IOpenApiSchema schema) in comps.ToList())
+                VisitSchema(schema, schemaName, visited);
+        }
+        while (changed);
+    }
+
+    private void ExtractInlineEnumSchemas(OpenApiDocument document)
+    {
+        IDictionary<string, IOpenApiSchema>? comps = document.Components?.Schemas;
+        if (comps == null)
+            return;
+
+        var promotedSchemas = new Dictionary<IOpenApiSchema, string>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        bool TryPromote(IOpenApiSchema? schema, string baseName, out IOpenApiSchema replacement)
+        {
+            replacement = schema ?? new OpenApiSchema();
+
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || concreteSchema.Enum is not { Count: > 0 })
+                return false;
+
+            if (!promotedSchemas.TryGetValue(concreteSchema, out string? componentName))
+            {
+                string reservedName = ReserveUniqueSchemaName(comps, baseName, "Enum");
+                componentName = AddComponentSchema(document, reservedName, concreteSchema);
+
+                if (string.IsNullOrWhiteSpace(componentName))
+                    return false;
+
+                promotedSchemas[concreteSchema] = componentName;
+                _logger.LogInformation("Promoted inline enum schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
+            }
+
+            replacement = new OpenApiSchemaReference(componentName);
+            return true;
+        }
+
+        void VisitSchema(IOpenApiSchema? schema, string contextName)
+        {
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return;
+
+            if (concreteSchema.Properties != null)
+            {
+                foreach ((string propertyName, IOpenApiSchema propertySchema) in concreteSchema.Properties.ToList())
+                {
+                    string propertyContext = $"{contextName} {propertyName}";
+
+                    if (TryPromote(propertySchema, propertyContext, out IOpenApiSchema replacement))
+                        concreteSchema.Properties[propertyName] = replacement;
+                    else
+                        VisitSchema(propertySchema, propertyContext);
+                }
+            }
+
+            if (concreteSchema.Items != null)
+            {
+                string itemContext = $"{contextName} Item";
+
+                if (TryPromote(concreteSchema.Items, itemContext, out IOpenApiSchema replacement))
+                    concreteSchema.Items = replacement;
+                else
+                    VisitSchema(concreteSchema.Items, itemContext);
+            }
+
+            if (concreteSchema.AdditionalProperties != null)
+            {
+                string additionalPropertiesContext = $"{contextName} AdditionalProperties";
+
+                if (TryPromote(concreteSchema.AdditionalProperties, additionalPropertiesContext, out IOpenApiSchema replacement))
+                    concreteSchema.AdditionalProperties = replacement;
+                else
+                    VisitSchema(concreteSchema.AdditionalProperties, additionalPropertiesContext);
+            }
+
+            PromoteCompositionBranches(concreteSchema.AllOf, $"{contextName} AllOf");
+            PromoteCompositionBranches(concreteSchema.AnyOf, $"{contextName} AnyOf");
+            PromoteCompositionBranches(concreteSchema.OneOf, $"{contextName} OneOf");
+        }
+
+        void PromoteCompositionBranches(IList<IOpenApiSchema>? branches, string contextName)
+        {
+            if (branches == null)
+                return;
+
+            for (var i = 0; i < branches.Count; i++)
+            {
+                string branchContext = $"{contextName} {i + 1}";
+
+                if (TryPromote(branches[i], branchContext, out IOpenApiSchema replacement))
+                    branches[i] = replacement;
+                else
+                    VisitSchema(branches[i], branchContext);
+            }
+        }
+
+        void VisitParameter(IOpenApiParameter? parameter, string contextName)
+        {
+            if (parameter is not OpenApiParameter concreteParameter || concreteParameter.Schema == null)
+                return;
+
+            if (TryPromote(concreteParameter.Schema, contextName, out IOpenApiSchema replacement))
+                concreteParameter.Schema = replacement;
+            else
+                VisitSchema(concreteParameter.Schema, contextName);
+        }
+
+        foreach ((string schemaName, IOpenApiSchema schema) in comps.ToList())
+            VisitSchema(schema, schemaName);
+
+        if (document.Components?.Parameters != null)
+        {
+            foreach ((string parameterName, IOpenApiParameter parameter) in document.Components.Parameters)
+                VisitParameter(parameter, parameterName);
+        }
+
+        if (document.Components?.Headers != null)
+        {
+            foreach ((string headerName, IOpenApiHeader header) in document.Components.Headers)
+                VisitSchema(header?.Schema, headerName);
+        }
+
+        if (document.Paths == null)
+            return;
+
+        foreach ((string path, IOpenApiPathItem pathItem) in document.Paths)
+        {
+            if (pathItem?.Parameters != null)
+            {
+                foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    VisitParameter(parameter, $"{path} {parameter.Name ?? "Parameter"}");
+            }
+
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach ((HttpMethod method, OpenApiOperation operation) in pathItem.Operations)
+            {
+                string operationContext = OpenApiNameNormalizer.NormalizeOperationId(operation.OperationId, method, path);
+
+                if (operation?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        VisitParameter(parameter, $"{operationContext} {parameter.Name ?? "Parameter"} Parameter");
+                }
+            }
+        }
+    }
+
+    private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
+    {
+        return OpenApiNameNormalizer.ReserveComponentName(comps.Keys, baseName, fallbackSuffix);
     }
 
     private static string NormalizeMediaType(string mediaType)
@@ -3373,14 +3772,41 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (schemaObject["enum"] is not JsonArray enumArray || enumArray.Count == 0)
             return false;
 
+        JsonObject? existingXMsEnum = schemaObject["x-ms-enum"] as JsonObject;
+        JsonArray? existingValuesArray = existingXMsEnum?["values"] as JsonArray;
+
+        var usedNames = new HashSet<string>(StringComparer.Ordinal);
         var namesToInject = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (JsonNode? enumNode in enumArray)
         {
-            if (enumNode is not JsonValue enumValue || !enumValue.TryGetValue(out string? enumText) || !ShouldInjectKiotaEnumName(enumText))
+            if (enumNode is not JsonValue enumValue || !enumValue.TryGetValue(out string? enumText))
                 continue;
 
-            namesToInject[enumText] = BuildSafeEnumMemberName(enumText);
+            string? existingName = GetExistingEnumValueName(existingValuesArray, enumText);
+
+            if (ShouldInjectKiotaEnumName(enumText, existingName))
+                continue;
+
+            string usedName = !string.IsNullOrWhiteSpace(existingName) ? existingName : enumText;
+
+            if (IsStandardCSharpEnumMemberIdentifier(usedName))
+                usedNames.Add(usedName);
+        }
+
+        foreach (JsonNode? enumNode in enumArray)
+        {
+            if (enumNode is not JsonValue enumValue || !enumValue.TryGetValue(out string? enumText))
+                continue;
+
+            string? existingName = GetExistingEnumValueName(existingValuesArray, enumText);
+
+            if (!ShouldInjectKiotaEnumName(enumText, existingName))
+                continue;
+
+            string enumName = MakeUniqueEnumMemberName(BuildSafeEnumMemberName(enumText), usedNames);
+            usedNames.Add(enumName);
+            namesToInject[enumText] = enumName;
         }
 
         if (namesToInject.Count == 0)
@@ -3433,7 +3859,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
-            if (existingValue["name"] is not JsonValue nameValue || !nameValue.TryGetValue(out string? existingName) || string.IsNullOrWhiteSpace(existingName))
+            if (existingValue["name"] is not JsonValue nameValue || !nameValue.TryGetValue(out string? existingName) ||
+                string.IsNullOrWhiteSpace(existingName) || !string.Equals(existingName, enumName, StringComparison.Ordinal))
             {
                 existingValue["name"] = enumName;
                 changed = true;
@@ -3443,28 +3870,36 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return changed;
     }
 
-    private static bool ShouldInjectKiotaEnumName(string enumValue)
+    private static string? GetExistingEnumValueName(JsonArray? valuesArray, string enumValue)
+    {
+        if (valuesArray is null)
+            return null;
+
+        JsonObject? existingValue = valuesArray.OfType<JsonObject>()
+                                               .FirstOrDefault(valueObject =>
+                                                   valueObject["value"] is JsonValue value && value.TryGetValue(out string? existingEnumValue) &&
+                                                   string.Equals(existingEnumValue, enumValue, StringComparison.Ordinal));
+
+        return existingValue?["name"] is JsonValue nameValue && nameValue.TryGetValue(out string? existingName) ? existingName : null;
+    }
+
+    private static bool ShouldInjectKiotaEnumName(string enumValue, string? existingName)
     {
         if (string.IsNullOrEmpty(enumValue))
             return false;
 
-        if (enumValue.All(char.IsWhiteSpace))
-            return true;
+        if (!string.IsNullOrWhiteSpace(existingName))
+            return !IsStandardCSharpEnumMemberIdentifier(existingName);
 
-        bool hasNonWhitespace = false;
+        return !string.Equals(enumValue, BuildSafeEnumMemberName(enumValue), StringComparison.Ordinal);
+    }
 
-        foreach (char character in enumValue)
-        {
-            if (char.IsWhiteSpace(character))
-                continue;
+    private static bool IsStandardCSharpEnumMemberIdentifier(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Contains('_', StringComparison.Ordinal))
+            return false;
 
-            hasNonWhitespace = true;
-
-            if (char.IsLetterOrDigit(character))
-                return false;
-        }
-
-        return hasNonWhitespace;
+        return char.IsUpper(name[0]) && OpenApiNameNormalizer.IsValidCSharpIdentifier(name);
     }
 
     private void EnsureSecuritySchemes(OpenApiDocument document)
@@ -3536,11 +3971,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (itemsSchema.Type != JsonSchemaType.Object || (itemsSchema.Properties == null || !itemsSchema.Properties.Any()))
                 continue;
 
-            var itemName = $"{schemaName}_item";
-            while (document.Components.Schemas.ContainsKey(itemName))
-            {
-                itemName = $"{schemaName}_item_{++counter}";
-            }
+            string itemName = ReserveUniqueSchemaName(document.Components.Schemas, $"{schemaName} Item", $"Item{++counter}");
 
             if (schema is OpenApiSchema concreteSchema)
             {
@@ -3553,7 +3984,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
 
             _logger.LogInformation("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
-                _namingFixer.ValidateComponentName(itemName));
+                itemName);
         }
     }
 
@@ -3629,7 +4060,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         do
         {
-            uniqueCandidate = $"{safeCandidate}_{suffix++}";
+            uniqueCandidate = $"{safeCandidate}{suffix++}";
         }
         while (usedNames.Contains(uniqueCandidate));
 
@@ -3646,6 +4077,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         if (_multiCharacterEnumTokens.TryGetValue(enumValue, out string? combinedToken))
             return combinedToken;
+
+        if (CanNormalizeEnumValueAsWords(enumValue))
+            return OpenApiNameNormalizer.NormalizeNamePart(enumValue, "EnumValue");
 
         var builder = new StringBuilder(enumValue.Length * 2);
         bool capitalizeNext = true;
@@ -3678,6 +4112,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 continue;
             }
 
+            if (IsWordSeparator(enumValue, i))
+            {
+                capitalizeNext = true;
+                continue;
+            }
+
             if (_enumSymbolTokens.TryGetValue(character, out string? symbolToken))
             {
                 builder.Append(symbolToken);
@@ -3693,7 +4133,69 @@ public sealed class OpenApiFixer : IOpenApiFixer
         if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_')
             sanitized = $"Value{sanitized}";
 
+        if (!OpenApiNameNormalizer.IsValidCSharpIdentifier(sanitized))
+            sanitized = OpenApiNameNormalizer.NormalizeNamePart(sanitized, "EnumValue");
+
         return sanitized;
+    }
+
+    private static bool CanNormalizeEnumValueAsWords(string enumValue)
+    {
+        var hasLetterOrDigit = false;
+
+        foreach (char character in enumValue)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                hasLetterOrDigit = true;
+                continue;
+            }
+
+            if (character == '_' || character == '-' || character == '.' || character == '/' || char.IsWhiteSpace(character))
+                continue;
+
+            return false;
+        }
+
+        return hasLetterOrDigit;
+    }
+
+    private static bool IsWordSeparator(string value, int index)
+    {
+        char character = value[index];
+
+        if (character != '-' && character != '.' && character != '/')
+            return false;
+
+        return HasLetterOrDigitBefore(value, index) && HasLetterOrDigitAfter(value, index);
+    }
+
+    private static bool HasLetterOrDigitBefore(string value, int index)
+    {
+        for (int i = index - 1; i >= 0; i--)
+        {
+            if (char.IsLetterOrDigit(value[i]))
+                return true;
+
+            if (!char.IsWhiteSpace(value[i]))
+                return false;
+        }
+
+        return false;
+    }
+
+    private static bool HasLetterOrDigitAfter(string value, int index)
+    {
+        for (int i = index + 1; i < value.Length; i++)
+        {
+            if (char.IsLetterOrDigit(value[i]))
+                return true;
+
+            if (!char.IsWhiteSpace(value[i]))
+                return false;
+        }
+
+        return false;
     }
 
     private static bool TryGetMultiCharacterEnumToken(string value, int startIndex, out string? token, out int tokenLength)
@@ -4975,7 +5477,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
                         if (refId != null && comps != null && comps.TryGetValue(refId, out IOpenApiSchema? target))
                             resolved = target;
-                        bool isWrapperAlready = refId != null && refId.EndsWith("_Wrapper", StringComparison.Ordinal);
+                        bool isWrapperAlready = refId != null && refId.EndsWith("Wrapper", StringComparison.Ordinal);
 
                         if (IsNonObjectLike(resolved) && !isWrapperAlready && (refId != null || allowInlineWrap))
                         {
@@ -5093,6 +5595,354 @@ public sealed class OpenApiFixer : IOpenApiFixer
         }
     }
 
+    private static void NormalizeNonObjectAllOfCompositions(OpenApiDocument doc)
+    {
+        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
+        if (comps is null || comps.Count == 0)
+            return;
+
+        var completed = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+        var active = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        OpenApiSchema? Resolve(IOpenApiSchema? schema)
+        {
+            if (schema is OpenApiSchemaReference schemaRef &&
+                !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
+                comps.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? target) &&
+                target is OpenApiSchema targetSchema)
+            {
+                Visit(targetSchema);
+                return targetSchema;
+            }
+
+            return schema as OpenApiSchema;
+        }
+
+        bool IsMetadataOnlyObjectBranch(IOpenApiSchema branch)
+        {
+            OpenApiSchema? schema = Resolve(branch);
+            if (schema is null)
+                return false;
+
+            bool objectOrUnset = schema.Type is null || HasSchemaType(schema, JsonSchemaType.Object);
+
+            return objectOrUnset &&
+                   schema.Properties is not { Count: > 0 } &&
+                   schema.Items is null &&
+                   schema.AdditionalProperties is null &&
+                   schema.Discriminator is null &&
+                   schema.Enum is not { Count: > 0 } &&
+                   schema.AllOf is not { Count: > 0 } &&
+                   schema.AnyOf is not { Count: > 0 } &&
+                   schema.OneOf is not { Count: > 0 };
+        }
+
+        bool IsNonObjectValueBranch(IOpenApiSchema branch)
+        {
+            OpenApiSchema? schema = Resolve(branch);
+            if (schema is null)
+                return false;
+
+            if (schema.Enum is { Count: > 0 })
+                return true;
+
+            if (HasExplicitNonObjectType(schema))
+                return true;
+
+            return HasSchemaType(schema, JsonSchemaType.Array) || (schema.Items is not null && !HasSchemaType(schema, JsonSchemaType.Object));
+        }
+
+        static bool HasNullType(OpenApiSchema schema) => HasSchemaType(schema, JsonSchemaType.Null);
+
+        static void MergeSchemaMetadata(OpenApiSchema target, OpenApiSchema source)
+        {
+            if (source.Type.HasValue && target.Type.HasValue && HasNullType(source) && !HasNullType(target))
+                target.Type |= JsonSchemaType.Null;
+
+            target.Format ??= source.Format;
+            target.Pattern ??= source.Pattern;
+            target.MinLength ??= source.MinLength;
+            target.MaxLength ??= source.MaxLength;
+            target.Minimum ??= source.Minimum;
+            target.Maximum ??= source.Maximum;
+            target.ExclusiveMinimum ??= source.ExclusiveMinimum;
+            target.ExclusiveMaximum ??= source.ExclusiveMaximum;
+            target.MultipleOf ??= source.MultipleOf;
+            target.MinItems ??= source.MinItems;
+            target.MaxItems ??= source.MaxItems;
+            if (source.UniqueItems == true)
+                target.UniqueItems = true;
+            else
+                target.UniqueItems ??= source.UniqueItems;
+            target.Default ??= source.Default;
+            target.Example ??= source.Example;
+            target.Title ??= source.Title;
+            target.Description ??= source.Description;
+            target.Deprecated = target.Deprecated || source.Deprecated;
+            target.ReadOnly = target.ReadOnly || source.ReadOnly;
+            target.WriteOnly = target.WriteOnly || source.WriteOnly;
+            target.Items ??= source.Items;
+
+            if (target.Enum is not { Count: > 0 } && source.Enum is { Count: > 0 })
+                target.Enum = source.Enum;
+
+            target.Xml ??= source.Xml;
+            target.ExternalDocs ??= source.ExternalDocs;
+
+            if (source.Extensions is { Count: > 0 })
+            {
+                target.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                foreach ((string key, IOpenApiExtension value) in source.Extensions)
+                {
+                    if (!target.Extensions.ContainsKey(key))
+                        target.Extensions[key] = value;
+                }
+            }
+        }
+
+        static OpenApiSchema CreateMetadataSnapshot(OpenApiSchema source)
+        {
+            return new OpenApiSchema
+            {
+                Type = source.Type,
+                Format = source.Format,
+                Pattern = source.Pattern,
+                MinLength = source.MinLength,
+                MaxLength = source.MaxLength,
+                Minimum = source.Minimum,
+                Maximum = source.Maximum,
+                ExclusiveMinimum = source.ExclusiveMinimum,
+                ExclusiveMaximum = source.ExclusiveMaximum,
+                MultipleOf = source.MultipleOf,
+                MinItems = source.MinItems,
+                MaxItems = source.MaxItems,
+                UniqueItems = source.UniqueItems,
+                Default = source.Default,
+                Example = source.Example,
+                Title = source.Title,
+                Description = source.Description,
+                Deprecated = source.Deprecated,
+                ReadOnly = source.ReadOnly,
+                WriteOnly = source.WriteOnly,
+                Xml = source.Xml,
+                ExternalDocs = source.ExternalDocs,
+                Extensions = source.Extensions is { Count: > 0 } ? new Dictionary<string, IOpenApiExtension>(source.Extensions) : null
+            };
+        }
+
+        static void ApplyValueShape(OpenApiSchema target, OpenApiSchema source)
+        {
+            target.Type = source.Type;
+            target.Format = source.Format;
+            target.Pattern = source.Pattern;
+            target.MinLength = source.MinLength;
+            target.MaxLength = source.MaxLength;
+            target.Minimum = source.Minimum;
+            target.Maximum = source.Maximum;
+            target.ExclusiveMinimum = source.ExclusiveMinimum;
+            target.ExclusiveMaximum = source.ExclusiveMaximum;
+            target.MultipleOf = source.MultipleOf;
+            target.MinItems = source.MinItems;
+            target.MaxItems = source.MaxItems;
+            target.UniqueItems = source.UniqueItems;
+            target.Enum = source.Enum;
+            target.Items = source.Items;
+            target.Default = source.Default;
+            target.Example = source.Example;
+            target.Title = source.Title;
+            target.Description = source.Description;
+            target.Deprecated = source.Deprecated;
+            target.ReadOnly = source.ReadOnly;
+            target.WriteOnly = source.WriteOnly;
+            target.Xml = source.Xml;
+            target.ExternalDocs = source.ExternalDocs;
+            target.Extensions = source.Extensions is { Count: > 0 } ? new Dictionary<string, IOpenApiExtension>(source.Extensions) : null;
+
+            target.Properties = null;
+            target.Required = null;
+            target.AdditionalProperties = null;
+            target.AdditionalPropertiesAllowed = false;
+            target.AllOf = null;
+            target.OneOf = null;
+            target.AnyOf = null;
+            target.Discriminator = null;
+        }
+
+        void TryNormalizeAllOf(OpenApiSchema schema)
+        {
+            if (schema.AllOf is not { Count: > 0 } branches)
+                return;
+
+            bool hasValueBranch = branches.Any(IsNonObjectValueBranch);
+            bool canCollapse = (branches.Count == 1 && hasValueBranch) ||
+                               (hasValueBranch && branches.All(branch => IsNonObjectValueBranch(branch) || IsMetadataOnlyObjectBranch(branch)));
+
+            if (!canCollapse)
+                return;
+
+            OpenApiSchema? valueBranch = branches.Select(Resolve)
+                                                 .FirstOrDefault(resolved => resolved is not null && IsNonObjectValueBranch(resolved));
+            if (valueBranch is null || ReferenceEquals(valueBranch, schema))
+                return;
+
+            OpenApiSchema parentMetadata = CreateMetadataSnapshot(schema);
+            List<OpenApiSchema> branchMetadata = branches.Select(Resolve)
+                                                         .Where(resolved => resolved is not null)
+                                                         .Cast<OpenApiSchema>()
+                                                         .Select(CreateMetadataSnapshot)
+                                                         .ToList();
+
+            ApplyValueShape(schema, valueBranch);
+
+            foreach (OpenApiSchema branch in branchMetadata)
+                MergeSchemaMetadata(schema, branch);
+
+            MergeSchemaMetadata(schema, parentMetadata);
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concrete)
+                return;
+
+            if (completed.Contains(concrete) || active.Contains(concrete))
+                return;
+
+            active.Add(concrete);
+
+            if (concrete.Properties != null)
+            {
+                foreach (IOpenApiSchema child in concrete.Properties.Values)
+                    Visit(child);
+            }
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.AllOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AllOf)
+                {
+                    if (child is OpenApiSchemaReference)
+                        Resolve(child);
+                    else
+                        Visit(child);
+                }
+            }
+
+            if (concrete.AnyOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.AnyOf)
+                {
+                    if (child is OpenApiSchemaReference)
+                        Resolve(child);
+                    else
+                        Visit(child);
+                }
+            }
+
+            if (concrete.OneOf != null)
+            {
+                foreach (IOpenApiSchema child in concrete.OneOf)
+                {
+                    if (child is OpenApiSchemaReference)
+                        Resolve(child);
+                    else
+                        Visit(child);
+                }
+            }
+
+            TryNormalizeAllOf(concrete);
+
+            active.Remove(concrete);
+            completed.Add(concrete);
+        }
+
+        foreach (IOpenApiSchema schema in comps.Values.ToList())
+            Visit(schema);
+
+        if (doc.Components?.Parameters != null)
+            foreach (IOpenApiParameter parameter in doc.Components.Parameters.Values)
+                Visit(parameter?.Schema);
+
+        if (doc.Components?.Headers != null)
+            foreach (IOpenApiHeader header in doc.Components.Headers.Values)
+                Visit(header?.Schema);
+
+        if (doc.Components?.RequestBodies != null)
+        {
+            foreach (IOpenApiRequestBody requestBody in doc.Components.RequestBodies.Values)
+            {
+                if (requestBody?.Content == null)
+                    continue;
+
+                foreach (IOpenApiMediaType mediaType in requestBody.Content.Values)
+                    Visit(mediaType?.Schema);
+            }
+        }
+
+        if (doc.Components?.Responses != null)
+        {
+            foreach (IOpenApiResponse response in doc.Components.Responses.Values)
+            {
+                if (response == null)
+                    continue;
+
+                if (response.Content != null)
+                    foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                        Visit(mediaType?.Schema);
+
+                if (response.Headers != null)
+                    foreach (IOpenApiHeader header in response.Headers.Values)
+                        Visit(header?.Schema);
+            }
+        }
+
+        if (doc.Paths == null)
+            return;
+
+        foreach (IOpenApiPathItem path in doc.Paths.Values)
+        {
+            if (path?.Parameters != null)
+                foreach (IOpenApiParameter parameter in path.Parameters)
+                    Visit(parameter?.Schema);
+
+            if (path?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in path.Operations.Values)
+            {
+                if (operation?.Parameters != null)
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        Visit(parameter?.Schema);
+
+                if (operation?.RequestBody?.Content != null)
+                    foreach (IOpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                        Visit(mediaType?.Schema);
+
+                if (operation?.Responses == null)
+                    continue;
+
+                foreach (IOpenApiResponse response in operation.Responses.Values)
+                {
+                    if (response == null)
+                        continue;
+
+                    if (response.Content != null)
+                        foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                            Visit(mediaType?.Schema);
+
+                    if (response.Headers != null)
+                        foreach (IOpenApiHeader header in response.Headers.Values)
+                            Visit(header?.Schema);
+                }
+            }
+        }
+    }
+
     private static void NormalizeAllOfWrappers(OpenApiDocument doc)
     {
         if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
@@ -5113,7 +5963,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                     continue;
 
                 // Skip if already wrapped
-                if (propSchema.AllOf.Any(branch => GetSchemaRefId(branch) is string id && id.EndsWith("_Wrapper", StringComparison.Ordinal)))
+                if (propSchema.AllOf.Any(branch => GetSchemaRefId(branch) is string id && id.EndsWith("Wrapper", StringComparison.Ordinal)))
                     continue;
 
                 string? baseRefId = propSchema.AllOf.Select(GetSchemaRefId)
@@ -5128,7 +5978,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                         continue; // already object-like; no need to wrap
                 }
 
-                string wrapperName = $"{baseRefId}_Wrapper";
+                string legacyWrapperName = $"{baseRefId}_Wrapper";
+                string wrapperName = legacyWrapperName;
                 if (!comps.ContainsKey(wrapperName))
                     wrapperName = ReserveUniqueSchemaName(comps, baseRefId, "Wrapper");
 

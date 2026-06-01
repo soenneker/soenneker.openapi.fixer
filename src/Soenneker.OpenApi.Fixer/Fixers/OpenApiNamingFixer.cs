@@ -1,14 +1,12 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using Soenneker.Utils.PooledStringBuilders;
+using Soenneker.OpenApi.Fixer;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
-using Soenneker.Extensions.String;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -18,7 +16,6 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// </summary>
 public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
-    private static readonly SearchValues<char> _allowedIdPunctuation = SearchValues.Create("_-.");
     private static readonly Regex _pathDateSuffixRegex = new(@"_(?:19|20)\d{2}-\d{2}(?=/|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex _operationIdDateSuffixRegex = new(@"-(?:19|20)\d{2}-\d{2}(?=-|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex _schemaDateSuffixRegex = new(@"(?<=[A-Za-z])(?:19|20)\d{4}(?=[A-Z_]|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -32,118 +29,60 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         _referenceFixer = referenceFixer;
     }
 
-    public void RenameInvalidComponentSchemas(OpenApiDocument document)
+    private void NormalizeComponentSchemaKeys(OpenApiDocument document, string reason)
     {
         IDictionary<string, IOpenApiSchema>? schemas = document.Components?.Schemas;
-        if (schemas == null)
+        if (schemas == null || schemas.Count == 0)
             return;
 
-        var mapping = new Dictionary<string, string>();
-        var existingKeys = new HashSet<string>(schemas.Keys, StringComparer.OrdinalIgnoreCase);
+        var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
+        var normalizedSchemas = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (string key in schemas.Keys.ToList())
         {
-            existingKeys.Remove(key);
+            string normalized = OpenApiNameNormalizer.NormalizeComponentName(key);
+            string uniqueName = OpenApiNameNormalizer.MakeUniqueIdentifier(normalized, usedNames);
+            usedNames.Add(uniqueName);
+            normalizedSchemas[uniqueName] = schemas[key];
 
-            // Use strict validation suitable for Kiota: only [A-Za-z0-9_] and starts with a letter.
-            // Also rename if our canonical validation would change the name.
-            string validated = ValidateComponentName(key);
-            bool needsRename = !IsValidIdentifier(key) || !string.Equals(validated, key, StringComparison.Ordinal);
-
-            if (needsRename)
+            if (!string.Equals(key, uniqueName, StringComparison.Ordinal))
             {
-                _logger.LogInformation("Found invalid schema name '{InvalidName}', sanitizing...", key);
-                string baseName = validated;
-
-                // Fallback to "Schema" if sanitization fails
-                if (string.IsNullOrWhiteSpace(baseName))
-                    baseName = "Schema";
-
-                string newKey = baseName;
-                var i = 1;
-
-                // Ensure uniqueness deterministically
-                while (existingKeys.Contains(newKey))
-                {
-                    newKey = $"{baseName}_{i++}";
-                }
-
-                mapping[key] = newKey;
-                existingKeys.Add(newKey);
-                _logger.LogInformation("Renamed schema '{OldName}' to '{NewName}'", key, newKey);
-            }
-            else
-            {
-                existingKeys.Add(key);
+                mapping[key] = uniqueName;
+                _logger.LogDebug("Renamed schema '{OldName}' to '{NewName}' during {Reason}.", key, uniqueName, reason);
             }
         }
 
-        foreach ((string oldKey, string newKey) in mapping)
+        if (mapping.Count == 0)
+            return;
+
+        schemas.Clear();
+
+        foreach ((string key, IOpenApiSchema schema) in normalizedSchemas)
         {
-            IOpenApiSchema schema = schemas[oldKey];
-            schemas.Remove(oldKey);
-
-            // In v2.3, Title is read-only, so we can't modify it directly
-            // The schema will keep its original title
-
-            schemas[newKey] = schema;
+            schemas[key] = schema;
         }
 
-        if (mapping.Count > 0)
-            _referenceFixer.UpdateAllReferences(document, mapping);
+        _referenceFixer.UpdateAllReferences(document, mapping);
+        _logger.LogInformation("Normalized {SchemaRenameCount} component schema names during {Reason}.", mapping.Count, reason);
+    }
+
+    public void RenameInvalidComponentSchemas(OpenApiDocument document)
+    {
+        NormalizeComponentSchemaKeys(document, "initial component schema normalization");
     }
 
     /// <inheritdoc />
     public void ValidateAndFixSchemaNames(OpenApiDocument doc)
     {
-        IDictionary<string, IOpenApiSchema>? schemas = doc.Components?.Schemas;
-        if (schemas == null)
-            return;
-
-        var mapping = new Dictionary<string, string>();
-        var existingKeys = new HashSet<string>(schemas.Keys, StringComparer.OrdinalIgnoreCase);
-
-        foreach (string key in schemas.Keys.ToList())
-        {
-            existingKeys.Remove(key);
-
-            if (!IsValidIdentifier(key))
-            {
-                string baseName = SanitizeName(key);
-                if (string.IsNullOrWhiteSpace(baseName))
-                    baseName = "Schema";
-
-                string newKey = baseName;
-                var i = 1;
-                while (existingKeys.Contains(newKey))
-                {
-                    newKey = $"{baseName}_{i++}";
-                }
-
-                mapping[key] = newKey;
-                existingKeys.Add(newKey);
-            }
-            else
-            {
-                existingKeys.Add(key);
-            }
-        }
-
-        if (mapping.Count > 0)
-        {
-            foreach ((string oldKey, string newKey) in mapping)
-            {
-                IOpenApiSchema schema = schemas[oldKey];
-                schemas.Remove(oldKey);
-                schemas[newKey] = schema;
-            }
-
-            _referenceFixer.UpdateAllReferences(doc, mapping);
-        }
+        NormalizeComponentSchemaKeys(doc, "final component schema validation");
     }
 
     public void EnsureUniqueOperationIds(OpenApiDocument doc)
     {
+        if (doc.Paths == null)
+            return;
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach ((string pathKey, var pathItem) in doc.Paths)
@@ -152,41 +91,20 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 continue;
             foreach ((HttpMethod method, OpenApiOperation operation) in pathItem.Operations)
             {
-                if (string.IsNullOrWhiteSpace(operation.OperationId))
+                string baseId = OpenApiNameNormalizer.NormalizeOperationId(operation.OperationId, method, pathKey);
+                string unique = baseId;
+                var i = 2;
+
+                while (!seen.Add(unique))
                 {
-                    // Deterministic base name: e.g., "get_/users/{id}"
-                    string baseId = $"{method.ToString().ToLowerInvariant()}_{pathKey.Trim('/')}".Replace("/", "_")
-                                                                                                 .Replace("{", "")
-                                                                                                 .Replace("}", "")
-                                                                                                 .Replace("-", "_");
-
-                    string uniqueId = baseId;
-                    var i = 1;
-
-                    while (!seen.Add(uniqueId))
-                    {
-                        uniqueId = $"{baseId}_{i++}";
-                    }
-
-                    operation.OperationId = uniqueId;
-                    _logger.LogDebug("Assigned deterministic OperationId: {OperationId}", operation.OperationId);
+                    unique = $"{baseId}{i++}";
                 }
-                else
+
+                if (!string.Equals(operation.OperationId, unique, StringComparison.Ordinal))
                 {
-                    string baseId = operation.OperationId;
-                    string unique = baseId;
-                    var i = 1;
-
-                    while (!seen.Add(unique))
-                    {
-                        unique = $"{baseId}_{i++}";
-                    }
-
-                    if (operation.OperationId != unique)
-                    {
-                        _logger.LogDebug($"Renaming duplicate OperationId from '{operation.OperationId}' to '{unique}'");
-                        operation.OperationId = unique;
-                    }
+                    _logger.LogDebug("Normalized operationId from '{OldOperationId}' to '{NewOperationId}'", operation.OperationId ?? "(missing)",
+                        unique);
+                    operation.OperationId = unique;
                 }
             }
         }
@@ -197,20 +115,21 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     {
         if (doc.Paths == null)
             return;
-        foreach (var path in doc.Paths.Values)
+
+        foreach ((string pathKey, IOpenApiPathItem path) in doc.Paths)
         {
             if (path?.Operations == null)
                 continue;
-            foreach (var op in path.Operations.Values)
+
+            foreach ((HttpMethod method, OpenApiOperation op) in path.Operations)
             {
                 if (op == null)
                     continue;
-                if (!string.IsNullOrWhiteSpace(op.OperationId))
-                {
-                    string normalized = NormalizeOperationId(op.OperationId!);
-                    if (!string.Equals(normalized, op.OperationId, StringComparison.Ordinal))
-                        op.OperationId = normalized;
-                }
+
+                string normalized = OpenApiNameNormalizer.NormalizeOperationId(op.OperationId, method, pathKey);
+
+                if (!string.Equals(normalized, op.OperationId, StringComparison.Ordinal))
+                    op.OperationId = normalized;
             }
         }
     }
@@ -220,15 +139,25 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         if (doc.Components?.Schemas == null || doc.Paths == null)
             return;
 
-        var operationIds = new HashSet<string>(doc.Paths.Values.Where(p => p?.Operations != null)
-                                                  .SelectMany(p => p.Operations.Values)
-                                                  .Where(op => op != null && !string.IsNullOrWhiteSpace(op.OperationId))
-                                                  .Select(op => op.OperationId!), StringComparer.OrdinalIgnoreCase);
+        var operationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+        {
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                if (!string.IsNullOrWhiteSpace(operation.OperationId))
+                    operationIds.Add(operation.OperationId!);
+            }
+        }
 
         if (!operationIds.Any())
             return;
 
-        var mapping = new Dictionary<string, string>();
+        var mapping = new Dictionary<string, string>(StringComparer.Ordinal);
+        var reservedNames = new HashSet<string>(doc.Components.Schemas.Keys, StringComparer.OrdinalIgnoreCase);
 
         // Use ToList() to create a copy of the keys, allowing modification of the collection during iteration.
         foreach (string key in doc.Components.Schemas.Keys.ToList())
@@ -238,12 +167,9 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 continue;
 
             // A collision exists. We must rename the schema.
-            var newKey = $"{key}Body"; // A common and effective convention
-            var i = 2;
-            while (doc.Components.Schemas.ContainsKey(newKey) || mapping.ContainsKey(newKey))
-            {
-                newKey = $"{key}Body{i++}";
-            }
+            reservedNames.Remove(key);
+            string newKey = OpenApiNameNormalizer.ReserveComponentName(reservedNames, $"{key}Body", "Schema");
+            reservedNames.Add(newKey);
 
             mapping[key] = newKey;
             _logger.LogWarning("Schema name '{OldKey}' conflicts with an operationId. Renaming schema to '{NewKey}'.", key, newKey);
@@ -353,6 +279,13 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             }
 
             newPath = NormalizePathSegments(newPath);
+            string parameterNormalizedPath = NormalizePathParameterNames(newPath, out Dictionary<string, string> parameterRenameMap);
+
+            if (parameterRenameMap.Count > 0)
+            {
+                RenamePathParameters(kvp.Value, parameterRenameMap);
+                newPath = parameterNormalizedPath;
+            }
 
             if (newPaths.TryGetValue(newPath, out IOpenApiPathItem? existingPathItem))
             {
@@ -543,6 +476,76 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                                                                      .Select(match => match.Groups[1].Value)
                                                                      .ToArray();
 
+    private string NormalizePathParameterNames(string path, out Dictionary<string, string> renameMap)
+    {
+        var localRenameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            renameMap = localRenameMap;
+            return path;
+        }
+
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalizedNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        string NormalizeParameterName(string originalName)
+        {
+            if (normalizedNames.TryGetValue(originalName, out string? existingName))
+                return existingName;
+
+            string pascalName = OpenApiNameNormalizer.NormalizeNamePart(originalName, "Parameter");
+            string baseName = char.ToLowerInvariant(pascalName[0]) + pascalName[1..];
+            string candidate = baseName;
+            var suffix = 2;
+
+            while (usedNames.Contains(candidate))
+                candidate = $"{baseName}{suffix++}";
+
+            usedNames.Add(candidate);
+            normalizedNames[originalName] = candidate;
+
+            if (!string.Equals(originalName, candidate, StringComparison.Ordinal))
+                localRenameMap[originalName] = candidate;
+
+            return candidate;
+        }
+
+        string normalizedPath = Regex.Replace(path, @"\{([^/{}]+)\}", match => $"{{{NormalizeParameterName(match.Groups[1].Value)}}}",
+            RegexOptions.CultureInvariant);
+
+        renameMap = localRenameMap;
+
+        if (renameMap.Count > 0)
+            _logger.LogInformation("Normalized path parameter names in '{Path}' to '{NormalizedPath}'", path, normalizedPath);
+
+        return normalizedPath;
+    }
+
+    private static void RenamePathParameters(IOpenApiPathItem pathItem, IReadOnlyDictionary<string, string> renameMap)
+    {
+        if (renameMap.Count == 0)
+            return;
+
+        if (pathItem.Parameters != null)
+        {
+            foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                RenamePathParameter(parameter, renameMap);
+        }
+
+        if (pathItem.Operations == null)
+            return;
+
+        foreach (OpenApiOperation operation in pathItem.Operations.Values)
+        {
+            if (operation?.Parameters == null)
+                continue;
+
+            foreach (IOpenApiParameter parameter in operation.Parameters)
+                RenamePathParameter(parameter, renameMap);
+        }
+    }
+
     private static void RenamePathParameter(IOpenApiParameter parameter, IReadOnlyDictionary<string, string> renameMap)
     {
         if (parameter is not OpenApiParameter concreteParameter || concreteParameter.In != ParameterLocation.Path || string.IsNullOrWhiteSpace(concreteParameter.Name))
@@ -601,10 +604,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     /// <inheritdoc />
     public string SanitizeName(string input)
     {
-        if (string.IsNullOrWhiteSpace(input))
-            return string.Empty;
-
-        return SanitizeComponentIdentifier(input);
+        return OpenApiNameNormalizer.NormalizeComponentName(input, "Schema");
     }
 
     /// <summary>
@@ -614,38 +614,16 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     /// <inheritdoc />
     public string NormalizeOperationId(string input)
     {
-        if (input.IsNullOrWhiteSpace())
-            return string.Empty;
-
-        // Remove parentheses segments like (-deprecated)
-        string noParens = Regex.Replace(input, "[()]+", string.Empty);
-        // Replace any non-alphanumeric with '-'
-        string collapsed = Regex.Replace(noParens, "[^a-zA-Z0-9]+", "-");
-        // Collapse consecutive '-'
-        collapsed = Regex.Replace(collapsed, "-+", "-")
-                         .Trim('-');
-        if (string.IsNullOrEmpty(collapsed))
-            return "unnamed";
-        // Ensure starts with a letter
-        if (!char.IsLetter(collapsed[0]))
-            collapsed = "op-" + collapsed;
-        return collapsed;
+        return OpenApiNameNormalizer.NormalizeOperationId(input, null, null);
     }
 
     /// <inheritdoc />
-    public bool IsValidIdentifier(string id) =>
-        !string.IsNullOrWhiteSpace(id) && id.All(c => char.IsLetterOrDigit(c) || _allowedIdPunctuation.Contains(c));
+    public bool IsValidIdentifier(string id) => OpenApiNameNormalizer.IsValidCSharpIdentifier(id);
 
     /// <inheritdoc />
     public string GenerateSafePart(string? input, string fallback = "unnamed")
     {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return fallback;
-        }
-
-        string sanitized = NormalizeOperationId(input);
-        return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
+        return OpenApiNameNormalizer.NormalizeNamePart(input, fallback);
     }
 
     /// <inheritdoc />
@@ -654,43 +632,8 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         if (string.IsNullOrWhiteSpace(name))
         {
             _logger.LogWarning("Component name was empty, using fallback name");
-            return "UnnamedComponent";
         }
 
-        return SanitizeComponentIdentifier(name);
-    }
-
-    private static string SanitizeComponentIdentifier(string input)
-    {
-        using var psb = new PooledStringBuilder(input.Length);
-
-        bool nextAlphaNumericStartsNewPart = true;
-
-        foreach (char c in input)
-        {
-            if (!char.IsLetterOrDigit(c))
-            {
-                nextAlphaNumericStartsNewPart = true;
-                continue;
-            }
-
-            if (psb.Length == 0 && !char.IsLetter(c))
-            {
-                psb.Append('C');
-            }
-
-            if (nextAlphaNumericStartsNewPart && char.IsLetter(c))
-            {
-                psb.Append(char.ToUpperInvariant(c));
-            }
-            else
-            {
-                psb.Append(c);
-            }
-
-            nextAlphaNumericStartsNewPart = false;
-        }
-
-        return psb.ToString();
+        return OpenApiNameNormalizer.NormalizeComponentName(name);
     }
 }
