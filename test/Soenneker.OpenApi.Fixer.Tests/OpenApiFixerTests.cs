@@ -249,6 +249,69 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_handle_recursive_composition_refs()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "RecursiveA": {
+                                        "anyOf": [
+                                          {
+                                            "$ref": "#/components/schemas/RecursiveB"
+                                          }
+                                        ]
+                                      },
+                                      "RecursiveB": {
+                                        "anyOf": [
+                                          {
+                                            "$ref": "#/components/schemas/RecursiveA"
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+
+            await Assert.That(root["components"]?["schemas"]?["RecursiveA"]).IsNotNull();
+            await Assert.That(root["components"]?["schemas"]?["RecursiveB"]).IsNotNull();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union()
     {
         var document = new OpenApiDocument

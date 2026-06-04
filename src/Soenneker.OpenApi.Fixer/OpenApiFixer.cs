@@ -1855,20 +1855,60 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         IDictionary<string, IOpenApiSchema>? comps = document.Components.Schemas;
 
-        // Helper to determine if a schema (or any of its referenced/composed branches) is object-like
+        var objectLikeSchemaCache = new Dictionary<IOpenApiSchema, bool>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        // Helper to determine if a schema (or any of its referenced/composed branches) is object-like.
         bool IsObjectLike(IOpenApiSchema s)
         {
-            if (s is OpenApiSchemaReference sr && sr.Reference.Id != null && comps.TryGetValue(sr.Reference.Id, out IOpenApiSchema? resolved))
-                return IsObjectLike(resolved);
+            return IsObjectLikeCore(s, [], []);
+        }
+
+        bool IsObjectLikeCore(IOpenApiSchema s, HashSet<IOpenApiSchema> activeSchemas, HashSet<string> activeRefs)
+        {
+            if (s is OpenApiSchemaReference sr)
+            {
+                string? refId = sr.Reference.Id;
+                if (refId == null || !comps.TryGetValue(refId, out IOpenApiSchema? resolved))
+                    return false;
+
+                if (!activeRefs.Add(refId))
+                    return false;
+
+                try
+                {
+                    return IsObjectLikeCore(resolved, activeSchemas, activeRefs);
+                }
+                finally
+                {
+                    activeRefs.Remove(refId);
+                }
+            }
+
             if (s is OpenApiSchema os)
             {
                 if (IsObjectLikeSchema(os))
                     return true;
-                if (os.AllOf != null && os.AllOf.Any(IsObjectLike))
-                    return true;
-                if (os.AnyOf != null && os.AnyOf.Any(IsObjectLike))
-                    return true;
-                if (os.OneOf != null && os.OneOf.Any(IsObjectLike))
+
+                if (objectLikeSchemaCache.TryGetValue(s, out bool cachedSchemaResult))
+                    return cachedSchemaResult;
+
+                if (!activeSchemas.Add(s))
+                    return false;
+
+                bool result;
+                try
+                {
+                    result = (os.AllOf != null && os.AllOf.Any(branch => IsObjectLikeCore(branch, activeSchemas, activeRefs))) ||
+                             (os.AnyOf != null && os.AnyOf.Any(branch => IsObjectLikeCore(branch, activeSchemas, activeRefs))) ||
+                             (os.OneOf != null && os.OneOf.Any(branch => IsObjectLikeCore(branch, activeSchemas, activeRefs)));
+                }
+                finally
+                {
+                    activeSchemas.Remove(s);
+                }
+
+                objectLikeSchemaCache[s] = result;
+                if (result)
                     return true;
             }
 
