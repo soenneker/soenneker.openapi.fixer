@@ -72,7 +72,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         NormalizeComponentSchemaKeys(document, "initial component schema normalization");
     }
 
-    /// <inheritdoc />
     public void ValidateAndFixSchemaNames(OpenApiDocument doc)
     {
         NormalizeComponentSchemaKeys(doc, "final component schema validation");
@@ -110,7 +109,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    /// <inheritdoc />
     public void NormalizeOperationIds(OpenApiDocument doc)
     {
         if (doc.Paths == null)
@@ -192,7 +190,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    /// <inheritdoc />
     public void RenameConflictingPaths(OpenApiDocument doc)
     {
         if (doc.Paths == null || !doc.Paths.Any())
@@ -309,7 +306,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         doc.Paths = newPaths;
     }
 
-    /// <inheritdoc />
     public void StripDateSuffixesFromGeneratedNames(OpenApiDocument doc)
     {
         StripDateSuffixesFromPathPrefixes(doc);
@@ -601,32 +597,23 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    /// <inheritdoc />
     public string SanitizeName(string input)
     {
         return OpenApiNameNormalizer.NormalizeComponentName(input, "Schema");
     }
 
-    /// <summary>
-    /// Normalizes operationIds by removing parentheses and collapsing punctuation to single dashes/underscores.
-    /// Ensures result is non-empty and starts with a letter.
-    /// </summary>
-    /// <inheritdoc />
     public string NormalizeOperationId(string input)
     {
         return OpenApiNameNormalizer.NormalizeOperationId(input, null, null);
     }
 
-    /// <inheritdoc />
     public bool IsValidIdentifier(string id) => OpenApiNameNormalizer.IsValidCSharpIdentifier(id);
 
-    /// <inheritdoc />
     public string GenerateSafePart(string? input, string fallback = "unnamed")
     {
         return OpenApiNameNormalizer.NormalizeNamePart(input, fallback);
     }
 
-    /// <inheritdoc />
     public string ValidateComponentName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))

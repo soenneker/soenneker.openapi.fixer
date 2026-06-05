@@ -29,7 +29,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         });
     }
 
-    /// <inheritdoc />
     public void UpdateAllReferences(OpenApiDocument doc, Dictionary<string, string> mapping)
     {
         if (mapping.Count == 0)
@@ -291,7 +290,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         _logger.LogDebug("Updated {ReferenceCount} schema references across {MappingCount} schema renames.", replacementCount, mapping.Count);
     }
 
-    /// <inheritdoc />
     public bool IsValidSchemaReference(OpenApiSchemaReference? reference, OpenApiDocument doc)
     {
         if (reference == null)
@@ -324,7 +322,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         return keyExists;
     }
 
-    /// <inheritdoc />
     public void ScrubBrokenRefs(IDictionary<string, IOpenApiMediaType>? contentDict, OpenApiDocument doc)
     {
         if (contentDict == null)
@@ -345,7 +342,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         }
     }
 
-    /// <inheritdoc />
     public void FixRefsPointingIntoPathsExamples(OpenApiDocument doc)
     {
         if (doc.Paths == null)
@@ -408,7 +404,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
         }
     }
 
-    /// <inheritdoc />
     public void ScrubAllRefs(IOpenApiSchema? schema, OpenApiDocument doc, HashSet<IOpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -442,7 +437,6 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             ScrubAllRefs(schema.AdditionalProperties, doc, visited);
     }
 
-    /// <inheritdoc />
     public void ScrubComponentRefs(OpenApiDocument doc, CancellationToken cancellationToken)
     {
         var visited = new HashSet<IOpenApiSchema>();

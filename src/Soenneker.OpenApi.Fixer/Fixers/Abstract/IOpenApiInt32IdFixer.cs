@@ -7,5 +7,9 @@ namespace Soenneker.OpenApi.Fixer.Fixers.Abstract;
 /// </summary>
 public interface IOpenApiInt32IdFixer
 {
+    /// <summary>
+    /// Executes the transform operation.
+    /// </summary>
+    /// <param name="document">The document.</param>
     void Transform(OpenApiDocument document);
 }

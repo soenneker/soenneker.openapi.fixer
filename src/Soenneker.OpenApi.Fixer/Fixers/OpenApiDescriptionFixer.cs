@@ -19,7 +19,6 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public void FixYamlUnsafeDescriptions(OpenApiDocument document)
     {
         if (document == null)

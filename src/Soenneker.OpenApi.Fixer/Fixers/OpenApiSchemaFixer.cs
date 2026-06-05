@@ -353,7 +353,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void FixInvalidDefaults(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
@@ -608,7 +607,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     FixSchemaDefaults(concreteS, visited);
     }
 
-    /// <inheritdoc />
     public void RemoveInvalidDefaults(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null)
@@ -626,7 +624,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void RemoveEmptyCompositionObjects(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -688,7 +685,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void InjectTypeForNullable(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
     {
         if (schema == null || !visited.Add(schema))
@@ -764,7 +760,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
     }
 
-    /// <inheritdoc />
     public void DeduplicateCompositionBranches(OpenApiDocument document)
     {
         if (document == null)
@@ -915,7 +910,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             _logger.LogInformation("Deduplicated {Count} duplicate composition branches (anyOf/oneOf/allOf) across the document", removed);
     }
 
-    /// <inheritdoc />
     public void NormalizeNullablePrimitiveCompositions(OpenApiDocument document)
     {
         if (document == null)
