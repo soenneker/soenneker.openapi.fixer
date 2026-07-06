@@ -1338,6 +1338,73 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_remove_string_defaults_from_enum_schemas()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "GrossWeightUnit": {
+                                        "type": "string",
+                                        "enum": [
+                                          "KG",
+                                          "LBS"
+                                        ],
+                                        "default": "KG"
+                                      },
+                                      "TranslationLocale": {
+                                        "type": "string",
+                                        "enum": [
+                                          "EN",
+                                          "ES"
+                                        ],
+                                        "default": "EN"
+                                      },
+                                      "ManifestFormat": {
+                                        "type": "string",
+                                        "enum": [
+                                          "PDF",
+                                          "PNG"
+                                        ],
+                                        "default": "PDF"
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? schemas = root["components"]?["schemas"];
+
+            await Assert.That(schemas?["GrossWeightUnit"]?["default"]).IsNull();
+            await Assert.That(schemas?["TranslationLocale"]?["default"]).IsNull();
+            await Assert.That(schemas?["ManifestFormat"]?["default"]).IsNull();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_process_cloudflare_unfixed_fixture()
     {
         string sourcePath = FindFixtureFile("cloudflare_unfixed.json");

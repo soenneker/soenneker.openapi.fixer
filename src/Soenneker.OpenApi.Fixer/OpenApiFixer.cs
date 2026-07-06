@@ -312,9 +312,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             EnsureDiscriminatorRequiredEverywhere(document);
             RemoveDiscriminatorsFromNonObjectSchemas(document);
 
-            // Kiota can emit invalid assignments when discriminator enum properties carry string defaults.
+            // Kiota can emit invalid assignments when string enum defaults use wire values that differ from generated member names.
             // Remove those defaults so generated C# compiles consistently.
-            RemoveEnumDefaultsFromDiscriminatorLikeProperties(document);
+            RemoveStringDefaultsFromEnumSchemas(document);
 
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
@@ -4515,7 +4515,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return false;
     }
 
-    private static void RemoveEnumDefaultsFromDiscriminatorLikeProperties(OpenApiDocument document)
+    private static void RemoveStringDefaultsFromEnumSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null || document.Components.Schemas.Count == 0)
             return;
@@ -4530,16 +4530,16 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema is not OpenApiSchema concrete)
                 return;
 
+            if (concrete.Enum is { Count: > 0 } && concrete.Default is JsonValue defaultValue &&
+                defaultValue.GetValueKind() == JsonValueKind.String)
+            {
+                concrete.Default = null;
+            }
+
             if (concrete.Properties != null)
             {
-                foreach ((string propName, IOpenApiSchema propSchema) in concrete.Properties)
+                foreach (IOpenApiSchema propSchema in concrete.Properties.Values)
                 {
-                    if (propSchema is OpenApiSchema prop && prop.Enum is { Count: > 0 } && prop.Default is JsonValue defaultValue &&
-                        defaultValue.GetValueKind() == JsonValueKind.String && string.Equals(propName, "type", StringComparison.OrdinalIgnoreCase))
-                    {
-                        prop.Default = null;
-                    }
-
                     Visit(propSchema);
                 }
             }
