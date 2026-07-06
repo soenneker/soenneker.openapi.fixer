@@ -2388,6 +2388,85 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(schemaId.Description).IsEqualTo("Schema identifier.");
     }
 
+    [Test]
+    public async ValueTask RemoveDeprecatedOperationsAndSchemas_should_preserve_referenced_deprecated_schemas()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["LegacyEnum"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        Deprecated = true,
+                        Enum = new List<JsonNode> { JsonValue.Create("legacy")! }
+                    },
+                    ["UnusedDeprecated"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        Deprecated = true
+                    },
+                    ["Container"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["legacy"] = new OpenApiSchemaReference("LegacyEnum")
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "RemoveDeprecatedOperationsAndSchemas", document);
+
+        await Assert.That(document.Components.Schemas.ContainsKey("LegacyEnum")).IsTrue();
+        await Assert.That(document.Components.Schemas.ContainsKey("UnusedDeprecated")).IsFalse();
+    }
+
+    [Test]
+    public async ValueTask ExtractInlineComposedSchemas_should_not_create_self_reference_when_context_name_matches_ref()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["TransferAuthorization"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["guarantee_decision"] = new OpenApiSchema
+                            {
+                                Deprecated = true,
+                                AllOf = new List<IOpenApiSchema>
+                                {
+                                    new OpenApiSchemaReference("TransferAuthorizationGuaranteeDecision")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExtractInlineComposedSchemas", document);
+
+        var transferAuthorization = document.Components.Schemas["TransferAuthorization"] as OpenApiSchema;
+        var propertyReference = transferAuthorization!.Properties!["guarantee_decision"] as OpenApiSchemaReference;
+        var wrapper = document.Components.Schemas["TransferAuthorizationGuaranteeDecisionWrapper"] as OpenApiSchema;
+
+        await Assert.That(document.Components.Schemas.ContainsKey("TransferAuthorizationGuaranteeDecision")).IsFalse();
+        await Assert.That(propertyReference).IsNotNull();
+        await Assert.That(propertyReference!.Reference.Id).IsEqualTo("TransferAuthorizationGuaranteeDecisionWrapper");
+        await Assert.That(wrapper).IsNotNull();
+        await Assert.That((wrapper!.AllOf![0] as OpenApiSchemaReference)!.Reference.Id).IsEqualTo("TransferAuthorizationGuaranteeDecision");
+    }
+
     private static void InvokePrivateVoidMethod(object target, string methodName, params object[] args)
     {
         MethodInfo? method = typeof(OpenApiFixer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic);

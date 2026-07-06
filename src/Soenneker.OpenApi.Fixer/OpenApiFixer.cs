@@ -1271,7 +1271,11 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         if (document.Components?.Schemas != null)
         {
-            List<string> deprecatedSchemaKeys = document.Components.Schemas.Where(kvp => kvp.Value is OpenApiSchema schema && schema.Deprecated)
+            HashSet<string> referencedSchemaIds = CollectReferencedSchemaIds(document);
+
+            List<string> deprecatedSchemaKeys = document.Components.Schemas.Where(kvp =>
+                                                            kvp.Value is OpenApiSchema schema && schema.Deprecated &&
+                                                            !referencedSchemaIds.Contains(kvp.Key))
                                                         .Select(kvp => kvp.Key)
                                                         .ToList();
 
@@ -1287,6 +1291,145 @@ public sealed class OpenApiFixer : IOpenApiFixer
             _logger.LogInformation("Removed deprecated elements. Operations: {OperationCount}, Paths: {PathCount}, Schemas: {SchemaCount}.", removedOperations,
                 removedPaths, removedSchemas);
         }
+    }
+
+    private static HashSet<string> CollectReferencedSchemaIds(OpenApiDocument document)
+    {
+        var referencedSchemaIds = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        void VisitSchema(IOpenApiSchema? schema)
+        {
+            if (schema == null)
+                return;
+
+            if (TryGetSchemaRefId(schema, out string? refId) && !string.IsNullOrWhiteSpace(refId))
+            {
+                referencedSchemaIds.Add(refId);
+                return;
+            }
+
+            if (schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return;
+
+            if (concreteSchema.Properties != null)
+                foreach (IOpenApiSchema child in concreteSchema.Properties.Values)
+                    VisitSchema(child);
+
+            if (concreteSchema.Items != null)
+                VisitSchema(concreteSchema.Items);
+
+            if (concreteSchema.AdditionalProperties != null)
+                VisitSchema(concreteSchema.AdditionalProperties);
+
+            if (concreteSchema.AllOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.AllOf)
+                    VisitSchema(child);
+
+            if (concreteSchema.AnyOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.AnyOf)
+                    VisitSchema(child);
+
+            if (concreteSchema.OneOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.OneOf)
+                    VisitSchema(child);
+
+            if (concreteSchema.Not != null)
+                VisitSchema(concreteSchema.Not);
+        }
+
+        void VisitContent(IDictionary<string, IOpenApiMediaType>? content)
+        {
+            if (content == null)
+                return;
+
+            foreach (IOpenApiMediaType mediaType in content.Values)
+                VisitSchema(mediaType?.Schema);
+        }
+
+        void VisitParameter(IOpenApiParameter? parameter)
+        {
+            if (parameter is not OpenApiParameter concreteParameter)
+                return;
+
+            VisitSchema(concreteParameter.Schema);
+            VisitContent(concreteParameter.Content);
+        }
+
+        void VisitHeader(IOpenApiHeader? header)
+        {
+            if (header is not OpenApiHeader concreteHeader)
+                return;
+
+            VisitSchema(concreteHeader.Schema);
+            VisitContent(concreteHeader.Content);
+        }
+
+        void VisitRequestBody(IOpenApiRequestBody? requestBody)
+        {
+            if (requestBody is OpenApiRequestBody concreteRequestBody)
+                VisitContent(concreteRequestBody.Content);
+        }
+
+        void VisitResponse(IOpenApiResponse? response)
+        {
+            if (response is not OpenApiResponse concreteResponse)
+                return;
+
+            VisitContent(concreteResponse.Content);
+
+            if (concreteResponse.Headers != null)
+                foreach (IOpenApiHeader header in concreteResponse.Headers.Values)
+                    VisitHeader(header);
+        }
+
+        if (document.Components?.Schemas != null)
+            foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
+                VisitSchema(schema);
+
+        if (document.Components?.Parameters != null)
+            foreach (IOpenApiParameter parameter in document.Components.Parameters.Values)
+                VisitParameter(parameter);
+
+        if (document.Components?.Headers != null)
+            foreach (IOpenApiHeader header in document.Components.Headers.Values)
+                VisitHeader(header);
+
+        if (document.Components?.RequestBodies != null)
+            foreach (IOpenApiRequestBody requestBody in document.Components.RequestBodies.Values)
+                VisitRequestBody(requestBody);
+
+        if (document.Components?.Responses != null)
+            foreach (IOpenApiResponse response in document.Components.Responses.Values)
+                VisitResponse(response);
+
+        if (document.Paths == null)
+            return referencedSchemaIds;
+
+        foreach (IOpenApiPathItem pathItem in document.Paths.Values)
+        {
+            if (pathItem?.Parameters != null)
+                foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    VisitParameter(parameter);
+
+            if (pathItem?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                if (operation?.Parameters != null)
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        VisitParameter(parameter);
+
+                VisitRequestBody(operation?.RequestBody);
+
+                if (operation?.Responses != null)
+                    foreach (IOpenApiResponse response in operation.Responses.Values)
+                        VisitResponse(response);
+            }
+        }
+
+        return referencedSchemaIds;
     }
 
 
@@ -2855,9 +2998,55 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         string validatedName = OpenApiNameNormalizer.ReserveComponentName(doc.Components.Schemas.Keys, compName, "Schema");
 
+        if (SchemaReferencesComponent(schema, validatedName))
+        {
+            string guardedBaseName = $"{validatedName} Wrapper";
+            IEnumerable<string> reservedNames = doc.Components.Schemas.Keys.Concat([validatedName]);
+            validatedName = OpenApiNameNormalizer.ReserveComponentName(reservedNames, guardedBaseName, "Schema");
+        }
+
         doc.Components.Schemas[validatedName] = schema;
 
         return validatedName;
+    }
+
+    private static bool SchemaReferencesComponent(IOpenApiSchema? schema, string componentName)
+    {
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+
+        bool Visit(IOpenApiSchema? current)
+        {
+            if (current == null)
+                return false;
+
+            if (TryGetSchemaRefId(current, out string? refId))
+                return string.Equals(refId, componentName, StringComparison.Ordinal);
+
+            if (current is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
+                return false;
+
+            if (concreteSchema.Properties != null && concreteSchema.Properties.Values.Any(Visit))
+                return true;
+
+            if (Visit(concreteSchema.Items))
+                return true;
+
+            if (Visit(concreteSchema.AdditionalProperties))
+                return true;
+
+            if (concreteSchema.AllOf != null && concreteSchema.AllOf.Any(Visit))
+                return true;
+
+            if (concreteSchema.AnyOf != null && concreteSchema.AnyOf.Any(Visit))
+                return true;
+
+            if (concreteSchema.OneOf != null && concreteSchema.OneOf.Any(Visit))
+                return true;
+
+            return Visit(concreteSchema.Not);
+        }
+
+        return Visit(schema);
     }
 
     private string DetermineInlineResponseComponentBaseName(OpenApiSchema schema, string safeOpId, string statusCode)
