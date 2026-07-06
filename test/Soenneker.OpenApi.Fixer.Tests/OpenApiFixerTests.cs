@@ -174,6 +174,82 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_fold_metadata_only_allof_branches_into_promoted_components()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "purchase_unit_request": {
+                                        "type": "object",
+                                        "required": [
+                                          "amount"
+                                        ],
+                                        "properties": {
+                                          "amount": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      },
+                                      "order_request": {
+                                        "type": "object",
+                                        "properties": {
+                                          "purchase_units": {
+                                            "type": "array",
+                                            "items": {
+                                              "allOf": [
+                                                {
+                                                  "$ref": "#/components/schemas/purchase_unit_request"
+                                                },
+                                                {
+                                                  "title": "purchase_unit",
+                                                  "description": "The purchase unit."
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? itemSchema = root["components"]?["schemas"]?["OrderRequestPurchaseUnitsItem"];
+
+            await Assert.That(itemSchema).IsNotNull();
+            await Assert.That(itemSchema?["allOf"]).IsNull();
+            await Assert.That(itemSchema?["title"]?.GetValue<string>()).IsEqualTo("purchase_unit");
+            await Assert.That(itemSchema?["description"]?.GetValue<string>()).IsEqualTo("The purchase unit.");
+            await Assert.That(itemSchema?["properties"]?["amount"]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(itemSchema?["required"]?.AsArray().Any(value => value?.GetValue<string>() == "amount") ?? false).IsTrue();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_use_contextual_wrapper_names_for_inline_branches()
     {
         var document = new OpenApiDocument

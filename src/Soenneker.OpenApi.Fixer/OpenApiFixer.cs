@@ -278,6 +278,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             InlineMapOnlySchemaReferences(document);
             NormalizeAllOfWrappers(document);
             FlattenObjectAllOfCompositions(document);
+            RemoveMetadataOnlyAllOfBranches(document);
             FixEnumAllOfObjectPropertyMismatch(document);
 
             InlinePrimitivePropertyRefs(document);
@@ -290,6 +291,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineComposedSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineEnumSchemas(document!);
+            RemoveMetadataOnlyAllOfBranches(document);
             EnsureNoNullSchemas(document);
 
             if (options.Int32IdTransform)
@@ -6365,6 +6367,164 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         foreach (IOpenApiSchema schema in comps.Values)
             Visit(schema);
+    }
+
+    private static void RemoveMetadataOnlyAllOfBranches(OpenApiDocument doc)
+    {
+        var visited = new HashSet<OpenApiSchema>();
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concrete || !visited.Add(concrete))
+                return;
+
+            if (concrete.Properties != null)
+            {
+                foreach (IOpenApiSchema property in concrete.Properties.Values)
+                    Visit(property);
+            }
+
+            if (concrete.Items != null)
+                Visit(concrete.Items);
+
+            if (concrete.AdditionalProperties != null)
+                Visit(concrete.AdditionalProperties);
+
+            if (concrete.Not != null)
+                Visit(concrete.Not);
+
+            if (concrete.AllOf != null)
+            {
+                var remainingBranches = new List<IOpenApiSchema>();
+
+                foreach (IOpenApiSchema branch in concrete.AllOf)
+                {
+                    Visit(branch);
+
+                    if (branch is OpenApiSchema branchSchema && IsMetadataOnlyAllOfBranch(branchSchema))
+                    {
+                        MergeMetadataOnlyAllOfBranch(concrete, branchSchema);
+                        continue;
+                    }
+
+                    remainingBranches.Add(branch);
+                }
+
+                concrete.AllOf = remainingBranches.Count > 0 ? remainingBranches : null;
+            }
+
+            if (concrete.AnyOf != null)
+            {
+                foreach (IOpenApiSchema branch in concrete.AnyOf)
+                    Visit(branch);
+            }
+
+            if (concrete.OneOf != null)
+            {
+                foreach (IOpenApiSchema branch in concrete.OneOf)
+                    Visit(branch);
+            }
+        }
+
+        if (doc.Components?.Schemas != null)
+        {
+            foreach (IOpenApiSchema schema in doc.Components.Schemas.Values)
+                Visit(schema);
+        }
+
+        if (doc.Paths == null)
+            return;
+
+        foreach (IOpenApiPathItem path in doc.Paths.Values)
+        {
+            if (path?.Parameters != null)
+            {
+                foreach (IOpenApiParameter parameter in path.Parameters)
+                    Visit(parameter?.Schema);
+            }
+
+            if (path?.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in path.Operations.Values)
+            {
+                if (operation?.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
+                        Visit(parameter?.Schema);
+                }
+
+                if (operation?.RequestBody?.Content != null)
+                {
+                    foreach (IOpenApiMediaType mediaType in operation.RequestBody.Content.Values)
+                        Visit(mediaType?.Schema);
+                }
+
+                if (operation?.Responses == null)
+                    continue;
+
+                foreach (IOpenApiResponse response in operation.Responses.Values)
+                {
+                    if (response?.Content != null)
+                    {
+                        foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                            Visit(mediaType?.Schema);
+                    }
+
+                    if (response?.Headers == null)
+                        continue;
+
+                    foreach (IOpenApiHeader header in response.Headers.Values)
+                        Visit(header?.Schema);
+                }
+            }
+        }
+    }
+
+    private static bool IsMetadataOnlyAllOfBranch(OpenApiSchema schema)
+    {
+        if (HasExplicitNonObjectType(schema))
+            return false;
+
+        return schema.Properties is not { Count: > 0 } &&
+               schema.PatternProperties is not { Count: > 0 } &&
+               schema.Items == null &&
+               schema.AdditionalProperties == null &&
+               schema.AllOf is not { Count: > 0 } &&
+               schema.AnyOf is not { Count: > 0 } &&
+               schema.OneOf is not { Count: > 0 } &&
+               schema.Not == null &&
+               schema.Enum is not { Count: > 0 } &&
+               schema.Discriminator == null;
+    }
+
+    private static void MergeMetadataOnlyAllOfBranch(OpenApiSchema target, OpenApiSchema source)
+    {
+        target.Title ??= source.Title;
+        target.Description ??= source.Description;
+        target.Default ??= source.Default;
+        target.Example ??= source.Example;
+        target.Xml ??= source.Xml;
+        target.ExternalDocs ??= source.ExternalDocs;
+        target.Deprecated = target.Deprecated || source.Deprecated;
+        target.ReadOnly = target.ReadOnly || source.ReadOnly;
+        target.WriteOnly = target.WriteOnly || source.WriteOnly;
+
+        if (source.Required is { Count: > 0 })
+        {
+            target.Required ??= new HashSet<string>();
+
+            foreach (string required in source.Required)
+                target.Required.Add(required);
+        }
+
+        if (source.Extensions is not { Count: > 0 })
+            return;
+
+        target.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+
+        foreach ((string key, IOpenApiExtension extension) in source.Extensions)
+            target.Extensions.TryAdd(key, extension);
     }
 
     /// <summary>
