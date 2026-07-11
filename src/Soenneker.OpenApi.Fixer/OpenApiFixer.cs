@@ -314,7 +314,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             // Kiota can emit invalid assignments when string enum defaults use wire values that differ from generated member names.
             // Remove those defaults so generated C# compiles consistently.
-            RemoveStringDefaultsFromEnumSchemas(document);
+            RemoveStringDefaultsFromEnumOrConstSchemas(document);
 
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
@@ -4515,7 +4515,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return false;
     }
 
-    private static void RemoveStringDefaultsFromEnumSchemas(OpenApiDocument document)
+    private static void RemoveStringDefaultsFromEnumOrConstSchemas(OpenApiDocument document)
     {
         if (document.Components?.Schemas == null || document.Components.Schemas.Count == 0)
             return;
@@ -4530,7 +4530,9 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (schema is not OpenApiSchema concrete)
                 return;
 
-            if (concrete.Enum is { Count: > 0 } && concrete.Default is JsonValue defaultValue &&
+            bool hasStringEnumOrConst = concrete.Enum is { Count: > 0 } || concrete.Const is not null;
+
+            if (hasStringEnumOrConst && concrete.Default is JsonValue defaultValue &&
                 defaultValue.GetValueKind() == JsonValueKind.String)
             {
                 concrete.Default = null;

@@ -1405,6 +1405,58 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_remove_string_default_from_const_schema()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "CreateCallTask": {
+                                        "type": "object",
+                                        "properties": {
+                                          "_type": {
+                                            "type": "string",
+                                            "default": "outgoing_call",
+                                            "const": "outgoing_call"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? typeSchema = root["components"]?["schemas"]?["CreateCallTask"]?["properties"]?["_type"];
+
+            await Assert.That(typeSchema?["default"]).IsNull();
+            await Assert.That(typeSchema?["enum"]?[0]?.GetValue<string>()).IsEqualTo("outgoing_call");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_process_cloudflare_unfixed_fixture()
     {
         string sourcePath = FindFixtureFile("cloudflare_unfixed.json");
