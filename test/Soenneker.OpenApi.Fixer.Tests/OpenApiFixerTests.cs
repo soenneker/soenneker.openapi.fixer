@@ -1071,6 +1071,101 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_use_operation_context_for_repeated_inline_response_titles()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.1",
+                                  "info": {
+                                    "title": "Test",
+                                    "version": "1.0.0"
+                                  },
+                                  "paths": {
+                                    "/calls/{id}/actions/playback_start": {
+                                      "post": {
+                                        "operationId": "StartCallPlayback",
+                                        "responses": {
+                                          "200": {
+                                            "description": "OK",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "title": "Call Control Command Response",
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "data": {
+                                                      "type": "string"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "/calls/{id}/actions/speak": {
+                                      "post": {
+                                        "operationId": "SpeakText",
+                                        "responses": {
+                                          "200": {
+                                            "description": "OK",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": {
+                                                  "title": "Call Control Command Response",
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "data": {
+                                                      "type": "integer"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {}
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonObject schemas = root["components"]!["schemas"]!.AsObject();
+
+            await Assert.That(schemas.ContainsKey("StartCallPlayback200Response")).IsTrue();
+            await Assert.That(schemas.ContainsKey("SpeakText200Response")).IsTrue();
+            await Assert.That(schemas.Any(schema => schema.Key.StartsWith("CallControlCommandResponseResponseJson", StringComparison.Ordinal))).IsFalse();
+            await Assert.That(root["paths"]?["/calls/{id}/actions/playback_start"]?["post"]?["responses"]?["200"]?["content"]?["application/json"]?
+                                  ["schema"]?["$ref"]?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/StartCallPlayback200Response");
+            await Assert.That(root["paths"]?["/calls/{id}/actions/speak"]?["post"]?["responses"]?["200"]?["content"]?["application/json"]?["schema"]?
+                                  ["$ref"]?.GetValue<string>())
+                        .IsEqualTo("#/components/schemas/SpeakText200Response");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_normalize_path_parameter_placeholders_without_changing_literal_segments()
     {
         string sourcePath = Path.GetTempFileName();

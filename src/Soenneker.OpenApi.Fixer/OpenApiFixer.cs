@@ -3051,17 +3051,12 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return Visit(schema);
     }
 
-    private string DetermineInlineResponseComponentBaseName(OpenApiSchema schema, string safeOpId, string statusCode)
+    private static string DetermineInlineResponseComponentBaseName(string safeOpId, string statusCode, string mediaName)
     {
-        if (!string.IsNullOrWhiteSpace(schema.Title))
-        {
-            string titleBasedName = OpenApiNameNormalizer.NormalizeComponentName(schema.Title, $"{safeOpId} {statusCode} Response");
-
-            if (!string.IsNullOrWhiteSpace(titleBasedName))
-                return titleBasedName;
-        }
-
-        return OpenApiNameNormalizer.NormalizeComponentName($"{safeOpId} {statusCode} Response");
+        // Inline response titles are frequently reused across unrelated operations. Using the title makes
+        // component identity depend on traversal order and produces unstable numeric suffixes when schemas diverge.
+        string mediaContext = mediaName.Equals("Json", StringComparison.Ordinal) ? string.Empty : $" {mediaName}";
+        return OpenApiNameNormalizer.NormalizeComponentName($"{safeOpId} {statusCode}{mediaContext} Response");
     }
 
     private static bool IsPrimitiveEnvelopeMetadata(IOpenApiSchema schema)
@@ -3219,8 +3214,8 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                     continue;
 
                                 string safeMedia = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
-                                string baseName = DetermineInlineResponseComponentBaseName(concreteSchemaResp2, safeOpId, statusCode);
-                                string compName = ReserveUniqueSchemaName(comps, baseName, $"Response{safeMedia}");
+                                string baseName = DetermineInlineResponseComponentBaseName(safeOpId, statusCode, safeMedia);
+                                string compName = ReserveUniqueSchemaName(comps, baseName, "Schema");
 
                                 string finalComponentName = compName;
 
