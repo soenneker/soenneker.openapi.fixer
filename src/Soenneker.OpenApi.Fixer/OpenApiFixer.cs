@@ -3051,10 +3051,19 @@ public sealed class OpenApiFixer : IOpenApiFixer
         return Visit(schema);
     }
 
-    private static string DetermineInlineResponseComponentBaseName(string safeOpId, string statusCode, string mediaName)
+    private static string DetermineInlineResponseComponentBaseName(OpenApiSchema schema, ISet<string> repeatedTitles, string safeOpId, string statusCode,
+        string mediaName)
     {
-        // Inline response titles are frequently reused across unrelated operations. Using the title makes
-        // component identity depend on traversal order and produces unstable numeric suffixes when schemas diverge.
+        if (!string.IsNullOrWhiteSpace(schema.Title))
+        {
+            string titleBasedName = OpenApiNameNormalizer.NormalizeComponentName(schema.Title, $"{safeOpId} {statusCode} Response");
+
+            // Preserve useful semantic titles, but not titles reused by unrelated operations. Reused titles make
+            // component identity depend on traversal order and produce unstable numeric suffixes when schemas diverge.
+            if (!string.IsNullOrWhiteSpace(titleBasedName) && !repeatedTitles.Contains(titleBasedName))
+                return titleBasedName;
+        }
+
         string mediaContext = mediaName.Equals("Json", StringComparison.Ordinal) ? string.Empty : $" {mediaName}";
         return OpenApiNameNormalizer.NormalizeComponentName($"{safeOpId} {statusCode}{mediaContext} Response");
     }
@@ -3117,6 +3126,37 @@ public sealed class OpenApiFixer : IOpenApiFixer
         IDictionary<string, IOpenApiSchema>? comps = document.Components?.Schemas;
         if (comps == null)
             return;
+
+        var titleCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (IOpenApiPathItem pathItem in document.Paths.Values)
+        {
+            if (pathItem.Operations == null)
+                continue;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                if (operation.Responses == null)
+                    continue;
+
+                foreach (IOpenApiResponse response in operation.Responses.Values)
+                {
+                    if (response is OpenApiResponseReference || response.Content == null)
+                        continue;
+
+                    foreach (IOpenApiMediaType mediaType in response.Content.Values)
+                    {
+                        if (mediaType.Schema is not OpenApiSchema { Title: not null } titledSchema || string.IsNullOrWhiteSpace(titledSchema.Title))
+                            continue;
+
+                        string normalizedTitle = OpenApiNameNormalizer.NormalizeComponentName(titledSchema.Title);
+                        titleCounts[normalizedTitle] = titleCounts.GetValueOrDefault(normalizedTitle) + 1;
+                    }
+                }
+            }
+        }
+
+        var repeatedTitles = new HashSet<string>(titleCounts.Where(pair => pair.Value > 1).Select(pair => pair.Key), StringComparer.OrdinalIgnoreCase);
 
         foreach (IOpenApiPathItem pathItem in document.Paths.Values)
         {
@@ -3214,7 +3254,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                                     continue;
 
                                 string safeMedia = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
-                                string baseName = DetermineInlineResponseComponentBaseName(safeOpId, statusCode, safeMedia);
+                                string baseName = DetermineInlineResponseComponentBaseName(concreteSchemaResp2, repeatedTitles, safeOpId, statusCode, safeMedia);
                                 string compName = ReserveUniqueSchemaName(comps, baseName, "Schema");
 
                                 string finalComponentName = compName;
