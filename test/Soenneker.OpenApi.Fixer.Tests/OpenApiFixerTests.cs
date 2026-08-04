@@ -33,6 +33,111 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_preserve_nullable_allof_component_information()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Test", "version": "1.0.0" },
+                                  "paths": {
+                                    "/responses/compact": {
+                                      "post": {
+                                        "operationId": "createResponsesCompact",
+                                        "responses": {
+                                          "200": {
+                                            "description": "Success",
+                                            "content": {
+                                              "application/json": {
+                                                "schema": { "$ref": "#/components/schemas/CompactResponse" }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "OpenAIResponsesUsage": {
+                                        "type": "object",
+                                        "properties": {
+                                          "input_tokens": { "type": "integer" },
+                                          "total_tokens": { "type": "integer" }
+                                        },
+                                        "required": ["input_tokens", "total_tokens"]
+                                      },
+                                      "Usage": {
+                                        "anyOf": [
+                                          {
+                                            "allOf": [
+                                              { "$ref": "#/components/schemas/OpenAIResponsesUsage" },
+                                              {
+                                                "type": "object",
+                                                "properties": {
+                                                  "cost": { "type": ["number", "null"] }
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          { "type": "null" }
+                                        ],
+                                        "description": "Token usage information for the response"
+                                      },
+                                      "CompactResponse": {
+                                        "type": "object",
+                                        "properties": {
+                                          "usage": {
+                                            "allOf": [
+                                              { "$ref": "#/components/schemas/Usage" },
+                                              {
+                                                "allOf": [
+                                                  { "$ref": "#/components/schemas/OpenAIResponsesUsage" },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "cost": { "type": ["number", "null"] }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "required": ["usage"]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode? root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath, System.Threading.CancellationToken.None));
+            JsonNode? usage = root?["components"]?["schemas"]?["Usage"];
+
+            await Assert.That(usage).IsNotNull();
+            JsonObject usageObject = usage!.AsObject();
+            await Assert.That(usageObject["type"]?.GetValue<string>()).IsEqualTo("object");
+            await Assert.That(usageObject["anyOf"]).IsNull();
+            await Assert.That(usageObject["properties"]?["input_tokens"]?["type"]?.GetValue<string>()).IsEqualTo("integer");
+            await Assert.That(usageObject["properties"]?["cost"]?["type"]?.GetValue<string>()).IsEqualTo("number");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_normalize_loose_boolean_schema_fields_before_reading()
     {
         string sourcePath = Path.GetTempFileName();

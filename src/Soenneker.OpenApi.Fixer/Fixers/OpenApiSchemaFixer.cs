@@ -997,7 +997,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
 
         if (normalized > 0)
-            _logger.LogInformation("Normalized {Count} nullable primitive anyOf/oneOf schemas", normalized);
+            _logger.LogInformation("Normalized {Count} nullable primitive or object-like anyOf/oneOf schemas", normalized);
     }
 
     private static void NormalizeComposition(IList<IOpenApiSchema>? branches, Action<List<IOpenApiSchema>?> assignBranches, OpenApiSchema target, ref int normalized)
@@ -1005,7 +1005,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         if (branches is not { Count: 2 })
             return;
 
-        OpenApiSchema? primitiveBranch = null;
+        OpenApiSchema? valueBranch = null;
         var hasNullBranch = false;
 
         foreach (IOpenApiSchema branch in branches)
@@ -1021,34 +1021,70 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                 continue;
             }
 
-            if (IsPrimitiveSchema(concreteBranch))
+            if (IsPrimitiveSchema(concreteBranch) || IsObjectLikeComposition(concreteBranch))
             {
-                primitiveBranch = concreteBranch;
+                valueBranch = concreteBranch;
                 continue;
             }
 
             return;
         }
 
-        if (!hasNullBranch || primitiveBranch == null)
+        if (!hasNullBranch || valueBranch == null)
             return;
 
-        target.Type = primitiveBranch.Type | JsonSchemaType.Null;
-        target.Format = primitiveBranch.Format;
-        target.Pattern = primitiveBranch.Pattern;
-        target.MinLength = primitiveBranch.MinLength;
-        target.MaxLength = primitiveBranch.MaxLength;
-        target.Minimum = primitiveBranch.Minimum;
-        target.Maximum = primitiveBranch.Maximum;
-        target.ExclusiveMinimum = primitiveBranch.ExclusiveMinimum;
-        target.ExclusiveMaximum = primitiveBranch.ExclusiveMaximum;
-        target.MultipleOf = primitiveBranch.MultipleOf;
-        target.Enum = primitiveBranch.Enum;
-        target.Default ??= primitiveBranch.Default;
-        target.Example ??= primitiveBranch.Example;
-        target.Description ??= primitiveBranch.Description;
+        target.Type = (valueBranch.Type ?? JsonSchemaType.Object) | JsonSchemaType.Null;
+        target.Format = valueBranch.Format;
+        target.Pattern = valueBranch.Pattern;
+        target.MinLength = valueBranch.MinLength;
+        target.MaxLength = valueBranch.MaxLength;
+        target.Minimum = valueBranch.Minimum;
+        target.Maximum = valueBranch.Maximum;
+        target.ExclusiveMinimum = valueBranch.ExclusiveMinimum;
+        target.ExclusiveMaximum = valueBranch.ExclusiveMaximum;
+        target.MultipleOf = valueBranch.MultipleOf;
+        target.Enum = valueBranch.Enum;
+        target.Properties = valueBranch.Properties;
+        target.Required = valueBranch.Required;
+        target.Items = valueBranch.Items;
+        target.AdditionalProperties = valueBranch.AdditionalProperties;
+        target.AdditionalPropertiesAllowed = valueBranch.AdditionalPropertiesAllowed;
+        target.AllOf = valueBranch.AllOf;
+        target.Default ??= valueBranch.Default;
+        target.Example ??= valueBranch.Example;
+        target.Description ??= valueBranch.Description;
+
+        IList<IOpenApiSchema>? nestedAnyOf = valueBranch.AnyOf;
+        IList<IOpenApiSchema>? nestedOneOf = valueBranch.OneOf;
         assignBranches(null);
+        target.AnyOf = nestedAnyOf;
+        target.OneOf = nestedOneOf;
         normalized++;
+    }
+
+    private static bool IsObjectLikeComposition(OpenApiSchema schema)
+    {
+        if (schema.Type.HasValue && schema.Type.Value.HasFlag(JsonSchemaType.Object))
+            return true;
+
+        if (schema.Properties is { Count: > 0 })
+            return true;
+
+        return ContainsObjectLikeBranch(schema.AllOf) || ContainsObjectLikeBranch(schema.AnyOf) || ContainsObjectLikeBranch(schema.OneOf);
+    }
+
+    private static bool ContainsObjectLikeBranch(IList<IOpenApiSchema>? branches)
+    {
+        if (branches == null)
+            return false;
+
+        foreach (IOpenApiSchema branch in branches)
+        {
+            if (branch is OpenApiSchema concreteBranch && IsObjectLikeComposition(concreteBranch))
+                return true;
+        }
+
+        return false;
     }
 
     private static bool IsPrimitiveSchema(OpenApiSchema schema)
