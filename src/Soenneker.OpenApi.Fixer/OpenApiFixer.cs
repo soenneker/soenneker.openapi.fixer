@@ -3924,35 +3924,62 @@ public sealed class OpenApiFixer : IOpenApiFixer
     }
 
 
-    private string FixJsonBooleanValues(string json)
+    private static string FixJsonBooleanValues(string json)
     {
-        // Replace Python-style boolean values with JSON boolean values
-        // This handles cases where the OpenAPI library produces True/False instead of true/false
+        StringBuilder? builder = null;
+        bool inString = false;
+        bool escaped = false;
 
-        // Use regex to ensure we only replace boolean values, not strings that contain "True" or "False"
-        // This prevents accidentally replacing values in strings like "description": "This is True"
+        for (var i = 0; i < json.Length; i++)
+        {
+            char current = json[i];
 
-        // Replace : True with : true (with space)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @":\s*True\b", ": true");
-        // Replace : False with : false (with space)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @":\s*False\b", ": false");
+            if (inString)
+            {
+                if (escaped)
+                    escaped = false;
+                else if (current == '\\')
+                    escaped = true;
+                else if (current == '"')
+                    inString = false;
 
-        // Replace , True with , true (in arrays/objects)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @",\s*True\b", ", true");
-        // Replace , False with , false (in arrays/objects)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @",\s*False\b", ", false");
+                continue;
+            }
 
-        // Replace [True with [true (start of array)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @"\[\s*True\b", "[true");
-        // Replace [False with [false (start of array)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @"\[\s*False\b", "[false");
+            if (current == '"')
+            {
+                inString = true;
+                continue;
+            }
 
-        // Replace True] with true] (end of array)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @"\bTrue\s*\]", "true]");
-        // Replace False] with false] (end of array)
-        json = System.Text.RegularExpressions.Regex.Replace(json, @"\bFalse\s*\]", "false]");
+            int tokenLength = current == 'T' && json.AsSpan(i).StartsWith("True", StringComparison.Ordinal) ? 4
+                : current == 'F' && json.AsSpan(i).StartsWith("False", StringComparison.Ordinal) ? 5 : 0;
 
-        return json;
+            if (tokenLength == 0 || !IsJsonValueToken(json, i, tokenLength))
+                continue;
+
+            builder ??= new StringBuilder(json);
+            builder[i] = char.ToLowerInvariant(current);
+            i += tokenLength - 1;
+        }
+
+        return builder?.ToString() ?? json;
+    }
+
+    private static bool IsJsonValueToken(string json, int start, int length)
+    {
+        int previous = start - 1;
+        while (previous >= 0 && char.IsWhiteSpace(json[previous]))
+            previous--;
+
+        if (previous < 0 || json[previous] is not (':' or ',' or '['))
+            return false;
+
+        int next = start + length;
+        while (next < json.Length && char.IsWhiteSpace(json[next]))
+            next++;
+
+        return next == json.Length || json[next] is ',' or ']' or '}';
     }
 
     private string InjectKiotaEnumValueNames(string json)
