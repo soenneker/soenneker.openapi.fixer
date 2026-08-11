@@ -33,6 +33,120 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_preserve_openapi_31_webhooks_and_normalize_legacy_nullable()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Webhook Test", "version": "1.0.0" },
+                                  "paths": {},
+                                  "webhooks": {
+                                    "widget.created": {
+                                      "post": {
+                                        "operationId": "widget.created",
+                                        "requestBody": {
+                                          "content": {
+                                            "application/json": {
+                                              "schema": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "actor_id": { "type": "string", "nullable": true }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "responses": { "200": { "description": "Received" } }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec);
+            await _util.Fix(sourcePath, targetPath);
+
+            string fixedJson = await File.ReadAllTextAsync(targetPath);
+            JsonNode root = JsonNode.Parse(fixedJson)!;
+
+            await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.1");
+            await Assert.That(root["webhooks"]?["widget.created"]).IsNotNull();
+            await Assert.That(fixedJson.Contains("unrecognizedKeywords", StringComparison.OrdinalIgnoreCase)).IsFalse();
+
+            JsonNode? FindActorId(JsonNode? node)
+            {
+                if (node is JsonObject obj)
+                {
+                    if (obj["properties"]?["actor_id"] is { } found)
+                        return found;
+
+                    foreach (JsonNode? child in obj.Select(property => property.Value))
+                        if (FindActorId(child) is { } nested)
+                            return nested;
+                }
+                else if (node is JsonArray array)
+                {
+                    foreach (JsonNode? child in array)
+                        if (FindActorId(child) is { } nested)
+                            return nested;
+                }
+
+                return null;
+            }
+
+            JsonNode? actorId = FindActorId(root);
+
+            if (actorId?["$ref"]?.GetValue<string>() is { } actorIdReference)
+                actorId = root["components"]?["schemas"]?[actorIdReference[(actorIdReference.LastIndexOf('/') + 1)..]];
+
+            await Assert.That(actorId?["type"] is JsonArray types && types.Any(type => type?.GetValue<string>() == "null")).IsTrue();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_allow_explicit_openapi_30_output()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Version Test", "version": "1.0.0" },
+                                  "paths": {}
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { OutputSpecVersion = OpenApiSpecVersion.OpenApi3_0 });
+
+            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath))!;
+            await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.0");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_preserve_nullable_allof_component_information()
     {
         string sourcePath = Path.GetTempFileName();
@@ -128,7 +242,9 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await Assert.That(usageObject["type"]?.GetValue<string>()).IsEqualTo("object");
             await Assert.That(usageObject["anyOf"]).IsNull();
             await Assert.That(usageObject["properties"]?["input_tokens"]?["type"]?.GetValue<string>()).IsEqualTo("integer");
-            await Assert.That(usageObject["properties"]?["cost"]?["type"]?.GetValue<string>()).IsEqualTo("number");
+            JsonArray costTypes = usageObject["properties"]?["cost"]?["type"]!.AsArray()!;
+            await Assert.That(costTypes.Any(type => type?.GetValue<string>() == "number")).IsTrue();
+            await Assert.That(costTypes.Any(type => type?.GetValue<string>() == "null")).IsTrue();
         }
         finally
         {
@@ -1647,7 +1763,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             JsonNode? typeSchema = root["components"]?["schemas"]?["CreateCallTask"]?["properties"]?["_type"];
 
             await Assert.That(typeSchema?["default"]).IsNull();
-            await Assert.That(typeSchema?["enum"]?[0]?.GetValue<string>()).IsEqualTo("outgoing_call");
+            await Assert.That(typeSchema?["const"]?.GetValue<string>()).IsEqualTo("outgoing_call");
         }
         finally
         {

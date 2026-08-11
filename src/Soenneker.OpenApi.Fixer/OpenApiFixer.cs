@@ -106,6 +106,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         try
         {
             options ??= new OpenApiFixerOptions();
+            OpenApiSpecVersion sourceSpecVersion = await DetectSpecVersion(sourceFilePath, cancellationToken).NoSync();
 
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
             await ReadAndValidateOpenApi(sourceFilePath, cancellationToken)
@@ -121,6 +122,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             }
 
             LogState("After STAGE 0: Initial Load", document!);
+            Dictionary<string, string> attachedWebhooks = AttachWebhooksToPaths(document!);
 
             // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY
             _logger.LogInformation("Running initial cleanup on identifiers, paths, and security schemes...");
@@ -319,7 +321,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
 
-            string json = await document.SerializeAsync(OpenApiSpecVersion.OpenApi3_0, OpenApiConstants.Json, cancellationToken: cancellationToken);
+            DetachWebhooksFromPaths(document, attachedWebhooks);
+
+            OpenApiSpecVersion outputSpecVersion = options.OutputSpecVersion ?? sourceSpecVersion;
+            string json = await document.SerializeAsync(outputSpecVersion, OpenApiConstants.Json, cancellationToken: cancellationToken);
 
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
@@ -1520,6 +1525,82 @@ public sealed class OpenApiFixer : IOpenApiFixer
         raw = _preprocessingFixer.Fix(raw);
 
         return new MemoryStream(Encoding.UTF8.GetBytes(raw));
+    }
+
+    private async ValueTask<OpenApiSpecVersion> DetectSpecVersion(string path, CancellationToken cancellationToken)
+    {
+        string raw = await _fileUtil.Read(path, cancellationToken: cancellationToken);
+        string? version = null;
+
+        try
+        {
+            if (JsonNode.Parse(raw) is JsonObject root)
+                version = root["openapi"]?.GetValue<string>() ?? root["swagger"]?.GetValue<string>();
+        }
+        catch (JsonException)
+        {
+            Match match = Regex.Match(raw, @"(?m)^\s*(?:openapi|swagger)\s*:\s*['\""']?(?<version>\d+\.\d+(?:\.\d+)?)");
+
+            if (match.Success)
+                version = match.Groups["version"].Value;
+        }
+
+        if (!Version.TryParse(version, out Version? parsed))
+            throw new InvalidOperationException($"Unable to determine the OpenAPI version of '{path}'.");
+
+        return (parsed.Major, parsed.Minor) switch
+        {
+            (2, _) => OpenApiSpecVersion.OpenApi2_0,
+            (3, 0) => OpenApiSpecVersion.OpenApi3_0,
+            (3, 1) => OpenApiSpecVersion.OpenApi3_1,
+            (3, 2) => OpenApiSpecVersion.OpenApi3_2,
+            _ => throw new NotSupportedException($"OpenAPI version '{version}' is not supported.")
+        };
+    }
+
+    private static Dictionary<string, string> AttachWebhooksToPaths(OpenApiDocument document)
+    {
+        var attached = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (document.Webhooks is not { Count: > 0 })
+            return attached;
+
+        document.Paths ??= new OpenApiPaths();
+        var index = 0;
+
+        foreach ((string webhookName, IOpenApiPathItem pathItem) in document.Webhooks)
+        {
+            string syntheticPath;
+
+            do
+            {
+                syntheticPath = $"/__openapi_fixer_webhooks/event-{index++}";
+            } while (document.Paths.ContainsKey(syntheticPath));
+
+            document.Paths.Add(syntheticPath, pathItem);
+            attached.Add(syntheticPath, webhookName);
+        }
+
+        return attached;
+    }
+
+    private static void DetachWebhooksFromPaths(OpenApiDocument document, IReadOnlyDictionary<string, string> attachedWebhooks)
+    {
+        if (attachedWebhooks.Count == 0 || document.Paths == null)
+            return;
+
+        document.Webhooks ??= new Dictionary<string, IOpenApiPathItem>();
+
+        foreach ((string syntheticPath, string webhookName) in attachedWebhooks)
+        {
+            if (!document.Paths.Remove(syntheticPath, out IOpenApiPathItem? pathItem))
+            {
+                document.Webhooks.Remove(webhookName);
+                continue;
+            }
+
+            document.Webhooks[webhookName] = pathItem;
+        }
     }
 
     private void InlinePrimitiveComponents(OpenApiDocument document)

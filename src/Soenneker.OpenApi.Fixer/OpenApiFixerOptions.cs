@@ -1,3 +1,5 @@
+using Microsoft.OpenApi;
+
 namespace Soenneker.OpenApi.Fixer;
 
 /// <summary>
@@ -5,6 +7,11 @@ namespace Soenneker.OpenApi.Fixer;
 /// </summary>
 public sealed class OpenApiFixerOptions
 {
+    /// <summary>
+    /// Overrides the OpenAPI version used for the fixed document. When unset, the source document version is preserved.
+    /// </summary>
+    public OpenApiSpecVersion? OutputSpecVersion { get; set; }
+
     /// <summary>
     /// Converts integer properties and parameters whose names end with <c>Id</c> from <c>int32</c> to <c>int64</c>.
     /// </summary>

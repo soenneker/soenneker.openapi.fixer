@@ -37,18 +37,19 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         if (root is null)
             return json;
 
-        bool changed = NormalizeLooseSchemaBooleanFields(root, false, false);
+        bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
+        bool changed = NormalizeLooseSchemaBooleanFields(root, false, false, normalizeLegacyNullable);
 
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
     }
 
-    private static bool NormalizeLooseSchemaBooleanFields(JsonNode? node, bool isSchema, bool childrenAreSchemas)
+    private static bool NormalizeLooseSchemaBooleanFields(JsonNode? node, bool isSchema, bool childrenAreSchemas, bool normalizeLegacyNullable)
     {
         switch (node)
         {
             case JsonObject obj:
             {
-                bool changed = isSchema && NormalizeSchemaBooleanFields(obj);
+                bool changed = isSchema && NormalizeSchemaBooleanFields(obj, normalizeLegacyNullable);
 
                 foreach ((string key, JsonNode? child) in obj.ToList())
                 {
@@ -58,7 +59,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
                     bool childIsSchema = childrenAreSchemas || IsSchemaChild(key, isSchema);
                     bool childChildrenAreSchemas = key is "schemas" || (isSchema && key is "properties");
 
-                    changed |= NormalizeLooseSchemaBooleanFields(child, childIsSchema, childChildrenAreSchemas);
+                    changed |= NormalizeLooseSchemaBooleanFields(child, childIsSchema, childChildrenAreSchemas, normalizeLegacyNullable);
                 }
 
                 return changed;
@@ -69,7 +70,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
                 foreach (JsonNode? child in array)
                 {
-                    changed |= NormalizeLooseSchemaBooleanFields(child, isSchema, false);
+                    changed |= NormalizeLooseSchemaBooleanFields(child, isSchema, false, normalizeLegacyNullable);
                 }
 
                 return changed;
@@ -79,7 +80,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         }
     }
 
-    private static bool NormalizeSchemaBooleanFields(JsonObject obj)
+    private static bool NormalizeSchemaBooleanFields(JsonObject obj, bool normalizeLegacyNullable)
     {
         bool changed = false;
 
@@ -91,7 +92,50 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         changed |= TryCoerceBooleanField(obj, "exclusiveMaximum");
         changed |= TryCoerceBooleanField(obj, "exclusiveMinimum");
 
+        if (normalizeLegacyNullable)
+            changed |= NormalizeLegacyNullable(obj);
+
         return changed;
+    }
+
+    private static bool IsOpenApi31OrLater(JsonObject root)
+    {
+        string? version = root["openapi"]?.GetValue<string>();
+
+        return Version.TryParse(version, out Version? parsed) && parsed.Major == 3 && parsed.Minor >= 1;
+    }
+
+    private static bool NormalizeLegacyNullable(JsonObject schema)
+    {
+        if (!schema.TryGetPropertyValue("nullable", out JsonNode? nullableNode) || nullableNode is not JsonValue nullableValue ||
+            !nullableValue.TryGetValue(out bool nullable))
+            return false;
+
+        schema.Remove("nullable");
+
+        if (!nullable)
+            return true;
+
+        if (schema["type"] is JsonValue typeValue && typeValue.TryGetValue(out string? type))
+        {
+            schema["type"] = new JsonArray(type, "null");
+            return true;
+        }
+
+        if (schema["type"] is JsonArray types)
+        {
+            bool hasNull = types.Any(node => node is JsonValue value && value.TryGetValue(out string? itemType) && itemType == "null");
+
+            if (!hasNull)
+                types.Add("null");
+
+            return true;
+        }
+
+        var nonNullSchema = (JsonObject) schema.DeepClone();
+        schema.Clear();
+        schema["anyOf"] = new JsonArray(nonNullSchema, new JsonObject { ["type"] = "null" });
+        return true;
     }
 
     private static bool IsSchemaChild(string key, bool parentIsSchema)
