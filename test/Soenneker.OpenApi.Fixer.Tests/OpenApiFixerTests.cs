@@ -609,6 +609,64 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_normalize_multi_type_schemas_for_kiota()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Multi-type test", "version": "1.0.0" },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "MixedValue": {
+                                        "type": ["boolean", "string"],
+                                        "enum": [true, false, "pending"]
+                                      },
+                                      "FlexibleMap": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                          "type": ["null", "boolean", "number", "string"]
+                                        }
+                                      },
+                                      "NullableText": {
+                                        "type": ["null", "string"]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec);
+            await _util.Fix(sourcePath, targetPath);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode mixedValue = root["components"]!["schemas"]!["MixedValue"]!;
+            JsonNode flexibleValue = root["components"]!["schemas"]!["FlexibleMap"]!["additionalProperties"]!;
+            JsonArray nullableTypes = root["components"]!["schemas"]!["NullableText"]!["type"]!.AsArray();
+
+            await Assert.That(mixedValue["type"]).IsNull();
+            await Assert.That(mixedValue["anyOf"]!.AsArray().Count).IsEqualTo(2);
+            await Assert.That(flexibleValue["type"]).IsNull();
+            await Assert.That(flexibleValue["anyOf"]!.AsArray().Count).IsEqualTo(4);
+            await Assert.That(nullableTypes.Count).IsEqualTo(2);
+            await Assert.That(nullableTypes.Any(node => node?.GetValue<string>() == "null")).IsTrue();
+            await Assert.That(nullableTypes.Any(node => node?.GetValue<string>() == "string")).IsTrue();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union()
     {
         var document = new OpenApiDocument

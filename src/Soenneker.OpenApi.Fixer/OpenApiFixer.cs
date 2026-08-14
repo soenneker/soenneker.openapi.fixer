@@ -329,6 +329,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
 
+            // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
+            // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
+            json = NormalizeKiotaIncompatibleMultiTypes(json);
+
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
 
@@ -4062,6 +4066,109 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         return next == json.Length || json[next] is ',' or ']' or '}';
     }
+
+    private string NormalizeKiotaIncompatibleMultiTypes(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+
+        JsonNode? root;
+
+        try
+        {
+            root = JsonNode.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when normalizing multi-type schemas");
+            return json;
+        }
+
+        if (root is null)
+            return json;
+
+        var normalized = 0;
+        NormalizeKiotaIncompatibleMultiTypes(root, false, false, ref normalized);
+
+        if (normalized == 0)
+            return json;
+
+        _logger.LogInformation("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static void NormalizeKiotaIncompatibleMultiTypes(JsonNode? node, bool isSchema, bool childrenAreSchemas, ref int normalized)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                if (isSchema && TryNormalizeKiotaIncompatibleMultiType(obj))
+                    normalized++;
+
+                foreach ((string key, JsonNode? child) in obj.ToList())
+                {
+                    if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum")
+                        continue;
+
+                    bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
+                    bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
+
+                    NormalizeKiotaIncompatibleMultiTypes(child, childIsSchema, childChildrenAreSchemas, ref normalized);
+                }
+
+                break;
+            case JsonArray array:
+                foreach (JsonNode? child in array)
+                    NormalizeKiotaIncompatibleMultiTypes(child, isSchema, false, ref normalized);
+
+                break;
+        }
+    }
+
+    private static bool TryNormalizeKiotaIncompatibleMultiType(JsonObject schema)
+    {
+        if (schema["type"] is not JsonArray types)
+            return false;
+
+        var distinctTypes = new List<string>(types.Count);
+
+        foreach (JsonNode? node in types)
+        {
+            if (node is not JsonValue value || !value.TryGetValue(out string? type) || !IsJsonSchemaType(type))
+                return false;
+
+            if (!distinctTypes.Contains(type, StringComparer.Ordinal))
+                distinctTypes.Add(type);
+        }
+
+        if (distinctTypes.Count(type => type != "null") <= 1)
+            return false;
+
+        var branches = new JsonArray(distinctTypes.Select(type => (JsonNode)new JsonObject { ["type"] = type }).ToArray());
+        schema.Remove("type");
+
+        if (schema["anyOf"] is null)
+        {
+            schema["anyOf"] = branches;
+        }
+        else
+        {
+            var typeConstraint = new JsonObject { ["anyOf"] = branches };
+
+            if (schema["allOf"] is JsonArray allOf)
+                allOf.Add(typeConstraint);
+            else
+                schema["allOf"] = new JsonArray(typeConstraint);
+        }
+
+        return true;
+    }
+
+    private static bool IsJsonSchemaType(string? type) => type is "null" or "boolean" or "object" or "array" or "number" or "string" or "integer";
+
+    private static bool IsSchemaChild(string key) =>
+        key is "properties" or "items" or "prefixItems" or "additionalProperties" or "propertyNames" or "contains" or "not" or "allOf" or "anyOf" or
+            "oneOf" or "dependentSchemas" or "if" or "then" or "else";
 
     private string InjectKiotaEnumValueNames(string json)
     {
