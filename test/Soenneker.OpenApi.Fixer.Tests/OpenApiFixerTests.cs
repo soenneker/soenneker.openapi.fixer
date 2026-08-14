@@ -667,6 +667,41 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask InlineMapOnlySchemaReferences_should_inline_nullable_map_used_by_allof()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["ContextResponse"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object | JsonSchemaType.Null,
+                        AdditionalProperties = new OpenApiSchema { Type = JsonSchemaType.String }
+                    },
+                    ["AssetContext"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        AllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference("ContextResponse") }
+                    }
+                }
+            },
+            Paths = new OpenApiPaths()
+        };
+
+        InvokePrivateVoidMethod(_util, "InlineMapOnlySchemaReferences", document);
+
+        var assetContext = (OpenApiSchema)document.Components.Schemas["AssetContext"];
+        var inlinedMap = assetContext.AllOf![0] as OpenApiSchema;
+
+        await Assert.That(inlinedMap).IsNotNull();
+        await Assert.That(inlinedMap!.Type).IsEqualTo(JsonSchemaType.Object);
+        await Assert.That(inlinedMap.AdditionalProperties).IsNotNull();
+        await Assert.That(inlinedMap.AdditionalProperties!.Type).IsEqualTo(JsonSchemaType.String);
+    }
+
+    [Test]
     public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union()
     {
         var document = new OpenApiDocument

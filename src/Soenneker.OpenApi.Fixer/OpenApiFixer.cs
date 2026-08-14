@@ -6981,7 +6981,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
         bool hasNoNamedProperties = schema.Properties == null || schema.Properties.Count == 0;
         bool hasNoItems = schema.Items == null;
-        bool isObjectOrUnset = schema.Type == null || schema.Type == JsonSchemaType.Object;
+        bool isObjectOrUnset = IsObjectOrNullableObject(schema);
         bool hasMapSemantics = schema.AdditionalProperties != null || schema.AdditionalPropertiesAllowed;
 
         return hasNoCompositions && hasNoNamedProperties && hasNoItems && isObjectOrUnset && hasMapSemantics;
@@ -6992,9 +6992,20 @@ public sealed class OpenApiFixer : IOpenApiFixer
         bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
         bool hasNoMapShape = schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed;
         bool hasNoItems = schema.Items == null;
-        bool isObjectOrUnset = schema.Type == null || schema.Type == JsonSchemaType.Object;
+        bool isObjectOrUnset = IsObjectOrNullableObject(schema);
 
         return hasNoCompositions && hasNoMapShape && hasNoItems && isObjectOrUnset;
+    }
+
+    private static bool IsObjectOrNullableObject(OpenApiSchema schema)
+    {
+        if (!schema.Type.HasValue)
+            return true;
+
+        JsonSchemaType type = schema.Type.Value;
+        JsonSchemaType unsupportedTypes = type & ~(JsonSchemaType.Object | JsonSchemaType.Null);
+
+        return type.HasFlag(JsonSchemaType.Object) && unsupportedTypes == 0;
     }
 
     /// <summary>
