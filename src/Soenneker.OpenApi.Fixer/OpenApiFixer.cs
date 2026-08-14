@@ -4089,12 +4089,129 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
         var normalized = 0;
         NormalizeKiotaIncompatibleMultiTypes(root, false, false, ref normalized);
+        int narrowed = NarrowKiotaIncompatibleMixedUnionAllOfReferences(root);
 
-        if (normalized == 0)
+        if (normalized == 0 && narrowed == 0)
             return json;
 
-        _logger.LogInformation("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
+        if (normalized > 0)
+            _logger.LogInformation("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
+
+        if (narrowed > 0)
+            _logger.LogInformation("Narrowed {Count} mixed-union allOf references to their object-compatible branches", narrowed);
+
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static int NarrowKiotaIncompatibleMixedUnionAllOfReferences(JsonNode root)
+    {
+        if (root["components"]?["schemas"] is not JsonObject components)
+            return 0;
+
+        var narrowed = 0;
+        Visit(root, false, false);
+        return narrowed;
+
+        void Visit(JsonNode? node, bool isSchema, bool childrenAreSchemas)
+        {
+            switch (node)
+            {
+                case JsonObject obj:
+                    if (isSchema)
+                        NarrowSchema(obj);
+
+                    foreach ((string key, JsonNode? child) in obj.ToList())
+                    {
+                        if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum")
+                            continue;
+
+                        bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
+                        bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
+                        Visit(child, childIsSchema, childChildrenAreSchemas);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (JsonNode? child in array)
+                        Visit(child, isSchema, false);
+                    break;
+            }
+        }
+
+        void NarrowSchema(JsonObject schema)
+        {
+            if (schema["allOf"] is not JsonArray allOf || allOf.Count == 0)
+                return;
+
+            for (var i = 0; i < allOf.Count; i++)
+            {
+                if (allOf[i] is not JsonObject referenceBranch ||
+                    !TryResolveComponentReference(referenceBranch, components, out JsonObject? referencedSchema) || referencedSchema is null)
+                    continue;
+
+                JsonArray? unionBranches = referencedSchema["oneOf"] as JsonArray ?? referencedSchema["anyOf"] as JsonArray;
+                if (unionBranches is not { Count: > 1 })
+                    continue;
+
+                List<JsonObject> objectBranches = unionBranches.OfType<JsonObject>()
+                                                                    .Where(branch => IsObjectCompatible(branch, components, []))
+                                                                    .ToList();
+                if (objectBranches.Count != 1 || objectBranches.Count == unionBranches.Count)
+                    continue;
+
+                bool surroundingAllOfRequiresObject = IsObjectCompatible(schema, components, []) ||
+                                                      allOf.Where((_, index) => index != i)
+                                                           .OfType<JsonObject>()
+                                                           .Any(branch => IsObjectCompatible(branch, components, []));
+                if (!surroundingAllOfRequiresObject)
+                    continue;
+
+                allOf[i] = objectBranches[0].DeepClone();
+                narrowed++;
+            }
+        }
+    }
+
+    private static bool IsObjectCompatible(JsonObject schema, JsonObject components, HashSet<string> activeReferences)
+    {
+        if (schema["type"] is JsonValue typeValue && typeValue.TryGetValue(out string? type) && type == "object")
+            return true;
+
+        if (schema["type"] is JsonArray types && types.OfType<JsonValue>().Any(value => value.TryGetValue(out string? type) && type == "object"))
+            return true;
+
+        if (schema["properties"] is JsonObject || schema["additionalProperties"] is JsonObject)
+            return true;
+
+        if (!TryResolveComponentReference(schema, components, out JsonObject? referencedSchema, out string? referenceId) ||
+            referencedSchema is null || referenceId is null || !activeReferences.Add(referenceId))
+            return false;
+
+        try
+        {
+            return IsObjectCompatible(referencedSchema, components, activeReferences);
+        }
+        finally
+        {
+            activeReferences.Remove(referenceId);
+        }
+    }
+
+    private static bool TryResolveComponentReference(JsonObject schema, JsonObject components, out JsonObject? referencedSchema) =>
+        TryResolveComponentReference(schema, components, out referencedSchema, out _);
+
+    private static bool TryResolveComponentReference(JsonObject schema, JsonObject components, out JsonObject? referencedSchema, out string? referenceId)
+    {
+        referencedSchema = null;
+        referenceId = null;
+
+        if (schema["$ref"] is not JsonValue referenceValue || !referenceValue.TryGetValue(out string? reference) ||
+            reference is null || !reference.StartsWith("#/components/schemas/", StringComparison.Ordinal))
+            return false;
+
+        referenceId = reference["#/components/schemas/".Length..].Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+        referencedSchema = components[referenceId] as JsonObject;
+        return referencedSchema is not null;
     }
 
     private static void NormalizeKiotaIncompatibleMultiTypes(JsonNode? node, bool isSchema, bool childrenAreSchemas, ref int normalized)

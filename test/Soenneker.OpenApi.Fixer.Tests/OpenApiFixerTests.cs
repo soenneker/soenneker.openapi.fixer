@@ -825,6 +825,46 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask NormalizeKiotaIncompatibleMultiTypes_should_emit_object_branch_for_mixed_union_reference_in_object_allof()
+    {
+        const string serializedSpec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Cloudflare mixed response", "version": "1.0.0" },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "ImagesImageResponseBlob": {
+                                        "anyOf": [
+                                          { "type": "string" },
+                                          { "type": "object" }
+                                        ]
+                                      },
+                                      "ImagesBlobFailureResponse": {
+                                        "type": "object",
+                                        "allOf": [
+                                          { "$ref": "#/components/schemas/ImagesImageResponseBlob" }
+                                        ],
+                                        "properties": {
+                                          "success": { "type": "boolean" }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+        string normalized = InvokePrivateMethod<string>(_util, "NormalizeKiotaIncompatibleMultiTypes", serializedSpec);
+        JsonNode root = JsonNode.Parse(normalized)!;
+        JsonNode failureResponse = root["components"]!["schemas"]!["ImagesBlobFailureResponse"]!;
+        JsonArray allOf = failureResponse["allOf"]!.AsArray();
+
+        await Assert.That(allOf.Count).IsEqualTo(1);
+        await Assert.That(allOf[0]?["$ref"]).IsNull();
+        await Assert.That(allOf[0]?["type"]?.GetValue<string>()).IsEqualTo("object");
+    }
+
+    [Test]
     public async ValueTask CollapseNonDiscriminatedInlineObjectUnions_should_merge_inline_object_branches()
     {
         var document = new OpenApiDocument
@@ -3079,6 +3119,18 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             throw new InvalidOperationException($"Could not find private method '{methodName}'.");
 
         method.Invoke(method.IsStatic ? null : target, args);
+    }
+
+    private static T InvokePrivateMethod<T>(object target, string methodName, params object[] args)
+    {
+        MethodInfo? method = typeof(OpenApiFixer).GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)
+                                                     .SingleOrDefault(candidate => candidate.Name == methodName &&
+                                                                                   candidate.GetParameters().Length == args.Length);
+
+        if (method is null)
+            throw new InvalidOperationException($"Could not find private method '{methodName}'.");
+
+        return (T)method.Invoke(method.IsStatic ? null : target, args)!;
     }
 
     private static async ValueTask<JsonNode> ReadJsonNode(string path)
