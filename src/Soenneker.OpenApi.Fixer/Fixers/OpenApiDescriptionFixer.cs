@@ -1,9 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
-using System;
 using System.Collections.Generic;
-using Soenneker.Extensions.String;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
@@ -71,25 +69,9 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 
     private static string? FixYamlUnsafeString(string? value)
     {
-        if (value.IsNullOrWhiteSpace())
-            return value;
-
-        // YAML forbids unquoted "key: value" patterns in many scalar contexts
-        // We detect colon+space OR leading/trailing colon situations.
-        bool containsYamlMappingPattern = value.Contains(": ", StringComparison.Ordinal) || value.EndsWith(":", StringComparison.Ordinal) ||
-                                          value.StartsWith(":", StringComparison.Ordinal);
-
-        if (!containsYamlMappingPattern)
-            return value;
-
-        // Already quoted? Skip.
-        if ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'")))
-            return value;
-
-        // Escape internal quotes minimally but safely
-        string escaped = value.Replace("\"", "\\\"");
-
-        return $"\"{escaped}\"";
+        // Description values are semantic text. OpenAPI serializers are responsible for quoting and escaping
+        // their JSON or YAML representation; adding quote characters here corrupts the description itself.
+        return value;
     }
 
     private void FixSchemaDescriptions(IOpenApiSchema schema, HashSet<IOpenApiSchema> visited)
@@ -231,4 +213,3 @@ public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
         }
     }
 }
-

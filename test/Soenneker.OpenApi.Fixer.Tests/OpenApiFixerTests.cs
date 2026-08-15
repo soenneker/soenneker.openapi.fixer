@@ -3203,6 +3203,136 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_preserve_openapi_wire_contract_and_semantic_constraints()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Contract test", "version": "1.0.0", "description": "Status: current" },
+                                  "paths": {
+                                    "/values": {
+                                      "post": {
+                                        "operationId": "createValue",
+                                        "deprecated": true,
+                                        "parameters": [
+                                          { "name": "Authorization-Token", "in": "header", "schema": { "type": "string" } }
+                                        ],
+                                        "requestBody": {
+                                          "required": true,
+                                          "description": "Body: primitive",
+                                          "content": { "text/plain": { "schema": { "type": "string" } } }
+                                        },
+                                        "responses": {
+                                          "202": {
+                                            "description": "Accepted: no body",
+                                            "headers": { "Location": { "schema": { "type": "string" } } }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "components": {
+                                    "schemas": {
+                                      "Legacy": { "deprecated": true, "type": "object", "properties": { "id": { "type": "string" } } },
+                                      "BooleanOnly": { "type": "boolean", "enum": [true] },
+                                      "StringValues": { "type": "string", "enum": ["", "active"] },
+                                      "ObjectA": { "type": "object", "properties": { "a": { "type": "string" } } },
+                                      "ObjectB": { "type": "object", "properties": { "b": { "type": "string" } } },
+                                      "Combined": {
+                                        "oneOf": [{ "$ref": "#/components/schemas/ObjectA" }, { "$ref": "#/components/schemas/ObjectB" }],
+                                        "anyOf": [{ "$ref": "#/components/schemas/ObjectA" }]
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode operation = root["paths"]!["/values"]!["post"]!;
+            JsonNode schemas = root["components"]!["schemas"]!;
+
+            await Assert.That(root["info"]?["description"]?.GetValue<string>()).IsEqualTo("Status: current");
+            await Assert.That(operation["deprecated"]?.GetValue<bool>()).IsTrue();
+            await Assert.That(operation["parameters"]?[0]?["name"]?.GetValue<string>()).IsEqualTo("Authorization-Token");
+            await Assert.That(root["components"]?["securitySchemes"]?["assets_jwt"]).IsNull();
+
+            JsonNode requestBody = operation["requestBody"]!;
+            await Assert.That(requestBody["required"]?.GetValue<bool>()).IsTrue();
+            await Assert.That(requestBody["description"]?.GetValue<string>()).IsEqualTo("Body: primitive");
+            JsonNode requestSchema = requestBody["content"]!["text/plain"]!["schema"]!;
+            string? requestSchemaRef = requestSchema["$ref"]?.GetValue<string>();
+            if (requestSchemaRef is not null)
+                requestSchema = schemas[requestSchemaRef[(requestSchemaRef.LastIndexOf('/') + 1)..]]!;
+
+            await Assert.That(requestSchema["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(requestSchema["properties"]?["value"]).IsNull();
+
+            JsonNode response = operation["responses"]!["202"]!;
+            await Assert.That(response["description"]?.GetValue<string>()).IsEqualTo("Accepted: no body");
+            await Assert.That(response["headers"]?["Location"]?["schema"]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(response["content"]).IsNull();
+
+            await Assert.That(schemas["Legacy"]).IsNotNull();
+            await Assert.That(schemas["BooleanOnly"]?["enum"]?[0]?.GetValue<bool>()).IsTrue();
+            await Assert.That(schemas["BooleanOnly"]?["default"]).IsNull();
+            await Assert.That(schemas["StringValues"]?["enum"]?.AsArray().Any(value => value?.GetValue<string>() == string.Empty) ?? false).IsTrue();
+            JsonArray combinedAllOf = schemas["Combined"]!["allOf"]!.AsArray();
+            await Assert.That(combinedAllOf.Any(entry => entry?["oneOf"] is JsonArray)).IsTrue();
+            await Assert.That(combinedAllOf.Any(entry => entry?["anyOf"] is JsonArray)).IsTrue();
+            await Assert.That(schemas["Combined"]?["oneOf"]).IsNull();
+            await Assert.That(schemas["Combined"]?["anyOf"]).IsNull();
+            await Assert.That(schemas["Combined"]?["discriminator"]).IsNull();
+            await Assert.That(schemas["Combined"]?["required"]?.AsArray().Any(value => value?.GetValue<string>() == "type") ?? false).IsFalse();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_support_openapi_31_components_without_paths()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Components only", "version": "1.0.0" },
+                                  "components": { "schemas": { "Value": { "type": "object", "properties": { "name": { "type": "string" } } } } }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+            await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            await Assert.That(root["components"]?["schemas"]?.AsObject().Count ?? 0).IsGreaterThan(0);
+            await Assert.That(root["paths"]?.AsObject().Count ?? 0).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     [Skip("Manual")]
     // [LocalOnly]
     public async ValueTask ProcessHubSpot()
