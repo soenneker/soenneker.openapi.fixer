@@ -333,6 +333,10 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
             json = NormalizeKiotaIncompatibleMultiTypes(json);
 
+            // Kiota does not generate enum types for OpenAPI 3.1 const schemas. Express singleton string constraints
+            // as one-value enums so preserving the source spec version does not weaken generated client types.
+            json = NormalizeSingletonStringConstsAsEnums(json);
+
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
 
@@ -4286,6 +4290,68 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private static bool IsSchemaChild(string key) =>
         key is "properties" or "items" or "prefixItems" or "additionalProperties" or "propertyNames" or "contains" or "not" or "allOf" or "anyOf" or
             "oneOf" or "dependentSchemas" or "if" or "then" or "else";
+
+    private string NormalizeSingletonStringConstsAsEnums(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+
+        JsonNode? root;
+
+        try
+        {
+            root = JsonNode.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when normalizing string const schemas");
+            return json;
+        }
+
+        if (root is null)
+            return json;
+
+        var normalized = 0;
+        NormalizeSingletonStringConstsAsEnums(root, false, false, ref normalized);
+
+        if (normalized == 0)
+            return json;
+
+        _logger.LogInformation("Normalized {Count} singleton string const schemas into Kiota-compatible enums", normalized);
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static void NormalizeSingletonStringConstsAsEnums(JsonNode? node, bool isSchema, bool childrenAreSchemas, ref int normalized)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                if (isSchema && obj["const"] is JsonValue constValue && constValue.TryGetValue(out string? value) && value is not null &&
+                    obj["enum"] is null)
+                {
+                    obj.Remove("const");
+                    obj["enum"] = new JsonArray(value);
+                    normalized++;
+                }
+
+                foreach ((string key, JsonNode? child) in obj.ToList())
+                {
+                    if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum" or "const")
+                        continue;
+
+                    bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
+                    bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
+                    NormalizeSingletonStringConstsAsEnums(child, childIsSchema, childChildrenAreSchemas, ref normalized);
+                }
+
+                break;
+            case JsonArray array:
+                foreach (JsonNode? child in array)
+                    NormalizeSingletonStringConstsAsEnums(child, isSchema, false, ref normalized);
+
+                break;
+        }
+    }
 
     private string InjectKiotaEnumValueNames(string json)
     {

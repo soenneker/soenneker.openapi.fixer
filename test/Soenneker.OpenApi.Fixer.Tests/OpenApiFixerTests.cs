@@ -1854,7 +1854,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Fix_should_remove_string_default_from_const_schema()
+    public async ValueTask Fix_should_normalize_string_const_to_enum_and_remove_default()
     {
         string sourcePath = Path.GetTempFileName();
         string targetPath = Path.GetTempFileName();
@@ -1873,13 +1873,13 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                   "paths": {},
                                   "components": {
                                     "schemas": {
-                                      "CreateCallTask": {
+                                      "AuthenticateRequest": {
                                         "type": "object",
                                         "properties": {
-                                          "_type": {
+                                          "grant_type": {
                                             "type": "string",
-                                            "default": "outgoing_call",
-                                            "const": "outgoing_call"
+                                            "default": "authorization_code",
+                                            "const": "authorization_code"
                                           }
                                         }
                                       }
@@ -1893,10 +1893,14 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _util.Fix(sourcePath, targetPath, System.Threading.CancellationToken.None);
 
             JsonNode root = await ReadJsonNode(targetPath);
-            JsonNode? typeSchema = root["components"]?["schemas"]?["CreateCallTask"]?["properties"]?["_type"];
+            JsonNode? grantTypeSchema = root["components"]?["schemas"]?["AuthenticateRequest"]?["properties"]?["grant_type"];
 
-            await Assert.That(typeSchema?["default"]).IsNull();
-            await Assert.That(typeSchema?["const"]?.GetValue<string>()).IsEqualTo("outgoing_call");
+            await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.1");
+            await Assert.That(grantTypeSchema?["default"]).IsNull();
+            await Assert.That(grantTypeSchema?["const"]).IsNull();
+            await Assert.That(grantTypeSchema?["enum"]?[0]?.GetValue<string>()).IsEqualTo("authorization_code");
+            await Assert.That(grantTypeSchema?["x-ms-enum"]?["name"]?.GetValue<string>()).IsEqualTo("GrantType");
+            await Assert.That(grantTypeSchema?["x-ms-enum"]?["values"]?[0]?["name"]?.GetValue<string>()).IsEqualTo("AuthorizationCode");
         }
         finally
         {
