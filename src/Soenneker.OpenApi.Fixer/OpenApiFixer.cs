@@ -292,6 +292,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             ExtractInlineComponentContentSchemas(document!);
             ExtractInlineComposedSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
+            NormalizeSingletonStringConstsAsEnums(document!);
             ExtractInlineEnumSchemas(document!);
             RemoveMetadataOnlyAllOfBranches(document);
             EnsureNoNullSchemas(document);
@@ -332,10 +333,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
             // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
             json = NormalizeKiotaIncompatibleMultiTypes(json);
-
-            // Kiota does not generate enum types for OpenAPI 3.1 const schemas. Express singleton string constraints
-            // as one-value enums so preserving the source spec version does not weaken generated client types.
-            json = NormalizeSingletonStringConstsAsEnums(json);
 
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
@@ -3698,6 +3695,118 @@ public sealed class OpenApiFixer : IOpenApiFixer
         while (changed);
     }
 
+    private void NormalizeSingletonStringConstsAsEnums(OpenApiDocument document)
+    {
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+        var normalized = 0;
+
+        void VisitSchema(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concreteSchema || !visited.Add(schema))
+                return;
+
+            if (concreteSchema.Const is { } value && concreteSchema.Enum is not { Count: > 0 })
+            {
+                concreteSchema.Enum = [JsonValue.Create(value)];
+                concreteSchema.Const = null;
+                normalized++;
+            }
+
+            if (concreteSchema.Properties != null)
+                foreach (IOpenApiSchema property in concreteSchema.Properties.Values)
+                    VisitSchema(property);
+
+            VisitSchema(concreteSchema.Items);
+            VisitSchema(concreteSchema.AdditionalProperties);
+
+            if (concreteSchema.AllOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.AllOf)
+                    VisitSchema(child);
+
+            if (concreteSchema.AnyOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.AnyOf)
+                    VisitSchema(child);
+
+            if (concreteSchema.OneOf != null)
+                foreach (IOpenApiSchema child in concreteSchema.OneOf)
+                    VisitSchema(child);
+
+            VisitSchema(concreteSchema.Not);
+        }
+
+        static void VisitContent(IDictionary<string, IOpenApiMediaType>? content, Action<IOpenApiSchema?> visitSchema)
+        {
+            if (content == null)
+                return;
+
+            foreach (IOpenApiMediaType mediaType in content.Values)
+                visitSchema(mediaType?.Schema);
+        }
+
+        void VisitResponse(IOpenApiResponse? response)
+        {
+            if (response is not OpenApiResponse concreteResponse)
+                return;
+
+            VisitContent(concreteResponse.Content, VisitSchema);
+
+            if (concreteResponse.Headers != null)
+                foreach (IOpenApiHeader header in concreteResponse.Headers.Values)
+                    VisitSchema(header?.Schema);
+        }
+
+        if (document.Components?.Schemas != null)
+            foreach (IOpenApiSchema schema in document.Components.Schemas.Values)
+                VisitSchema(schema);
+
+        if (document.Components?.Parameters != null)
+            foreach (IOpenApiParameter parameter in document.Components.Parameters.Values)
+                VisitSchema(parameter?.Schema);
+
+        if (document.Components?.Headers != null)
+            foreach (IOpenApiHeader header in document.Components.Headers.Values)
+                VisitSchema(header?.Schema);
+
+        if (document.Components?.RequestBodies != null)
+            foreach (IOpenApiRequestBody requestBody in document.Components.RequestBodies.Values)
+                if (requestBody is OpenApiRequestBody concreteRequestBody)
+                    VisitContent(concreteRequestBody.Content, VisitSchema);
+
+        if (document.Components?.Responses != null)
+            foreach (IOpenApiResponse response in document.Components.Responses.Values)
+                VisitResponse(response);
+
+        if (document.Paths != null)
+        {
+            foreach (IOpenApiPathItem pathItem in document.Paths.Values)
+            {
+                if (pathItem?.Parameters != null)
+                    foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                        VisitSchema(parameter?.Schema);
+
+                if (pathItem?.Operations == null)
+                    continue;
+
+                foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                {
+                    if (operation?.Parameters != null)
+                        foreach (IOpenApiParameter parameter in operation.Parameters)
+                            VisitSchema(parameter?.Schema);
+
+                    if (operation?.RequestBody is OpenApiRequestBody requestBody)
+                        VisitContent(requestBody.Content, VisitSchema);
+
+                    if (operation?.Responses != null)
+                        foreach (IOpenApiResponse response in operation.Responses.Values)
+                            VisitResponse(response);
+                }
+            }
+        }
+
+        if (normalized > 0)
+            _logger.LogInformation("Normalized {Count} singleton string const schemas into Kiota-compatible enums", normalized);
+    }
+
     private void ExtractInlineEnumSchemas(OpenApiDocument document)
     {
         IDictionary<string, IOpenApiSchema>? comps = document.Components?.Schemas;
@@ -3707,7 +3816,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
         var promotedSchemas = new Dictionary<IOpenApiSchema, string>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
         var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
 
-        bool TryPromote(IOpenApiSchema? schema, string baseName, out IOpenApiSchema replacement)
+        bool TryPromote(IOpenApiSchema? schema, string baseName, string? roleName, out IOpenApiSchema replacement)
         {
             replacement = schema ?? new OpenApiSchema();
 
@@ -3716,7 +3825,27 @@ public sealed class OpenApiFixer : IOpenApiFixer
 
             if (!promotedSchemas.TryGetValue(concreteSchema, out string? componentName))
             {
-                string reservedName = ReserveUniqueSchemaName(comps, baseName, "Enum");
+                string semanticBaseName = BuildInlineEnumComponentName(concreteSchema, baseName, roleName);
+
+                if (!string.Equals(semanticBaseName, baseName, StringComparison.Ordinal))
+                {
+                    string semanticComponentName = OpenApiNameNormalizer.NormalizeComponentName(semanticBaseName);
+
+                    if (comps.TryGetValue(semanticComponentName, out IOpenApiSchema? existingSchema))
+                    {
+                        if (HaveEquivalentStringEnums(existingSchema, concreteSchema))
+                        {
+                            componentName = semanticComponentName;
+                            promotedSchemas[concreteSchema] = componentName;
+                            replacement = new OpenApiSchemaReference(componentName);
+                            return true;
+                        }
+
+                        semanticBaseName = baseName;
+                    }
+                }
+
+                string reservedName = ReserveUniqueSchemaName(comps, semanticBaseName, "Enum");
                 componentName = AddComponentSchema(document, reservedName, concreteSchema);
 
                 if (string.IsNullOrWhiteSpace(componentName))
@@ -3741,7 +3870,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 {
                     string propertyContext = $"{contextName} {propertyName}";
 
-                    if (TryPromote(propertySchema, propertyContext, out IOpenApiSchema replacement))
+                    if (TryPromote(propertySchema, propertyContext, propertyName, out IOpenApiSchema replacement))
                         concreteSchema.Properties[propertyName] = replacement;
                     else
                         VisitSchema(propertySchema, propertyContext);
@@ -3752,7 +3881,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 string itemContext = $"{contextName} Item";
 
-                if (TryPromote(concreteSchema.Items, itemContext, out IOpenApiSchema replacement))
+                if (TryPromote(concreteSchema.Items, itemContext, "Item", out IOpenApiSchema replacement))
                     concreteSchema.Items = replacement;
                 else
                     VisitSchema(concreteSchema.Items, itemContext);
@@ -3762,7 +3891,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 string additionalPropertiesContext = $"{contextName} AdditionalProperties";
 
-                if (TryPromote(concreteSchema.AdditionalProperties, additionalPropertiesContext, out IOpenApiSchema replacement))
+                if (TryPromote(concreteSchema.AdditionalProperties, additionalPropertiesContext, "AdditionalProperties", out IOpenApiSchema replacement))
                     concreteSchema.AdditionalProperties = replacement;
                 else
                     VisitSchema(concreteSchema.AdditionalProperties, additionalPropertiesContext);
@@ -3782,7 +3911,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             {
                 string branchContext = $"{contextName} {i + 1}";
 
-                if (TryPromote(branches[i], branchContext, out IOpenApiSchema replacement))
+                if (TryPromote(branches[i], branchContext, null, out IOpenApiSchema replacement))
                     branches[i] = replacement;
                 else
                     VisitSchema(branches[i], branchContext);
@@ -3794,7 +3923,7 @@ public sealed class OpenApiFixer : IOpenApiFixer
             if (parameter is not OpenApiParameter concreteParameter || concreteParameter.Schema == null)
                 return;
 
-            if (TryPromote(concreteParameter.Schema, contextName, out IOpenApiSchema replacement))
+            if (TryPromote(concreteParameter.Schema, contextName, concreteParameter.Name, out IOpenApiSchema replacement))
                 concreteParameter.Schema = replacement;
             else
                 VisitSchema(concreteParameter.Schema, contextName);
@@ -3840,6 +3969,33 @@ public sealed class OpenApiFixer : IOpenApiFixer
                 }
             }
         }
+    }
+
+    private static string BuildInlineEnumComponentName(OpenApiSchema schema, string contextName, string? roleName)
+    {
+        if (string.IsNullOrWhiteSpace(roleName) || schema.Enum is not { Count: 1 } || schema.Enum[0] is not JsonValue enumValue ||
+            !enumValue.TryGetValue(out string? wireValue) || string.IsNullOrWhiteSpace(wireValue))
+            return contextName;
+
+        string valueName = BuildSafeEnumMemberName(wireValue);
+        return OpenApiNameNormalizer.NormalizeComponentName($"{valueName} {roleName}");
+    }
+
+    private static bool HaveEquivalentStringEnums(IOpenApiSchema left, OpenApiSchema right)
+    {
+        if (left is not OpenApiSchema leftSchema || leftSchema.Enum is not { Count: > 0 } || right.Enum is not { Count: > 0 } ||
+            leftSchema.Enum.Count != right.Enum.Count)
+            return false;
+
+        for (var i = 0; i < leftSchema.Enum.Count; i++)
+        {
+            if (leftSchema.Enum[i] is not JsonValue leftValue || right.Enum[i] is not JsonValue rightValue ||
+                !leftValue.TryGetValue(out string? leftText) || !rightValue.TryGetValue(out string? rightText) ||
+                !string.Equals(leftText, rightText, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
     private static string ReserveUniqueSchemaName(IDictionary<string, IOpenApiSchema> comps, string baseName, string fallbackSuffix)
@@ -4290,68 +4446,6 @@ public sealed class OpenApiFixer : IOpenApiFixer
     private static bool IsSchemaChild(string key) =>
         key is "properties" or "items" or "prefixItems" or "additionalProperties" or "propertyNames" or "contains" or "not" or "allOf" or "anyOf" or
             "oneOf" or "dependentSchemas" or "if" or "then" or "else";
-
-    private string NormalizeSingletonStringConstsAsEnums(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-            return json;
-
-        JsonNode? root;
-
-        try
-        {
-            root = JsonNode.Parse(json);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when normalizing string const schemas");
-            return json;
-        }
-
-        if (root is null)
-            return json;
-
-        var normalized = 0;
-        NormalizeSingletonStringConstsAsEnums(root, false, false, ref normalized);
-
-        if (normalized == 0)
-            return json;
-
-        _logger.LogInformation("Normalized {Count} singleton string const schemas into Kiota-compatible enums", normalized);
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-    }
-
-    private static void NormalizeSingletonStringConstsAsEnums(JsonNode? node, bool isSchema, bool childrenAreSchemas, ref int normalized)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-                if (isSchema && obj["const"] is JsonValue constValue && constValue.TryGetValue(out string? value) && value is not null &&
-                    obj["enum"] is null)
-                {
-                    obj.Remove("const");
-                    obj["enum"] = new JsonArray(value);
-                    normalized++;
-                }
-
-                foreach ((string key, JsonNode? child) in obj.ToList())
-                {
-                    if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum" or "const")
-                        continue;
-
-                    bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
-                    bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
-                    NormalizeSingletonStringConstsAsEnums(child, childIsSchema, childChildrenAreSchemas, ref normalized);
-                }
-
-                break;
-            case JsonArray array:
-                foreach (JsonNode? child in array)
-                    NormalizeSingletonStringConstsAsEnums(child, isSchema, false, ref normalized);
-
-                break;
-        }
-    }
 
     private string InjectKiotaEnumValueNames(string json)
     {

@@ -1882,6 +1882,15 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                             "const": "authorization_code"
                                           }
                                         }
+                                      },
+                                      "ConnectionDomainsItem": {
+                                        "type": "object",
+                                        "properties": {
+                                          "object": {
+                                            "type": "string",
+                                            "const": "connection_domain"
+                                          }
+                                        }
                                       }
                                     }
                                   }
@@ -1894,13 +1903,20 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             JsonNode root = await ReadJsonNode(targetPath);
             JsonNode? grantTypeSchema = root["components"]?["schemas"]?["AuthenticateRequest"]?["properties"]?["grant_type"];
+            JsonNode? objectSchema = root["components"]?["schemas"]?["ConnectionDomainsItem"]?["properties"]?["object"];
+            JsonNode? grantTypeEnum = root["components"]?["schemas"]?["AuthorizationCodeGrantType"];
+            JsonNode? objectEnum = root["components"]?["schemas"]?["ConnectionDomainObject"];
 
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.1");
-            await Assert.That(grantTypeSchema?["default"]).IsNull();
-            await Assert.That(grantTypeSchema?["const"]).IsNull();
-            await Assert.That(grantTypeSchema?["enum"]?[0]?.GetValue<string>()).IsEqualTo("authorization_code");
-            await Assert.That(grantTypeSchema?["x-ms-enum"]?["name"]?.GetValue<string>()).IsEqualTo("GrantType");
-            await Assert.That(grantTypeSchema?["x-ms-enum"]?["values"]?[0]?["name"]?.GetValue<string>()).IsEqualTo("AuthorizationCode");
+            await Assert.That(grantTypeSchema?["$ref"]?.GetValue<string>()).IsEqualTo("#/components/schemas/AuthorizationCodeGrantType");
+            await Assert.That(objectSchema?["$ref"]?.GetValue<string>()).IsEqualTo("#/components/schemas/ConnectionDomainObject");
+            await Assert.That(grantTypeEnum?["default"]).IsNull();
+            await Assert.That(grantTypeEnum?["const"]).IsNull();
+            await Assert.That(grantTypeEnum?["enum"]?[0]?.GetValue<string>()).IsEqualTo("authorization_code");
+            await Assert.That(grantTypeEnum?["x-ms-enum"]?["name"]?.GetValue<string>()).IsEqualTo("AuthorizationCodeGrantType");
+            await Assert.That(grantTypeEnum?["x-ms-enum"]?["values"]?[0]?["name"]?.GetValue<string>()).IsEqualTo("AuthorizationCode");
+            await Assert.That(objectEnum?["enum"]?[0]?.GetValue<string>()).IsEqualTo("connection_domain");
+            await Assert.That(root["components"]?["schemas"]?["ConnectionDomainsItem_object"]).IsNull();
         }
         finally
         {
