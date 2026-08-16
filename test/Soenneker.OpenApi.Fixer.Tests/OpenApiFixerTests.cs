@@ -33,6 +33,37 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_inject_required_info_version_when_missing()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.3",
+                                  "info": { "title": "Docker Registry HTTP API V2" },
+                                  "paths": {}
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec);
+            await _util.Fix(sourcePath, targetPath);
+
+            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath))!;
+            await Assert.That(root["info"]?["version"]?.GetValue<string>()).IsEqualTo("1.0.0");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_should_preserve_openapi_31_webhooks_and_normalize_legacy_nullable()
     {
         string sourcePath = Path.GetTempFileName();

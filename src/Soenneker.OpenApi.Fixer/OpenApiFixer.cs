@@ -77,6 +77,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             if (document is null)
                 throw new InvalidOperationException($"Unable to load OpenAPI document from '{sourceFilePath}'.");
 
+            NormalizeRequiredInfo(document);
             document.Paths ??= new OpenApiPaths();
 
             LogState("After STAGE 0: Initial Load", document);
@@ -296,6 +297,23 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
         await ReadAndValidateOpenApi(targetFilePath, cancellationToken)
             .NoSync();
+    }
+
+    private void NormalizeRequiredInfo(OpenApiDocument document)
+    {
+        document.Info ??= new OpenApiInfo {Title = "OpenAPI", Version = "1.0.0"};
+
+        if (string.IsNullOrWhiteSpace(document.Info.Title))
+        {
+            document.Info.Title = "OpenAPI";
+            _logger.LogInformation("Injected fallback OpenAPI info title");
+        }
+
+        if (string.IsNullOrWhiteSpace(document.Info.Version))
+        {
+            document.Info.Version = "1.0.0";
+            _logger.LogInformation("Injected fallback OpenAPI info version");
+        }
     }
 
 }
