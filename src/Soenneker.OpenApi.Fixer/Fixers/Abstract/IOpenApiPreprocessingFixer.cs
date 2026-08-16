@@ -10,5 +10,6 @@ public interface IOpenApiPreprocessingFixer
     /// </summary>
     /// <param name="json">The raw OpenAPI JSON.</param>
     /// <returns>The normalized JSON.</returns>
-    string Fix(string json);
+    /// <param name="options">Optional preprocessing behavior.</param>
+    string Fix(string json, OpenApiFixerOptions? options = null);
 }

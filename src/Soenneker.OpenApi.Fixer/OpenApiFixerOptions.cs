@@ -23,4 +23,10 @@ public sealed class OpenApiFixerOptions
     /// <c>AssistantControl202604ErrorResponse</c> becomes <c>AssistantControlErrorResponse</c>.
     /// </summary>
     public bool StripDateSuffixesFromGeneratedNames { get; set; }
+
+    /// <summary>
+    /// Redacts credential-like values from examples and descriptions during raw JSON preprocessing.
+    /// Disabled by default because enabling it intentionally mutates documentation content.
+    /// </summary>
+    public bool RedactCredentialLikeValues { get; set; }
 }

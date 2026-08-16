@@ -62,9 +62,9 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             OpenApiSpecVersion sourceSpecVersion = await DetectSpecVersion(sourceFilePath, cancellationToken).NoSync();
 
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
-            await ReadAndValidateOpenApi(sourceFilePath, cancellationToken)
+            await ReadAndValidateOpenApi(sourceFilePath, options, cancellationToken)
                 .NoSync();
-            await using MemoryStream pre = await PreprocessSpecFile(sourceFilePath, cancellationToken);
+            await using MemoryStream pre = await PreprocessSpecFile(sourceFilePath, options, cancellationToken);
             (OpenApiDocument? document, OpenApiDiagnostic? diagnostics) = await OpenApiDocument.LoadAsync(pre, cancellationToken: cancellationToken)
                                                                                                .NoSync();
 
@@ -295,7 +295,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             throw;
         }
 
-        await ReadAndValidateOpenApi(targetFilePath, cancellationToken)
+        await ReadAndValidateOpenApi(targetFilePath, options, cancellationToken)
             .NoSync();
     }
 

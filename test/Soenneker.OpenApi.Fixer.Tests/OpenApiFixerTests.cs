@@ -19,17 +19,136 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     private readonly IOpenApiFixer _util;
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
+    private readonly IOpenApiPreprocessingFixer _preprocessingFixer;
 
     public OpenApiFixerTests(Host host) : base(host)
     {
         _util = Resolve<IOpenApiFixer>(true);
         _namingFixer = Resolve<IOpenApiNamingFixer>(true);
         _schemaFixer = Resolve<IOpenApiSchemaFixer>(true);
+        _preprocessingFixer = Resolve<IOpenApiPreprocessingFixer>(true);
     }
 
     [Test]
     public void Default()
     {
+    }
+
+    [Test]
+    public async ValueTask Preprocessing_should_normalize_digitalocean_kafka_integer_values()
+    {
+        const string spec = """
+                            {
+                              "openapi": "3.0.0",
+                              "info": { "title": "DigitalOcean Kafka", "version": "2.0" },
+                              "paths": {},
+                              "components": {
+                                "schemas": {
+                                  "KafkaTopic": {
+                                    "type": "object",
+                                    "properties": {
+                                      "flush_messages": {
+                                        "type": "integer",
+                                        "example": 9223372036854775807,
+                                        "default": 9223372036854775807
+                                      },
+                                      "log_flush_interval_messages": {
+                                        "type": "integer",
+                                        "maximum": 9223372036854776000,
+                                        "example": 9223372036854776000,
+                                        "default": -9223372036854775809
+                                      },
+                                      "included_storage_bytes": {
+                                        "type": "integer",
+                                        "example": 5368709120
+                                      },
+                                      "partition_count": {
+                                        "type": "integer",
+                                        "example": 3,
+                                        "default": 1
+                                      },
+                                      "retention_samples": {
+                                        "type": "integer",
+                                        "examples": [1000, 9223372036854775807, 9223372036854776000]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            """;
+
+        JsonNode root = JsonNode.Parse(_preprocessingFixer.Fix(spec))!;
+        JsonNode properties = root["components"]!["schemas"]!["KafkaTopic"]!["properties"]!;
+        JsonNode flushMessages = properties["flush_messages"]!;
+        JsonNode invalid = properties["log_flush_interval_messages"]!;
+        JsonNode storage = properties["included_storage_bytes"]!;
+        JsonNode ordinary = properties["partition_count"]!;
+        JsonNode samples = properties["retention_samples"]!;
+
+        await Assert.That(flushMessages["format"]?.GetValue<string>()).IsEqualTo("int64");
+        await Assert.That(flushMessages["example"]?.GetValue<long>()).IsEqualTo(long.MaxValue);
+        await Assert.That(flushMessages["default"]?.GetValue<long>()).IsEqualTo(long.MaxValue);
+        await Assert.That(invalid["format"]?.GetValue<string>()).IsEqualTo("int64");
+        await Assert.That(invalid["example"]).IsNull();
+        await Assert.That(invalid["default"]).IsNull();
+        await Assert.That(invalid["maximum"]?.ToJsonString()).IsEqualTo("9223372036854776000");
+        await Assert.That(storage["format"]?.GetValue<string>()).IsEqualTo("int64");
+        await Assert.That(ordinary["format"]).IsNull();
+        await Assert.That(ordinary["example"]?.GetValue<int>()).IsEqualTo(3);
+        await Assert.That(samples["format"]?.GetValue<string>()).IsEqualTo("int64");
+        await Assert.That(samples["examples"]?.AsArray().Count).IsEqualTo(2);
+        await Assert.That(samples["examples"]?[1]?.GetValue<long>()).IsEqualTo(long.MaxValue);
+    }
+
+    [Test]
+    public async ValueTask Preprocessing_should_redact_credential_like_content_only_when_enabled()
+    {
+        const string spec = """
+                            {
+                              "openapi": "3.0.0",
+                              "info": {
+                                "title": "Credential examples",
+                                "version": "1.0.0",
+                                "description": "Send Authorization: Bearer abcdefghijklmnopqrstuvwxyz to https://hooks.slack.com/services/T000/B000/secret-value"
+                              },
+                              "paths": {},
+                              "components": {
+                                "schemas": {
+                                  "Webhook": {
+                                    "type": "object",
+                                    "properties": {
+                                      "token": { "type": "string", "example": "abcdefghijklmnopqrstuvwxyz0123456789" },
+                                      "callback": { "type": "string", "example": "https://discord.com/api/webhooks/123456/secret-value" },
+                                      "label": { "type": "string", "example": "ordinary-example" }
+                                    },
+                                    "example": {
+                                      "api_key": "abcdefghijklmnopqrstuvwxyz0123456789",
+                                      "name": "keep-me"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            """;
+
+        JsonNode unchanged = JsonNode.Parse(_preprocessingFixer.Fix(spec))!;
+        JsonNode unchangedWebhook = unchanged["components"]!["schemas"]!["Webhook"]!;
+        await Assert.That(unchangedWebhook["properties"]?["token"]?["example"]?.GetValue<string>()).IsEqualTo("abcdefghijklmnopqrstuvwxyz0123456789");
+        await Assert.That(unchanged["info"]?["description"]?.GetValue<string>()).Contains("abcdefghijklmnopqrstuvwxyz");
+
+        string redactedJson = _preprocessingFixer.Fix(spec, new OpenApiFixerOptions { RedactCredentialLikeValues = true });
+        JsonNode redacted = JsonNode.Parse(redactedJson)!;
+        JsonNode webhook = redacted["components"]!["schemas"]!["Webhook"]!;
+        string description = redacted["info"]!["description"]!.GetValue<string>();
+
+        await Assert.That(webhook["properties"]?["token"]?["example"]?.GetValue<string>()).IsEqualTo("[REDACTED]");
+        await Assert.That(webhook["properties"]?["callback"]?["example"]?.GetValue<string>()).IsEqualTo("[REDACTED]");
+        await Assert.That(webhook["properties"]?["label"]?["example"]?.GetValue<string>()).IsEqualTo("ordinary-example");
+        await Assert.That(webhook["example"]?["api_key"]?.GetValue<string>()).IsEqualTo("[REDACTED]");
+        await Assert.That(webhook["example"]?["name"]?.GetValue<string>()).IsEqualTo("keep-me");
+        await Assert.That(description).Contains("Bearer [REDACTED]");
+        await Assert.That(description).DoesNotContain("hooks.slack.com");
     }
 
     [Test]

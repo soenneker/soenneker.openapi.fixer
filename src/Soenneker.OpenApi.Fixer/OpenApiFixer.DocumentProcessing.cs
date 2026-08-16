@@ -1163,14 +1163,14 @@ public sealed partial class OpenApiFixer
         }
     }
 
-    private async ValueTask<MemoryStream> PreprocessSpecFile(string path, CancellationToken cancellationToken = default)
+    private async ValueTask<MemoryStream> PreprocessSpecFile(string path, OpenApiFixerOptions? options = null, CancellationToken cancellationToken = default)
     {
         string raw = await _fileUtil.Read(path, cancellationToken: cancellationToken);
 
         //raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
         //    m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
 
-        raw = _preprocessingFixer.Fix(raw);
+        raw = _preprocessingFixer.Fix(raw, options);
 
         return new MemoryStream(Encoding.UTF8.GetBytes(raw));
     }
@@ -1252,4 +1252,3 @@ public sealed partial class OpenApiFixer
     }
 
 }
-

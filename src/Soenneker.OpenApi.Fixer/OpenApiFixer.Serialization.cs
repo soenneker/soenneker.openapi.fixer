@@ -94,9 +94,9 @@ public sealed partial class OpenApiFixer
         }
     }
 
-    private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
+    private async ValueTask ReadAndValidateOpenApi(string filePath, OpenApiFixerOptions? options, CancellationToken cancellationToken)
     {
-        await using MemoryStream stream = await PreprocessSpecFile(filePath, cancellationToken);
+        await using MemoryStream stream = await PreprocessSpecFile(filePath, options, cancellationToken);
 
         var reader = new OpenApiJsonReader(); // force JSON
         ReadResult read = await reader.ReadAsync(stream, new Uri(filePath), // base URI for relative $refs
