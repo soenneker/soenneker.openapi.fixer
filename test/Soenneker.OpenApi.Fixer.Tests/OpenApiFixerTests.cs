@@ -1160,6 +1160,225 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_array_null_and_preserve_array_constraints()
+    {
+        var itemReference = new OpenApiSchemaReference("BetaIncludeEnum");
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["BetaIncludeEnum"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.String,
+                        Enum = [JsonValue.Create("file_search_call.results")!]
+                    },
+                    ["BetaCreateResponseInclude"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        AnyOf = new List<IOpenApiSchema>
+                        {
+                            new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Array,
+                                Items = itemReference,
+                                MinItems = 1,
+                                MaxItems = 3,
+                                UniqueItems = true
+                            },
+                            new OpenApiSchema { Type = JsonSchemaType.Null }
+                        }
+                    }
+                }
+            }
+        };
+
+        _schemaFixer.NormalizeNullablePrimitiveCompositions(document);
+
+        var include = document.Components.Schemas["BetaCreateResponseInclude"] as OpenApiSchema;
+
+        await Assert.That(include).IsNotNull();
+        await Assert.That(include!.AnyOf).IsNull();
+        await Assert.That(include.Type!.Value.HasFlag(JsonSchemaType.Array)).IsTrue();
+        await Assert.That(include.Type!.Value.HasFlag(JsonSchemaType.Null)).IsTrue();
+        await Assert.That(include.Items).IsSameReferenceAs(itemReference);
+        await Assert.That(include.MinItems).IsEqualTo(1);
+        await Assert.That(include.MaxItems).IsEqualTo(3);
+        await Assert.That(include.UniqueItems).IsTrue();
+    }
+
+    [Test]
+    public async ValueTask FixSchemaDefaults_should_recover_convertible_defaults_and_remove_irrecoverable_values()
+    {
+        var invalidEnumDefault = new OpenApiSchema
+        {
+            Title = "InvalidEnumDefault",
+            Type = JsonSchemaType.String,
+            Enum = [JsonValue.Create("text")!, JsonValue.Create("audio")!],
+            Default = JsonValue.Create("video")
+        };
+        var invalidBooleanDefault = new OpenApiSchema
+        {
+            Title = "InvalidBooleanDefault",
+            Type = JsonSchemaType.Boolean,
+            Default = JsonValue.Create("sometimes")
+        };
+        var caseMismatchedEnumDefault = new OpenApiSchema
+        {
+            Title = "CaseMismatchedEnumDefault",
+            Type = JsonSchemaType.String,
+            Enum = [JsonValue.Create("text")!],
+            Default = JsonValue.Create("TEXT")
+        };
+        var validBooleanEnumDefault = new OpenApiSchema
+        {
+            Title = "ValidBooleanEnumDefault",
+            Type = JsonSchemaType.Boolean,
+            Enum = [JsonValue.Create(true)!],
+            Default = JsonValue.Create(true)
+        };
+        var invalidArrayDefault = new OpenApiSchema
+        {
+            Title = "InvalidArrayDefault",
+            Type = JsonSchemaType.Array,
+            Items = new OpenApiSchema { Type = JsonSchemaType.String },
+            Default = JsonValue.Create("text")
+        };
+        var coercibleBooleanDefault = new OpenApiSchema
+        {
+            Title = "CoercibleBooleanDefault",
+            Type = JsonSchemaType.Boolean,
+            Default = JsonValue.Create("true")
+        };
+
+        foreach (OpenApiSchema schema in new[]
+                 {
+                     invalidEnumDefault, invalidBooleanDefault, caseMismatchedEnumDefault, validBooleanEnumDefault, invalidArrayDefault,
+                     coercibleBooleanDefault
+                 })
+            _schemaFixer.FixSchemaDefaults(schema, []);
+
+        await Assert.That(invalidEnumDefault.Default).IsNull();
+        await Assert.That(invalidBooleanDefault.Default).IsNull();
+        await Assert.That(caseMismatchedEnumDefault.Default).IsNull();
+        await Assert.That(validBooleanEnumDefault.Default?.GetValue<bool>()).IsTrue();
+        JsonArray recoveredArrayDefault = invalidArrayDefault.Default!.AsArray();
+        await Assert.That(recoveredArrayDefault.Count).IsEqualTo(1);
+        await Assert.That(recoveredArrayDefault[0]?.GetValue<string>()).IsEqualTo("text");
+        await Assert.That(coercibleBooleanDefault.Default?.GetValue<bool>()).IsTrue();
+    }
+
+    [Test]
+    public async ValueTask FixInvalidDefaults_should_move_array_shaped_item_defaults_to_parent_arrays()
+    {
+        var itemSchema = new OpenApiSchema
+        {
+            Type = JsonSchemaType.String,
+            Enum = [JsonValue.Create("text")!, JsonValue.Create("audio")!],
+            Default = new JsonArray("text", "audio")
+        };
+        var referencedItemSchema = new OpenApiSchema
+        {
+            Type = JsonSchemaType.String,
+            Enum = [JsonValue.Create("logprobs")!],
+            Default = new JsonArray()
+        };
+        var inlineArray = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Array,
+            Items = itemSchema
+        };
+        var referencedArray = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Array,
+            Items = new OpenApiSchemaReference("TranscriptionInclude")
+        };
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["RealtimeSession"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema> { ["modalities"] = inlineArray }
+                    },
+                    ["TranscriptionInclude"] = referencedItemSchema,
+                    ["CreateTranscriptionRequest"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema> { ["include"] = referencedArray }
+                    }
+                }
+            }
+        };
+
+        _schemaFixer.FixInvalidDefaults(document);
+
+        await Assert.That(itemSchema.Default).IsNull();
+        JsonArray modalitiesDefault = inlineArray.Default!.AsArray();
+        await Assert.That(modalitiesDefault.Count).IsEqualTo(2);
+        await Assert.That(modalitiesDefault[0]?.GetValue<string>()).IsEqualTo("text");
+        await Assert.That(modalitiesDefault[1]?.GetValue<string>()).IsEqualTo("audio");
+        await Assert.That(referencedItemSchema.Default).IsNull();
+        await Assert.That(referencedArray.Default).IsNotNull();
+        await Assert.That(referencedArray.Default!.AsArray().Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async ValueTask Fix_should_infer_array_type_from_items_before_inline_schema_extraction()
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.1.0",
+                                  "info": { "title": "Array inference", "version": "1.0.0" },
+                                  "paths": {},
+                                  "components": {
+                                    "schemas": {
+                                      "RealtimeSessionCreateRequest": {
+                                        "type": "object",
+                                        "properties": {
+                                          "modalities": {
+                                            "description": "The modalities the model can respond with.",
+                                            "items": {
+                                              "type": "string",
+                                              "enum": ["text", "audio"]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec);
+            await _util.Fix(sourcePath, targetPath);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode? modalities = root["components"]?["schemas"]?["RealtimeSessionCreateRequest"]?["properties"]?["modalities"];
+
+            await Assert.That(modalities).IsNotNull();
+            await Assert.That(modalities!["type"]?.GetValue<string>()).IsEqualTo("array");
+            await Assert.That(modalities["items"]).IsNotNull();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask RenameInvalidComponentSchemas_should_pascalize_separator_based_schema_names_and_update_refs()
     {
         var document = new OpenApiDocument

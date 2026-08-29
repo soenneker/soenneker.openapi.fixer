@@ -114,6 +114,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             FixContentTypeWrapperCollisions(document!);
 
+            EnsureInlineSchemaTypes(document!);
             ExtractInlineArrayItemSchemas(document!);
             ExtractInlineComponentContentSchemas(document!);
             _schemaFixer.NormalizeNullablePrimitiveCompositions(document!);
@@ -226,11 +227,12 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             NormalizeNonObjectAllOfCompositions(document);
             WrapNonObjectUnionBranchesEverywhere(document);
             CollapseNonDiscriminatedInlineObjectUnions(document);
-            EnsureInlineObjectTypes(document!);
+            EnsureInlineSchemaTypes(document!);
             ExtractInlineSchemasCore(document!, cancellationToken, false);
             ExtractInlineComponentContentSchemas(document!);
             ExtractInlineComposedSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
+            _schemaFixer.NormalizeNullablePrimitiveCompositions(document!);
             NormalizeSingletonStringConstsAsEnums(document!);
             ExtractInlineEnumSchemas(document!);
             RemoveMetadataOnlyAllOfBranches(document);

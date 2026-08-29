@@ -55,14 +55,24 @@ public sealed partial class OpenApiFixer
             Visit($"components.schemas[{k}]", s);
     }
 
-    private static void EnsureInlineObjectTypes(OpenApiDocument doc)
+    private static void EnsureInlineSchemaTypes(OpenApiDocument doc)
     {
         void Visit(IOpenApiSchema? s)
         {
             if (s is not OpenApiSchema os)
                 return;
 
-            bool objectLike = (os.Properties?.Count > 0) || os.AdditionalProperties != null || os.AdditionalPropertiesAllowed;
+            // AdditionalPropertiesAllowed defaults to true in the object model, even when the keyword was not present.
+            // It therefore cannot distinguish an implicit free-form object from an item-bearing array schema.
+            bool objectLike = (os.Properties?.Count > 0) || os.AdditionalProperties != null;
+            bool hasComposition = (os.AllOf?.Count > 0) || (os.AnyOf?.Count > 0) || (os.OneOf?.Count > 0) || os.Discriminator != null;
+            bool arrayLike = os.Items != null && !objectLike && !hasComposition && !(os.Enum?.Count > 0);
+
+            if (arrayLike && (os.Type is null || (os.Type.Value & ~JsonSchemaType.Null) == JsonSchemaType.Object))
+            {
+                JsonSchemaType nullability = os.Type.HasValue ? os.Type.Value & JsonSchemaType.Null : 0;
+                os.Type = JsonSchemaType.Array | nullability;
+            }
 
             if (os.Type is null && objectLike && !(os.Enum?.Count > 0))
                 os.Type = JsonSchemaType.Object;
@@ -85,6 +95,10 @@ public sealed partial class OpenApiFixer
             if (os.AdditionalProperties != null)
                 Visit(os.AdditionalProperties);
         }
+
+        if (doc.Components?.Schemas != null)
+            foreach (IOpenApiSchema schema in doc.Components.Schemas.Values)
+                Visit(schema);
 
         // paths
         if (doc.Paths != null)

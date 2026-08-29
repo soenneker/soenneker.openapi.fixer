@@ -358,11 +358,102 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         if (document.Components?.Schemas == null)
             return;
 
+        RecoverMisplacedArrayDefaults(document);
+
         var visited = new HashSet<IOpenApiSchema>();
         foreach (IOpenApiSchema? schema in document.Components.Schemas.Values)
         {
             FixSchemaDefaults(schema, visited);
         }
+    }
+
+    private void RecoverMisplacedArrayDefaults(OpenApiDocument document)
+    {
+        IDictionary<string, IOpenApiSchema> schemas = document.Components!.Schemas!;
+        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer.Instance);
+        var promotedItemDefaults = new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance);
+
+        OpenApiSchema? Resolve(IOpenApiSchema? schema)
+        {
+            if (schema is OpenApiSchema concrete)
+                return concrete;
+
+            return schema is OpenApiSchemaReference reference && reference.Reference.Id is { } id && schemas.TryGetValue(id, out IOpenApiSchema? target)
+                ? target as OpenApiSchema
+                : null;
+        }
+
+        void Visit(IOpenApiSchema? schema)
+        {
+            if (schema is not OpenApiSchema concreteSchema || !visited.Add(schema))
+                return;
+
+            if (concreteSchema.Items != null && Resolve(concreteSchema.Items) is { } itemSchema)
+            {
+                if (concreteSchema.Default == null && itemSchema.Default is JsonArray misplacedDefault &&
+                    !HasSchemaType(itemSchema, JsonSchemaType.Array) && misplacedDefault.All(value => IsDefaultValueValidForSchema(value, itemSchema)))
+                {
+                    concreteSchema.Default = misplacedDefault.DeepClone();
+                    promotedItemDefaults.Add(itemSchema);
+                    _logger.LogWarning("Moved array-shaped item default to its parent array schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
+                }
+
+                if (concreteSchema.Default is not null and not JsonArray && IsDefaultValueValidForSchema(concreteSchema.Default, itemSchema))
+                {
+                    concreteSchema.Default = new JsonArray(concreteSchema.Default.DeepClone());
+                    _logger.LogWarning("Wrapped scalar default in an array on schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
+                }
+            }
+
+            if (concreteSchema.Properties != null)
+                foreach (IOpenApiSchema property in concreteSchema.Properties.Values)
+                    Visit(property);
+            Visit(concreteSchema.Items);
+            Visit(concreteSchema.AdditionalProperties);
+
+            if (concreteSchema.AllOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.AllOf)
+                    Visit(branch);
+            if (concreteSchema.AnyOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.AnyOf)
+                    Visit(branch);
+            if (concreteSchema.OneOf != null)
+                foreach (IOpenApiSchema branch in concreteSchema.OneOf)
+                    Visit(branch);
+        }
+
+        foreach (IOpenApiSchema schema in schemas.Values)
+            Visit(schema);
+
+        foreach (OpenApiSchema itemSchema in promotedItemDefaults)
+            itemSchema.Default = null;
+    }
+
+    private static bool HasSchemaType(OpenApiSchema schema, JsonSchemaType type)
+    {
+        return schema.Type.HasValue && schema.Type.Value.HasFlag(type);
+    }
+
+    private static bool IsDefaultValueValidForSchema(JsonNode? value, OpenApiSchema schema)
+    {
+        if (schema.Enum is { Count: > 0 })
+            return schema.Enum.Any(enumValue => JsonNode.DeepEquals(enumValue, value));
+
+        if (value is null)
+            return HasSchemaType(schema, JsonSchemaType.Null);
+
+        JsonValueKind kind = value.GetValueKind();
+
+        return kind switch
+        {
+            JsonValueKind.String => HasSchemaType(schema, JsonSchemaType.String),
+            JsonValueKind.True or JsonValueKind.False => HasSchemaType(schema, JsonSchemaType.Boolean),
+            JsonValueKind.Number => HasSchemaType(schema, JsonSchemaType.Integer) || HasSchemaType(schema, JsonSchemaType.Number),
+            JsonValueKind.Array => HasSchemaType(schema, JsonSchemaType.Array),
+            JsonValueKind.Object => HasSchemaType(schema, JsonSchemaType.Object),
+            JsonValueKind.Null => HasSchemaType(schema, JsonSchemaType.Null),
+            _ => false
+        };
     }
 
     public void FixSchemaDefaults(IOpenApiSchema? schema, HashSet<IOpenApiSchema> visited)
@@ -398,7 +489,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         // --- ENUM DEFAULTS: robust matching & assignment ---
         if (schema.Enum is { Count: > 0 })
         {
-            var enumByText = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
+            var enumByText = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
             foreach (JsonNode e in schema.Enum)
             {
                 if (e is JsonValue jv)
@@ -409,6 +500,8 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         enumByText[l.ToString(System.Globalization.CultureInfo.InvariantCulture)] = e;
                     else if (jv.TryGetValue(out double d))
                         enumByText[d.ToString(System.Globalization.CultureInfo.InvariantCulture)] = e;
+                    else
+                        enumByText[e.ToJsonString()] = e;
                 }
                 else
                 {
@@ -444,23 +537,20 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     }
                     else
                     {
-                    if (enumByText.TryGetValue(defText, out JsonNode? matchingEnumElement))
-                    {
-                        if (!ReferenceEquals(schema.Default, matchingEnumElement))
+                        if (enumByText.TryGetValue(defText, out JsonNode? matchingEnumElement))
                         {
-                            concreteSchema.Default = matchingEnumElement;
-                            _logger.LogWarning("Fixed enum default on '{SchemaTitle}' to '{NewDefault}'", schema.Title ?? "(no title)", defText);
+                            if (!ReferenceEquals(schema.Default, matchingEnumElement))
+                            {
+                                concreteSchema.Default = matchingEnumElement;
+                                _logger.LogWarning("Fixed enum default on '{SchemaTitle}' to '{NewDefault}'", schema.Title ?? "(no title)", defText);
+                            }
                         }
-                    }
-                    else
-                    {
-                        JsonNode first = schema.Enum[0];
-                        if (!ReferenceEquals(schema.Default, first))
+                        else
                         {
-                            concreteSchema.Default = first;
-                            _logger.LogWarning("Replaced invalid enum default on '{SchemaTitle}' with first enum member", schema.Title ?? "(no title)");
+                            _logger.LogWarning("Removed invalid enum default '{Default}' from '{SchemaTitle}' because it is not an enum member", schema.Default,
+                                schema.Title ?? "(no title)");
+                            concreteSchema.Default = null;
                         }
-                    }
                     }
                 }
             }
@@ -483,14 +573,32 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             normalized = n == 1;
                     }
 
-                    concreteSchema.Default = JsonValue.Create(normalized ?? false);
+                    if (normalized.HasValue)
+                        concreteSchema.Default = JsonValue.Create(normalized.Value);
+                    else
+                    {
+                        _logger.LogWarning("Removed invalid boolean default '{Default}' from '{SchemaTitle}'", schema.Default,
+                            schema.Title ?? "(no title)");
+                        concreteSchema.Default = null;
+                    }
+
                     break;
                 }
 
                 case JsonSchemaType.Array:
                     if (schema.Default is not JsonArray)
                     {
-                        concreteSchema.Default = new JsonArray();
+                        if (schema.Items is OpenApiSchema itemSchema && IsDefaultValueValidForSchema(schema.Default, itemSchema))
+                        {
+                            concreteSchema.Default = new JsonArray(schema.Default.DeepClone());
+                            _logger.LogWarning("Wrapped scalar default in an array on schema '{SchemaTitle}'", schema.Title ?? "(no title)");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Removed invalid array default '{Default}' from '{SchemaTitle}'", schema.Default,
+                                schema.Title ?? "(no title)");
+                            concreteSchema.Default = null;
+                        }
                     }
 
                     break;
@@ -997,7 +1105,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
 
         if (normalized > 0)
-            _logger.LogInformation("Normalized {Count} nullable primitive or object-like anyOf/oneOf schemas", normalized);
+            _logger.LogInformation("Normalized {Count} nullable primitive, array, or object-like anyOf/oneOf schemas", normalized);
     }
 
     private static void NormalizeComposition(IList<IOpenApiSchema>? branches, Action<List<IOpenApiSchema>?> assignBranches, OpenApiSchema target, ref int normalized)
@@ -1021,7 +1129,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                 continue;
             }
 
-            if (IsPrimitiveSchema(concreteBranch) || IsObjectLikeComposition(concreteBranch))
+            if (IsCollapsibleValueSchema(concreteBranch) || IsObjectLikeComposition(concreteBranch))
             {
                 valueBranch = concreteBranch;
                 continue;
@@ -1047,6 +1155,9 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         target.Properties = valueBranch.Properties;
         target.Required = valueBranch.Required;
         target.Items = valueBranch.Items;
+        target.MinItems = valueBranch.MinItems;
+        target.MaxItems = valueBranch.MaxItems;
+        target.UniqueItems = valueBranch.UniqueItems;
         target.AdditionalProperties = valueBranch.AdditionalProperties;
         target.AdditionalPropertiesAllowed = valueBranch.AdditionalPropertiesAllowed;
         target.AllOf = valueBranch.AllOf;
@@ -1087,12 +1198,23 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         return false;
     }
 
-    private static bool IsPrimitiveSchema(OpenApiSchema schema)
+    private static bool IsCollapsibleValueSchema(OpenApiSchema schema)
     {
         if (!schema.Type.HasValue)
             return false;
 
         JsonSchemaType type = schema.Type.Value;
+
+        if (type == JsonSchemaType.Array)
+        {
+            return schema.Items != null &&
+                   (schema.Properties?.Count ?? 0) == 0 &&
+                   schema.AdditionalProperties == null &&
+                   (schema.AllOf?.Count ?? 0) == 0 &&
+                   (schema.AnyOf?.Count ?? 0) == 0 &&
+                   (schema.OneOf?.Count ?? 0) == 0 &&
+                   schema.Discriminator == null;
+        }
 
         return (type == JsonSchemaType.String || type == JsonSchemaType.Integer || type == JsonSchemaType.Number || type == JsonSchemaType.Boolean) &&
                IsSimpleBranch(schema);
