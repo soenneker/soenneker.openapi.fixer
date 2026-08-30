@@ -21,7 +21,6 @@ using Soenneker.OpenApi.Fixer.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
-///<inheritdoc cref="IOpenApiFixer"/>
 public sealed partial class OpenApiFixer : IOpenApiFixer
 {
     private readonly ILogger<OpenApiFixer> _logger;
@@ -263,7 +262,6 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // Give generators concrete access to the real wire properties of composed object models without
             // inventing discriminator fields or replacing the source oneOf/anyOf constraints.
             ExposeComposedObjectPropertiesForGenerators(document);
-            ExposeComposedObjectPropertiesForGenerators(document);
 
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
@@ -283,22 +281,32 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
 
-            await _fileUtil.Write(targetFilePath, json, cancellationToken: cancellationToken);
+            string fullTargetPath = Path.GetFullPath(targetFilePath);
+            string temporaryTargetPath = $"{fullTargetPath}.{Guid.NewGuid():N}.tmp";
 
-            _logger.LogInformation($"Cleaned OpenAPI spec saved to {targetFilePath}");
+            try
+            {
+                await _fileUtil.Write(temporaryTargetPath, json, cancellationToken: cancellationToken);
+                await ReadAndValidateOpenApi(temporaryTargetPath, options, cancellationToken, throwOnErrors: true).NoSync();
+                File.Move(temporaryTargetPath, fullTargetPath, overwrite: true);
+            }
+            finally
+            {
+                File.Delete(temporaryTargetPath);
+            }
+
+            _logger.LogInformation("Cleaned OpenAPI spec saved to {TargetFilePath}", fullTargetPath);
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("OpenAPI fix was canceled.");
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during OpenAPI fix");
             throw;
         }
-
-        await ReadAndValidateOpenApi(targetFilePath, options, cancellationToken)
-            .NoSync();
     }
 
     private void NormalizeRequiredInfo(OpenApiDocument document)

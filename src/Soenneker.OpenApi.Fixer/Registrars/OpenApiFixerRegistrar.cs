@@ -8,7 +8,7 @@ using Soenneker.Utils.File.Registrars;
 namespace Soenneker.OpenApi.Fixer.Registrars;
 
 /// <summary>
-/// A utility that fixes problem OpenApi specs being converted into clients
+/// Registers the OpenAPI fixer and its normalization services.
 /// </summary>
 public static class OpenApiFixerRegistrar
 {

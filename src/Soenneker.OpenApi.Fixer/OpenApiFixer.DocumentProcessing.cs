@@ -26,7 +26,7 @@ public sealed partial class OpenApiFixer
 
         bool IsPrimitive(IOpenApiSchema s)
         {
-            if (s is OpenApiSchemaReference r && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? t))
+            if (s is OpenApiSchemaReference {Reference.Id: not null} r && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? t))
                 s = t;
             if (s is not OpenApiSchema os)
                 return false;
@@ -147,8 +147,7 @@ public sealed partial class OpenApiFixer
             return;
         var renameMap = new Dictionary<string, string>();
 
-        foreach (OpenApiOperation op in doc.Paths.Values.Where(p => p?.Operations != null)
-                                           .SelectMany(p => p.Operations.Values))
+        foreach (OpenApiOperation op in doc.Paths.Values.SelectMany(p => p?.Operations?.Values ?? Enumerable.Empty<OpenApiOperation>()))
         {
             if (op.RequestBody?.Content == null || op.OperationId == null)
                 continue;
@@ -741,7 +740,7 @@ public sealed partial class OpenApiFixer
             if (baseSchema?.Properties == null)
                 continue;
 
-            foreach ((string? propName, IOpenApiSchema? childProp) in overrideFrag.Properties)
+            foreach ((string propName, IOpenApiSchema childProp) in overrideFrag.Properties!)
             {
                 if (!baseSchema.Properties.TryGetValue(propName, out IOpenApiSchema? baseProp))
                     continue;
@@ -768,10 +767,9 @@ public sealed partial class OpenApiFixer
         IDictionary<string, IOpenApiSchema>? schemas = document.Components.Schemas;
         var renameMap = new Dictionary<string, string>();
 
-        foreach (OpenApiOperation operation in document.Paths.Values.Where(p => p?.Operations != null)
-                                                       .SelectMany(p => p.Operations.Values))
+        foreach (OpenApiOperation operation in document.Paths.Values.SelectMany(p => p?.Operations?.Values ?? Enumerable.Empty<OpenApiOperation>()))
         {
-            if (operation.RequestBody is OpenApiRequestBodyReference || (operation.RequestBody?.Content?.Count ?? 0) <= 1)
+            if (operation.RequestBody is not OpenApiRequestBody requestBody || (requestBody.Content?.Count ?? 0) <= 1)
             {
                 continue;
             }
@@ -780,7 +778,7 @@ public sealed partial class OpenApiFixer
                 operation.OperationId ?? "unnamed");
 
             // We must materialize the list to modify it during iteration
-            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content!.ToList())
+            foreach ((string mediaType, IOpenApiMediaType mediaInterface) in requestBody.Content!.ToList())
             {
                 if (mediaInterface is not OpenApiMediaType media)
                     continue;

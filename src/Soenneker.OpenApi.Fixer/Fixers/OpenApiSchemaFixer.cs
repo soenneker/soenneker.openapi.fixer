@@ -884,7 +884,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             if (s is OpenApiSchema os)
                 return os;
 
-            if (s is OpenApiSchemaReference r && document.Components?.Schemas != null &&
+            if (s is OpenApiSchemaReference {Reference.Id: not null} r && document.Components?.Schemas != null &&
                 document.Components.Schemas.TryGetValue(r.Reference.Id, out IOpenApiSchema? target) &&
                 target is OpenApiSchema targetSchema)
                 return targetSchema;

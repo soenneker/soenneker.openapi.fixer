@@ -211,8 +211,6 @@ public sealed partial class OpenApiFixer
             if (branches is null || branches.Count == 0)
                 continue;
 
-            bool changedBranches = false;
-
             for (int i = 0; i < branches.Count; i++)
             {
                 IOpenApiSchema branch = branches[i];
@@ -254,8 +252,6 @@ public sealed partial class OpenApiFixer
 
                     // Replace the branch with the wrapper ref
                     branches[i] = MakeSchemaRef(wrapperName);
-                    changedBranches = true;
-
                     // Update discriminator mappings
                     if (parent.Discriminator.Mapping != null)
                     {

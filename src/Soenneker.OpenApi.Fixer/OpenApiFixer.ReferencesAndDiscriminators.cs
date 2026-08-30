@@ -786,8 +786,6 @@ public sealed partial class OpenApiFixer
             // Discriminator.mapping is string->OpenApiSchemaReference in v2.3
             parent.Discriminator.Mapping ??= new Dictionary<string, OpenApiSchemaReference>();
 
-            bool changedBranches = false;
-
             for (int i = 0; i < branches.Count; i++)
             {
                 IOpenApiSchema branch = branches[i];
@@ -815,8 +813,6 @@ public sealed partial class OpenApiFixer
 
                     // replace the branch with the wrapper ref
                     branches[i] = MakeSchemaRef(wrapperName);
-                    changedBranches = true;
-
                     // --- NEW: fix mappings in all cases (ref OR inline) ---
                     // 1) if mapping targets a missing "ParentName_{i+1}" (your EnsureDiscriminatorForOneOf default)
                     string fallbackInlineId = $"{parentName}_{i + 1}";

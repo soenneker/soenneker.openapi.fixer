@@ -94,7 +94,8 @@ public sealed partial class OpenApiFixer
         }
     }
 
-    private async ValueTask ReadAndValidateOpenApi(string filePath, OpenApiFixerOptions? options, CancellationToken cancellationToken)
+    private async ValueTask ReadAndValidateOpenApi(string filePath, OpenApiFixerOptions? options, CancellationToken cancellationToken,
+        bool throwOnErrors = false)
     {
         await using MemoryStream stream = await PreprocessSpecFile(filePath, options, cancellationToken);
 
@@ -104,9 +105,18 @@ public sealed partial class OpenApiFixer
                                       .NoSync();
 
         OpenApiDiagnostic? diagnostics = read.Diagnostic;
+        if (read.Document == null)
+            throw new InvalidOperationException($"Unable to parse OpenAPI document '{Path.GetFileName(filePath)}'.");
+
         if (diagnostics?.Errors?.Any() == true)
+        {
+            string messages = string.Join("; ", diagnostics.Errors.Select(error => error.Message));
             _logger.LogWarning("OpenAPI parsing errors in {File}: {Msgs}", Path.GetFileName(filePath),
-                string.Join("; ", diagnostics.Errors.Select(e => e.Message)));
+                messages);
+
+            if (throwOnErrors)
+                throw new InvalidOperationException($"The fixed OpenAPI document is invalid: {messages}");
+        }
     }
 
 

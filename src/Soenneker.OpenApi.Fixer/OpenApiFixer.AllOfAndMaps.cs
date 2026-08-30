@@ -974,8 +974,12 @@ public sealed partial class OpenApiFixer
                     Example = m.Example
                 };
                 if (m.Extensions is { Count: > 0 })
+                {
+                    replacement.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+
                     foreach (KeyValuePair<string, IOpenApiExtension> kv in m.Extensions)
                         replacement.Extensions[kv.Key] = kv.Value;
+                }
 
                 container.Properties["message"] = replacement;
             }
@@ -1049,4 +1053,3 @@ public sealed partial class OpenApiFixer
     }
 
 }
-

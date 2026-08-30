@@ -234,6 +234,9 @@ public sealed partial class OpenApiFixer
             // 7. Inline path‐level and operation‐level parameters
             foreach (OpenApiPathItem? pathItem in document.Paths.Values)
             {
+                if (pathItem == null)
+                    continue;
+
                 // path‐level
                 if (pathItem.Parameters != null)
                     foreach (IOpenApiParameter? p in pathItem.Parameters)
@@ -656,7 +659,7 @@ public sealed partial class OpenApiFixer
                             continue;
 
                         if (concreteResp.Content != null)
-                            concreteResp.Content = NormalizeMediaTypes(resp.Value.Content);
+                            concreteResp.Content = NormalizeMediaTypes(concreteResp.Content);
 
                         _referenceFixer.ScrubBrokenRefs(concreteResp.Content, document);
 
@@ -930,7 +933,8 @@ public sealed partial class OpenApiFixer
                 return new OpenApiSchema { Type = inferred };
             }
 
-            IOpenApiSchema target = ResolveComponent(comps[r.Reference.Id]);
+            string referenceId = r.Reference.Id!;
+            IOpenApiSchema target = ResolveComponent(comps[referenceId]);
             if (IsPurePrimitive(target))
             {
                 var os = (OpenApiSchema)target;
@@ -986,7 +990,10 @@ public sealed partial class OpenApiFixer
                     {
                         IOpenApiSchema? child = os.Properties[key];
                         Visit(ref child);
-                        os.Properties[key] = child;
+                        if (child != null)
+                            os.Properties[key] = child;
+                        else
+                            os.Properties.Remove(key);
                     }
                 }
 
@@ -1027,7 +1034,7 @@ public sealed partial class OpenApiFixer
         {
             IOpenApiSchema? s = kv.Value;
             Visit(ref s);
-            doc.Components!.Schemas[kv.Key] = s!;
+            comps[kv.Key] = s ?? kv.Value;
         }
 
         // Parameters
