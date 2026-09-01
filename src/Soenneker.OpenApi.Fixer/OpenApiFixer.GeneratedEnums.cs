@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -369,7 +370,7 @@ public sealed partial class OpenApiFixer
         if (CanNormalizeEnumValueAsWords(enumValue))
             return OpenApiNameNormalizer.NormalizeNamePart(enumValue, "EnumValue");
 
-        var builder = new StringBuilder(enumValue.Length * 2);
+        using var builder = new PooledStringBuilder(enumValue.Length * 2);
         bool capitalizeNext = true;
 
         for (int i = 0; i < enumValue.Length; i++)
@@ -508,7 +509,7 @@ public sealed partial class OpenApiFixer
 
     private static string BuildWhitespaceOnlyEnumMemberName(string enumValue)
     {
-        var builder = new StringBuilder(enumValue.Length * 8);
+        using var builder = new PooledStringBuilder(enumValue.Length * 8);
 
         foreach (char character in enumValue)
         {

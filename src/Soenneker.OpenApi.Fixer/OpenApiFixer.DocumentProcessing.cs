@@ -1184,7 +1184,7 @@ public sealed partial class OpenApiFixer
 
         raw = _preprocessingFixer.Fix(raw, options);
 
-        return new MemoryStream(Encoding.UTF8.GetBytes(raw));
+        return await _memoryStreamUtil.Get(raw, cancellationToken).NoSync();
     }
 
     private async ValueTask<OpenApiSpecVersion> DetectSpecVersion(string path, CancellationToken cancellationToken)

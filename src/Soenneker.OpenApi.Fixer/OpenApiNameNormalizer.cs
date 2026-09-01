@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
+using Soenneker.Utils.PooledStringBuilders;
 using System.Text.RegularExpressions;
 
 namespace Soenneker.OpenApi.Fixer;
@@ -283,21 +284,28 @@ internal static class OpenApiNameNormalizer
         if (string.IsNullOrWhiteSpace(input))
             return string.Empty;
 
-        var builder = new StringBuilder(input.Length);
-        MatchCollection matches = _tokenRegex.Matches(input);
-
-        foreach (Match match in matches)
+        var builder = new PooledStringBuilder(input.Length);
+        try
         {
-            if (!match.Success || match.Value.Length == 0)
-                continue;
+            MatchCollection matches = _tokenRegex.Matches(input);
 
-            AppendToken(builder, match.Value);
+            foreach (Match match in matches)
+            {
+                if (!match.Success || match.Value.Length == 0)
+                    continue;
+
+                AppendToken(ref builder, match.Value);
+            }
+
+            return builder.ToString();
         }
-
-        return builder.ToString();
+        finally
+        {
+            builder.Dispose();
+        }
     }
 
-    private static void AppendToken(StringBuilder builder, string token)
+    private static void AppendToken(ref PooledStringBuilder builder, string token)
     {
         if (IsAllDigits(token))
         {
@@ -325,7 +333,7 @@ internal static class OpenApiNameNormalizer
         builder.Append(char.ToUpperInvariant(lower[0]));
 
         if (lower.Length > 1)
-            builder.Append(lower, 1, lower.Length - 1);
+            builder.Append(lower.AsSpan(1));
     }
 
     private static bool IsAllDigits(string value)
@@ -351,7 +359,7 @@ internal static class OpenApiNameNormalizer
 
     private static string BuildRouteOperationName(HttpMethod? method, string? path)
     {
-        var builder = new StringBuilder();
+        using var builder = new PooledStringBuilder();
 
         if (method == null || string.IsNullOrWhiteSpace(method.Method))
             builder.Append("Operation");

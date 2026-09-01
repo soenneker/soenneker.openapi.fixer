@@ -5,6 +5,7 @@ using Soenneker.OpenApi.Fixer.Fixers;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.Utils.File.Registrars;
 using Soenneker.Utils.Directory.Registrars;
+using Soenneker.Utils.MemoryStream.Registrars;
 
 namespace Soenneker.OpenApi.Fixer.Registrars;
 
@@ -26,6 +27,7 @@ public static class OpenApiFixerRegistrar
         services.TryAddSingleton<IOpenApiPreprocessingFixer, OpenApiPreprocessingFixer>();
         services.AddFileUtilAsSingleton();
         services.AddDirectoryUtilAsSingleton();
+        services.AddMemoryStreamUtilAsSingleton();
 
         // Register main fixer
         services.TryAddSingleton<IOpenApiFixer, OpenApiFixer>();
@@ -46,6 +48,7 @@ public static class OpenApiFixerRegistrar
         services.TryAddScoped<IOpenApiPreprocessingFixer, OpenApiPreprocessingFixer>();
         services.AddFileUtilAsScoped();
         services.AddDirectoryUtilAsScoped();
+        services.AddMemoryStreamUtilAsScoped();
 
         services.TryAddScoped<IOpenApiFixer, OpenApiFixer>();
 

@@ -19,6 +19,7 @@ using Soenneker.Utils.File.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Utils.Directory.Abstract;
+using Soenneker.Utils.MemoryStream.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
@@ -34,10 +35,11 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiPreprocessingFixer _preprocessingFixer;
     private readonly IFileUtil _fileUtil;
     private readonly IDirectoryUtil _directoryUtil;
+    private readonly IMemoryStreamUtil _memoryStreamUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
         IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IOpenApiPreprocessingFixer preprocessingFixer,
-        IFileUtil fileUtil, IDirectoryUtil directoryUtil)
+        IFileUtil fileUtil, IDirectoryUtil directoryUtil, IMemoryStreamUtil memoryStreamUtil)
     {
         _logger = logger;
         _descriptionFixer = descriptionFixer;
@@ -48,6 +50,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         _preprocessingFixer = preprocessingFixer;
         _fileUtil = fileUtil;
         _directoryUtil = directoryUtil;
+        _memoryStreamUtil = memoryStreamUtil;
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
