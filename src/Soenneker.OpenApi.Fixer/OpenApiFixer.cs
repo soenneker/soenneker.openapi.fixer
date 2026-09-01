@@ -18,6 +18,7 @@ using Soenneker.Extensions.Task;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.Utils.Directory.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
@@ -32,10 +33,11 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
     private readonly IOpenApiInt32IdFixer _int32IdFixer;
     private readonly IOpenApiPreprocessingFixer _preprocessingFixer;
     private readonly IFileUtil _fileUtil;
+    private readonly IDirectoryUtil _directoryUtil;
 
     public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
         IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IOpenApiPreprocessingFixer preprocessingFixer,
-        IFileUtil fileUtil)
+        IFileUtil fileUtil, IDirectoryUtil directoryUtil)
     {
         _logger = logger;
         _descriptionFixer = descriptionFixer;
@@ -45,6 +47,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         _int32IdFixer = int32IdFixer;
         _preprocessingFixer = preprocessingFixer;
         _fileUtil = fileUtil;
+        _directoryUtil = directoryUtil;
     }
 
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
@@ -288,11 +291,11 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             {
                 await _fileUtil.Write(temporaryTargetPath, json, cancellationToken: cancellationToken);
                 await ReadAndValidateOpenApi(temporaryTargetPath, options, cancellationToken, throwOnErrors: true).NoSync();
-                File.Move(temporaryTargetPath, fullTargetPath, overwrite: true);
+                await _fileUtil.Move(temporaryTargetPath, fullTargetPath, log: false, cancellationToken).NoSync();
             }
             finally
             {
-                File.Delete(temporaryTargetPath);
+                await _fileUtil.TryDelete(temporaryTargetPath, log: false, CancellationToken.None).NoSync();
             }
 
             _logger.LogInformation("Cleaned OpenAPI spec saved to {TargetFilePath}", fullTargetPath);

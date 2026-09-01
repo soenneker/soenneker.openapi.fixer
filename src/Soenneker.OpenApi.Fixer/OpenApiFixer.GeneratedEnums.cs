@@ -278,10 +278,10 @@ public sealed partial class OpenApiFixer
 
     public async ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken = default)
     {
-        if (!Directory.Exists(generatedRoot))
+        if (!await _directoryUtil.Exists(generatedRoot, cancellationToken))
             return;
 
-        foreach (string filePath in Directory.EnumerateFiles(generatedRoot, "*.cs", SearchOption.AllDirectories))
+        foreach (string filePath in await _directoryUtil.GetFilesByExtension(generatedRoot, ".cs", recursive: true, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

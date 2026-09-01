@@ -45,7 +45,8 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.OpenApi" Version="3.10.2" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2242" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2245" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.915" />
         <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.29" />
     </ItemGroup>
 </Project>
