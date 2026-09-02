@@ -62,11 +62,74 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
         bool changed = NormalizeLooseSchemaFields(root, false, false, normalizeLegacyNullable);
+        changed |= NormalizePathParameterRequirements(root);
 
         if (options?.RedactCredentialLikeValues == true)
             changed |= RedactCredentialLikeContent(root, null);
 
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+    }
+
+    private static bool NormalizePathParameterRequirements(JsonNode root)
+    {
+        if (root is not JsonObject rootObject)
+            return false;
+
+        bool changed = false;
+
+        if (rootObject["paths"] is JsonObject paths)
+        {
+            foreach (JsonNode? pathNode in paths.Select(path => path.Value))
+            {
+                if (pathNode is not JsonObject pathItem)
+                    continue;
+
+                changed |= NormalizePathParameterArray(pathItem["parameters"]);
+
+                foreach ((string key, JsonNode? operationNode) in pathItem)
+                {
+                    if (key is not ("get" or "put" or "post" or "delete" or "options" or "head" or "patch" or "trace") ||
+                        operationNode is not JsonObject operation)
+                        continue;
+
+                    changed |= NormalizePathParameterArray(operation["parameters"]);
+                }
+            }
+        }
+
+        if (rootObject["components"]?["parameters"] is JsonObject componentParameters)
+        {
+            foreach (JsonNode? parameter in componentParameters.Select(entry => entry.Value))
+                changed |= NormalizePathParameterRequirement(parameter);
+        }
+
+        return changed;
+    }
+
+    private static bool NormalizePathParameterArray(JsonNode? node)
+    {
+        if (node is not JsonArray parameters)
+            return false;
+
+        bool changed = false;
+
+        foreach (JsonNode? parameter in parameters)
+            changed |= NormalizePathParameterRequirement(parameter);
+
+        return changed;
+    }
+
+    private static bool NormalizePathParameterRequirement(JsonNode? node)
+    {
+        if (node is not JsonObject parameter || parameter["in"] is not JsonValue locationValue ||
+            !locationValue.TryGetValue(out string? location) || !string.Equals(location, "path", StringComparison.Ordinal))
+            return false;
+
+        if (parameter["required"] is JsonValue requiredValue && requiredValue.TryGetValue(out bool required) && required)
+            return false;
+
+        parameter["required"] = true;
+        return true;
     }
 
     private static bool NormalizeLooseSchemaFields(JsonNode? node, bool isSchema, bool childrenAreSchemas, bool normalizeLegacyNullable)

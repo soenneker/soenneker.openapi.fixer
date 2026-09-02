@@ -153,6 +153,49 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Preprocessing_should_require_all_path_parameters()
+    {
+        const string spec = """
+                            {
+                              "openapi": "3.0.0",
+                              "info": { "title": "Path parameters", "version": "1.0.0" },
+                              "paths": {
+                                "/sessions/{session_id}/{tool_slug}": {
+                                  "parameters": [
+                                    { "name": "session_id", "in": "path", "required": false, "schema": { "type": "string" } }
+                                  ],
+                                  "get": {
+                                    "parameters": [
+                                      { "name": "tool_slug", "in": "path", "schema": { "type": "string" } },
+                                      { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" } }
+                                    ],
+                                    "responses": { "200": { "description": "OK" } }
+                                  }
+                                }
+                              },
+                              "components": {
+                                "parameters": {
+                                  "AccountId": {
+                                    "name": "account_id",
+                                    "in": "path",
+                                    "required": "false",
+                                    "schema": { "type": "string" }
+                                  }
+                                }
+                              }
+                            }
+                            """;
+
+        JsonNode root = JsonNode.Parse(_preprocessingFixer.Fix(spec))!;
+        JsonNode pathItem = root["paths"]!["/sessions/{session_id}/{tool_slug}"]!;
+
+        await Assert.That(pathItem["parameters"]?[0]?["required"]?.GetValue<bool>()).IsTrue();
+        await Assert.That(pathItem["get"]?["parameters"]?[0]?["required"]?.GetValue<bool>()).IsTrue();
+        await Assert.That(pathItem["get"]?["parameters"]?[1]?["required"]?.GetValue<bool>()).IsFalse();
+        await Assert.That(root["components"]?["parameters"]?["AccountId"]?["required"]?.GetValue<bool>()).IsTrue();
+    }
+
+    [Test]
     public async ValueTask Fix_should_inject_required_info_version_when_missing(CancellationToken cancellationToken)
     {
         string sourcePath = Path.GetTempFileName();
