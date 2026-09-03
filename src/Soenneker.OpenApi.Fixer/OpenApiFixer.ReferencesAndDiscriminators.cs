@@ -550,40 +550,50 @@ public sealed partial class OpenApiFixer
             return result;
         }
 
-        foreach (IOpenApiSchema component in components.Values.ToList())
+        // Component order is not guaranteed to put nested unions before the unions that reference them.
+        // Repeat this monotonic pass so properties exposed on an inner union become visible to its parents.
+        bool addedProperties;
+
+        do
         {
-            if (component is not OpenApiSchema parent)
-                continue;
+            addedProperties = false;
 
-            IList<IOpenApiSchema>? branches = parent.OneOf is { Count: > 0 } ? parent.OneOf : parent.AnyOf;
-            if (branches is not { Count: > 0 })
-                continue;
-
-            var candidatesByName = new Dictionary<string, List<IOpenApiSchema>>(StringComparer.Ordinal);
-
-            foreach (IOpenApiSchema branch in branches)
+            foreach (IOpenApiSchema component in components.Values.ToList())
             {
-                foreach ((string name, List<IOpenApiSchema> candidates) in CollectProperties(branch))
-                {
-                    if (!candidatesByName.TryGetValue(name, out List<IOpenApiSchema>? allCandidates))
-                    {
-                        allCandidates = [];
-                        candidatesByName[name] = allCandidates;
-                    }
-
-                    allCandidates.AddRange(candidates);
-                }
-            }
-
-            foreach ((string name, List<IOpenApiSchema> candidates) in candidatesByName)
-            {
-                if (candidates.Count == 0 || candidates.Skip(1).Any(candidate => !AreCompatible(candidates[0], candidate)))
+                if (component is not OpenApiSchema parent)
                     continue;
 
-                parent.Properties ??= new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
-                parent.Properties.TryAdd(name, candidates[0]);
+                IList<IOpenApiSchema>? branches = parent.OneOf is { Count: > 0 } ? parent.OneOf : parent.AnyOf;
+                if (branches is not { Count: > 0 })
+                    continue;
+
+                var candidatesByName = new Dictionary<string, List<IOpenApiSchema>>(StringComparer.Ordinal);
+
+                foreach (IOpenApiSchema branch in branches)
+                {
+                    foreach ((string name, List<IOpenApiSchema> candidates) in CollectProperties(branch))
+                    {
+                        if (!candidatesByName.TryGetValue(name, out List<IOpenApiSchema>? allCandidates))
+                        {
+                            allCandidates = [];
+                            candidatesByName[name] = allCandidates;
+                        }
+
+                        allCandidates.AddRange(candidates);
+                    }
+                }
+
+                foreach ((string name, List<IOpenApiSchema> candidates) in candidatesByName)
+                {
+                    if (candidates.Count == 0 || candidates.Skip(1).Any(candidate => !AreCompatible(candidates[0], candidate)))
+                        continue;
+
+                    parent.Properties ??= new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
+                    addedProperties |= parent.Properties.TryAdd(name, candidates[0]);
+                }
             }
         }
+        while (addedProperties);
     }
 
     private static void RemoveDiscriminatorsFromNonObjectSchemas(OpenApiDocument doc)

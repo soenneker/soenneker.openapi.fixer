@@ -36,6 +36,66 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_repair_final_discriminator_and_response_requirements(CancellationToken cancellationToken)
+    {
+        const string spec = """
+                            {
+                              "openapi": "3.0.0",
+                              "info": { "title": "Validation gaps", "version": "1.0" },
+                              "paths": {
+                                "/empty": {
+                                  "get": {
+                                    "responses": {}
+                                  }
+                                },
+                                "/missing-description": {
+                                  "post": {
+                                    "responses": {
+                                      "200": {}
+                                    }
+                                  }
+                                }
+                              },
+                              "components": {
+                                "schemas": {
+                                  "Animal": {
+                                    "type": "object",
+                                    "discriminator": { "propertyName": "kind" },
+                                    "properties": {
+                                      "name": { "type": "string" }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            """;
+
+        string sourcePath = Path.Combine(Path.GetTempPath(), $"openapi-validation-gaps-{Guid.NewGuid():N}.json");
+        string targetPath = Path.Combine(Path.GetTempPath(), $"openapi-validation-gaps-fixed-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, cancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode animal = root["components"]!["schemas"]!["Animal"]!;
+            JsonNode emptyResponses = root["paths"]!["/empty"]!["get"]!["responses"]!;
+            JsonNode response = root["paths"]!["/missing-description"]!["post"]!["responses"]!["200"]!;
+
+            await Assert.That(animal["properties"]!["kind"]).IsNotNull();
+            await Assert.That(animal["required"]!.AsArray().Any(value => value?.GetValue<string>() == "kind")).IsTrue();
+            await Assert.That(emptyResponses.AsObject().Count).IsGreaterThan(0);
+            await Assert.That(response["description"]?.GetValue<string>()).IsEqualTo("200 response");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public async ValueTask Preprocessing_should_normalize_digitalocean_kafka_integer_values()
     {
         const string spec = """
@@ -193,6 +253,64 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(pathItem["get"]?["parameters"]?[0]?["required"]?.GetValue<bool>()).IsTrue();
         await Assert.That(pathItem["get"]?["parameters"]?[1]?["required"]?.GetValue<bool>()).IsFalse();
         await Assert.That(root["components"]?["parameters"]?["AccountId"]?["required"]?.GetValue<bool>()).IsTrue();
+    }
+
+    [Test]
+    public async ValueTask Fix_should_remove_path_parameters_missing_from_the_path_template(CancellationToken cancellationToken)
+    {
+        string sourcePath = Path.GetTempFileName();
+        string targetPath = Path.GetTempFileName();
+
+        try
+        {
+            File.Delete(targetPath);
+
+            const string spec = """
+                                {
+                                  "openapi": "3.0.0",
+                                  "info": { "title": "Bunny Compute", "version": "1.0.0" },
+                                  "paths": {
+                                    "/compute/script/{id}/publish": {
+                                      "post": {
+                                        "operationId": "PublishEdgeScriptRelease",
+                                        "parameters": [
+                                          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } },
+                                          { "name": "uuid", "in": "path", "required": true, "schema": { "type": "string", "nullable": true } }
+                                        ],
+                                        "responses": { "204": { "description": "Published" } }
+                                      }
+                                    },
+                                    "/compute/script/{id}/publish/{uuid}": {
+                                      "post": {
+                                        "operationId": "PublishSpecificEdgeScriptRelease",
+                                        "parameters": [
+                                          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } },
+                                          { "name": "uuid", "in": "path", "required": true, "schema": { "type": "string", "nullable": true } }
+                                        ],
+                                        "responses": { "204": { "description": "Published" } }
+                                      }
+                                    }
+                                  }
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, cancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonArray? parameters = root["paths"]?["/compute/script/{id}/publish"]?["post"]?["parameters"]?.AsArray();
+            JsonArray? specificParameters = root["paths"]?["/compute/script/{id}/publish/{uuid}"]?["post"]?["parameters"]?.AsArray();
+
+            await Assert.That(parameters?.Count).IsEqualTo(1);
+            await Assert.That(parameters?[0]?["name"]?.GetValue<string>()).IsEqualTo("id");
+            await Assert.That(specificParameters?.Count).IsEqualTo(2);
+            await Assert.That(specificParameters?[1]?["name"]?.GetValue<string>()).IsEqualTo("uuid");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
     }
 
     [Test]
@@ -1016,6 +1134,53 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("ParentBranch1");
         await Assert.That(document.Components.Schemas.ContainsKey("ParentBranch1")).IsTrue();
         await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
+    }
+
+    [Test]
+    public async ValueTask ExposeComposedObjectPropertiesForGenerators_should_propagate_properties_through_nested_unions()
+    {
+        static OpenApiSchema Leaf() => new()
+        {
+            Type = JsonSchemaType.Object,
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["name"] = new OpenApiSchema { Type = JsonSchemaType.String }
+            }
+        };
+
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["Parent"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        AnyOf = [new OpenApiSchemaReference("Left"), new OpenApiSchemaReference("Right")]
+                    },
+                    ["Left"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        OneOf = [new OpenApiSchemaReference("LeftLeaf1"), new OpenApiSchemaReference("LeftLeaf2")]
+                    },
+                    ["Right"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        OneOf = [new OpenApiSchemaReference("RightLeaf1"), new OpenApiSchemaReference("RightLeaf2")]
+                    },
+                    ["LeftLeaf1"] = Leaf(),
+                    ["LeftLeaf2"] = Leaf(),
+                    ["RightLeaf1"] = Leaf(),
+                    ["RightLeaf2"] = Leaf()
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "ExposeComposedObjectPropertiesForGenerators", document);
+
+        var parent = (OpenApiSchema)document.Components.Schemas["Parent"];
+        await Assert.That(parent.Properties?.ContainsKey("name")).IsTrue();
     }
 
     [Test]
@@ -2355,6 +2520,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await Assert.That(root["openapi"]).IsNotNull();
             await Assert.That(root["paths"]?.AsObject().Count > 0).IsTrue();
             await Assert.That(root["components"]?["schemas"]?.AsObject().Count > 0).IsTrue();
+            await Assert.That(root["components"]?["schemas"]?["DnsRecordsDnsRecordPatch"]?["properties"]?["name"]).IsNotNull();
         }
         finally
         {

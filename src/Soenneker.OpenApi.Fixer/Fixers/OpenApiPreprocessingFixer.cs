@@ -79,12 +79,16 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
         if (rootObject["paths"] is JsonObject paths)
         {
-            foreach (JsonNode? pathNode in paths.Select(path => path.Value))
+            foreach ((string path, JsonNode? pathNode) in paths)
             {
                 if (pathNode is not JsonObject pathItem)
                     continue;
 
-                changed |= NormalizePathParameterArray(pathItem["parameters"]);
+                HashSet<string> pathParameterNames = Regex.Matches(path, @"\{([^/{}]+)\}", RegexOptions.CultureInvariant)
+                                                          .Select(match => match.Groups[1].Value)
+                                                          .ToHashSet(StringComparer.Ordinal);
+
+                changed |= NormalizePathParameterArray(pathItem["parameters"], pathParameterNames);
 
                 foreach ((string key, JsonNode? operationNode) in pathItem)
                 {
@@ -92,7 +96,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
                         operationNode is not JsonObject operation)
                         continue;
 
-                    changed |= NormalizePathParameterArray(operation["parameters"]);
+                    changed |= NormalizePathParameterArray(operation["parameters"], pathParameterNames);
                 }
             }
         }
@@ -106,17 +110,37 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         return changed;
     }
 
-    private static bool NormalizePathParameterArray(JsonNode? node)
+    private static bool NormalizePathParameterArray(JsonNode? node, IReadOnlySet<string>? pathParameterNames = null)
     {
         if (node is not JsonArray parameters)
             return false;
 
         bool changed = false;
 
-        foreach (JsonNode? parameter in parameters)
+        for (int i = parameters.Count - 1; i >= 0; i--)
+        {
+            JsonNode? parameter = parameters[i];
+
+            if (pathParameterNames != null && IsExtraneousPathParameter(parameter, pathParameterNames))
+            {
+                parameters.RemoveAt(i);
+                changed = true;
+                continue;
+            }
+
             changed |= NormalizePathParameterRequirement(parameter);
+        }
 
         return changed;
+    }
+
+    private static bool IsExtraneousPathParameter(JsonNode? node, IReadOnlySet<string> pathParameterNames)
+    {
+        return node is JsonObject parameter &&
+               parameter["in"] is JsonValue locationValue && locationValue.TryGetValue(out string? location) &&
+               string.Equals(location, "path", StringComparison.Ordinal) &&
+               parameter["name"] is JsonValue nameValue && nameValue.TryGetValue(out string? name) &&
+               !string.IsNullOrWhiteSpace(name) && !pathParameterNames.Contains(name);
     }
 
     private static bool NormalizePathParameterRequirement(JsonNode? node)

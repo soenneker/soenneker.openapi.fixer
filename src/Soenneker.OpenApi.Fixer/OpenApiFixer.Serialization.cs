@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -90,6 +91,35 @@ public sealed partial class OpenApiFixer
             if (resp is OpenApiResponse concreteResp && string.IsNullOrWhiteSpace(concreteResp.Description))
             {
                 concreteResp.Description = code == "default" ? "Default response" : $"{code} response";
+            }
+        }
+    }
+
+    private void EnsureValidResponses(OpenApiDocument document)
+    {
+        if (document.Components?.Responses != null)
+        {
+            foreach (IOpenApiResponse response in document.Components.Responses.Values)
+            {
+                if (response is OpenApiResponse concreteResponse && string.IsNullOrWhiteSpace(concreteResponse.Description))
+                    concreteResponse.Description = "Response";
+            }
+        }
+
+        if (document.Paths == null)
+            return;
+
+        foreach (IOpenApiPathItem pathItem in document.Paths.Values)
+        {
+            if (pathItem.Operations == null)
+                continue;
+
+            foreach ((HttpMethod method, OpenApiOperation operation) in pathItem.Operations)
+            {
+                if (operation.Responses == null || operation.Responses.Count == 0)
+                    operation.Responses = CreateFallbackResponses(method);
+
+                EnsureResponseDescriptions(operation.Responses);
             }
         }
     }

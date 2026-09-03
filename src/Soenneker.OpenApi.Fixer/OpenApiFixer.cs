@@ -269,6 +269,11 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // inventing discriminator fields or replacing the source oneOf/anyOf constraints.
             ExposeComposedObjectPropertiesForGenerators(document);
 
+            // Structural passes above can introduce new discriminators and operations after the earlier cleanup stages.
+            // Repair the final document shape before strict validation of the serialized output.
+            EnsureDiscriminatorRequiredEverywhere(document);
+            EnsureValidResponses(document);
+
             // Final validation: ensure all schema names are valid
             _namingFixer.ValidateAndFixSchemaNames(document);
 
