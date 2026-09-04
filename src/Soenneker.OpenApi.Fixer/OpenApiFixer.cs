@@ -23,6 +23,7 @@ using Soenneker.Utils.MemoryStream.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
+/// <inheritdoc cref="IOpenApiFixer" />
 public sealed partial class OpenApiFixer : IOpenApiFixer
 {
     private readonly ILogger<OpenApiFixer> _logger;

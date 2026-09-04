@@ -12,6 +12,7 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// <summary>
 /// Provides functionality to manage and fix OpenAPI schema references, including replacing, validating, and scrubbing broken references.
 /// </summary>
+/// <inheritdoc cref="IOpenApiReferenceFixer" />
 public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 {
     private readonly ILogger<OpenApiReferenceFixer> _logger;

@@ -14,6 +14,7 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// Provides functionality to validate, sanitize, and normalize names and identifiers in OpenAPI documents,
 /// including schema names, operation IDs, and path names.
 /// </summary>
+/// <inheritdoc cref="IOpenApiNamingFixer" />
 public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 {
     private static readonly Regex _pathDateSuffixRegex = new(@"_(?:19|20)\d{2}-\d{2}(?=/|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant);

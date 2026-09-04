@@ -8,6 +8,7 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// <summary>
 /// Provides functionality to fix and sanitize descriptions in OpenAPI documents, particularly handling YAML-unsafe strings.
 /// </summary>
+/// <inheritdoc cref="IOpenApiDescriptionFixer" />
 public sealed class OpenApiDescriptionFixer : IOpenApiDescriptionFixer
 {
     private readonly ILogger<OpenApiDescriptionFixer> _logger;

@@ -14,6 +14,7 @@ namespace Soenneker.OpenApi.Fixer.Fixers;
 /// Provides functionality to clean, transform, and fix OpenAPI schemas, including removing empty schemas,
 /// fixing defaults, cleaning for serialization, and injecting types for nullable schemas.
 /// </summary>
+/// <inheritdoc cref="IOpenApiSchemaFixer" />
 public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
 {
     private readonly ILogger<OpenApiSchemaFixer> _logger;
