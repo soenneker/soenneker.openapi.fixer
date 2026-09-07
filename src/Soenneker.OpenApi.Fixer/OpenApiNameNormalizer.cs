@@ -159,7 +159,8 @@ internal static class OpenApiNameNormalizer
         if (string.IsNullOrWhiteSpace(mediaType))
             return fallback;
 
-        string baseType = mediaType.Split(';')[0].Trim();
+        int separator = mediaType.IndexOf(';');
+        string baseType = separator >= 0 ? mediaType.AsSpan(0, separator).Trim().ToString() : mediaType.Trim();
 
         if (baseType.Length == 0 || baseType.Contains('*', StringComparison.Ordinal))
             return fallback;

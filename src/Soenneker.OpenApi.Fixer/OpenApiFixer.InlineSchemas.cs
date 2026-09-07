@@ -229,9 +229,9 @@ public sealed partial class OpenApiFixer
                                 continue;
 
                             string safeMedia;
-                            string subtype = mediaType.Split(';')[0]
-                                                      .Split('/')
-                                                      .Last();
+                            int separator = mediaType.IndexOf(';');
+                            ReadOnlySpan<char> baseMediaType = mediaType.AsSpan(0, separator >= 0 ? separator : mediaType.Length);
+                            ReadOnlySpan<char> subtype = baseMediaType[(baseMediaType.LastIndexOf('/') + 1)..];
                             if (subtype.Equals("json", StringComparison.OrdinalIgnoreCase))
                                 safeMedia = "";
                             else

@@ -211,8 +211,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             if (stringValue != null)
                             {
                                 // Remove any control characters that could cause JSON serialization issues
-                                var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t')
-                                                                          .ToArray());
+                                var cleanedString = RemoveInvalidControlCharacters(stringValue);
                                 cleanedEnum.Add(JsonValue.Create(cleanedString));
                             }
                         }
@@ -250,8 +249,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         if (stringValue != null)
                         {
                             // Remove any control characters that could cause JSON serialization issues
-                            var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t')
-                                                                      .ToArray());
+                            var cleanedString = RemoveInvalidControlCharacters(stringValue);
                             schemaToModify.Default = JsonValue.Create(cleanedString);
                         }
                     }
@@ -279,8 +277,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         if (stringValue != null)
                         {
                             // Remove any control characters that could cause JSON serialization issues
-                            var cleanedString = new string(stringValue.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t')
-                                                                      .ToArray());
+                            var cleanedString = RemoveInvalidControlCharacters(stringValue);
                             schemaToModify.Example = JsonValue.Create(cleanedString);
                         }
                     }
@@ -298,16 +295,14 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         if (!string.IsNullOrEmpty(schema.Description))
         {
             // Remove any control characters that could cause JSON serialization issues
-            schemaToModify.Description = new string(schema.Description.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t')
-                                                          .ToArray());
+            schemaToModify.Description = RemoveInvalidControlCharacters(schema.Description);
         }
 
         // Clean title
         if (!string.IsNullOrEmpty(schema.Title))
         {
             // Remove any control characters that could cause JSON serialization issues
-            schemaToModify.Title = new string(schema.Title.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t')
-                                                    .ToArray());
+            schemaToModify.Title = RemoveInvalidControlCharacters(schema.Title);
         }
 
         // Recursively clean nested schemas
@@ -352,6 +347,31 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         {
             CleanSchemaForSerialization(schema.AdditionalProperties, visited);
         }
+    }
+
+    private static string RemoveInvalidControlCharacters(string value)
+    {
+        int accepted = 0;
+        foreach (char character in value)
+        {
+            if (!char.IsControl(character) || character is '\n' or '\r' or '\t')
+                accepted++;
+        }
+
+        if (accepted == value.Length)
+            return value;
+        if (accepted == 0)
+            return string.Empty;
+
+        return string.Create(accepted, value, static (destination, source) =>
+        {
+            int index = 0;
+            foreach (char character in source)
+            {
+                if (!char.IsControl(character) || character is '\n' or '\r' or '\t')
+                    destination[index++] = character;
+            }
+        });
     }
 
     public void FixInvalidDefaults(OpenApiDocument document)
@@ -1032,8 +1052,8 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             if (schema is not OpenApiSchema concreteSchema || !visited.Add(concreteSchema))
                 return;
 
-            NormalizeComposition(concreteSchema.AnyOf, branches => concreteSchema.AnyOf = branches, concreteSchema, ref normalized);
-            NormalizeComposition(concreteSchema.OneOf, branches => concreteSchema.OneOf = branches, concreteSchema, ref normalized);
+            NormalizeComposition(concreteSchema.AnyOf, concreteSchema, ref normalized);
+            NormalizeComposition(concreteSchema.OneOf, concreteSchema, ref normalized);
 
             if (concreteSchema.Properties != null)
                 foreach (IOpenApiSchema property in concreteSchema.Properties.Values)
@@ -1109,7 +1129,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             _logger.LogInformation("Normalized {Count} nullable primitive, array, or object-like anyOf/oneOf schemas", normalized);
     }
 
-    private static void NormalizeComposition(IList<IOpenApiSchema>? branches, Action<List<IOpenApiSchema>?> assignBranches, OpenApiSchema target, ref int normalized)
+    private static void NormalizeComposition(IList<IOpenApiSchema>? branches, OpenApiSchema target, ref int normalized)
     {
         if (branches is not { Count: 2 })
             return;
@@ -1168,7 +1188,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
 
         IList<IOpenApiSchema>? nestedAnyOf = valueBranch.AnyOf;
         IList<IOpenApiSchema>? nestedOneOf = valueBranch.OneOf;
-        assignBranches(null);
         target.AnyOf = nestedAnyOf;
         target.OneOf = nestedOneOf;
         normalized++;

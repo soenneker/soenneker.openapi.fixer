@@ -22,8 +22,8 @@ public sealed partial class OpenApiFixer
     {
         if (string.IsNullOrWhiteSpace(mediaType))
             return "application/json";
-        string baseType = mediaType.Split(';')[0]
-                                   .Trim();
+        int separator = mediaType.IndexOf(';');
+        string baseType = separator >= 0 ? mediaType.AsSpan(0, separator).Trim().ToString() : mediaType.Trim();
         if (baseType.Contains('*') || !baseType.Contains('/'))
             return "application/json";
         return baseType;
