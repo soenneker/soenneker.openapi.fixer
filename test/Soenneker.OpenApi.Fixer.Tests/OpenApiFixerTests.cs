@@ -36,6 +36,135 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_accept_json_with_trailing_commas(CancellationToken cancellationToken)
+    {
+        string sourcePath = Path.Combine(Path.GetTempPath(), $"openapi-trailing-commas-{Guid.NewGuid():N}.json");
+        string targetPath = Path.Combine(Path.GetTempPath(), $"openapi-trailing-commas-fixed-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            const string spec = """
+                                {
+                                  "openapi": "3.0.4",
+                                  "info": { "title": "Trailing commas", "version": "1.0.0", },
+                                  "paths": {},
+                                }
+                                """;
+
+            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, cancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.0");
+            await Assert.That(root["info"]?["title"]?.GetValue<string>()).IsEqualTo("Trailing commas");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Fix_should_escape_unescaped_control_characters_in_json_strings(CancellationToken cancellationToken)
+    {
+        string sourcePath = Path.Combine(Path.GetTempPath(), $"openapi-control-character-{Guid.NewGuid():N}.json");
+        string targetPath = Path.Combine(Path.GetTempPath(), $"openapi-control-character-fixed-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            string spec = "{\n\"openapi\":\"3.0.4\",\n\"info\":{\"title\":\"Before\u000BAfter\",\"version\":\"1\"},\n\"paths\":{}\n}";
+            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, cancellationToken);
+
+            JsonNode root = await ReadJsonNode(targetPath);
+            await Assert.That(root["info"]?["title"]?.GetValue<string>()).IsEqualTo("Before\u000BAfter");
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
+    public async ValueTask Error_array_with_message_items_should_get_root_message()
+    {
+        var document = new OpenApiDocument
+        {
+            Components = new OpenApiComponents
+            {
+                Schemas = new Dictionary<string, IOpenApiSchema>
+                {
+                    ["ErrorItem"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["message"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                        }
+                    },
+                    ["BatchError"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object,
+                        Properties = new Dictionary<string, IOpenApiSchema>
+                        {
+                            ["tasks"] = new OpenApiSchema
+                            {
+                                Type = JsonSchemaType.Array,
+                                Items = new OpenApiSchemaReference("ErrorItem")
+                            }
+                        }
+                    }
+                }
+            },
+            Paths = new OpenApiPaths
+            {
+                ["/tasks"] = new OpenApiPathItem
+                {
+                    Operations = new Dictionary<HttpMethod, OpenApiOperation>
+                    {
+                        [HttpMethod.Post] = new OpenApiOperation
+                        {
+                            Responses = new OpenApiResponses
+                            {
+                                ["400"] = new OpenApiResponse
+                                {
+                                    Description = "Bad request",
+                                    Content = new Dictionary<string, IOpenApiMediaType>
+                                    {
+                                        ["application/json"] = new OpenApiMediaType
+                                        {
+                                            Schema = new OpenApiSchemaReference("BatchError")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        InvokePrivateVoidMethod(_util, "FixErrorMessageArrayCollision", document);
+
+        var error = document.Components.Schemas["BatchError"] as OpenApiSchema;
+        await Assert.That(error!.Properties!["message"].Type).IsEqualTo(JsonSchemaType.String);
+        await Assert.That(error.Properties["tasks"]).IsNotNull();
+    }
+
+    [Test]
+    public async ValueTask Long_enum_values_should_use_bounded_generated_names()
+    {
+        string certificate = $"-----BEGIN CERTIFICATE-----{new string('A', 500)}-----END CERTIFICATE-----";
+        string name = InvokePrivateMethod<string>(_util, "BuildSafeEnumMemberName", certificate);
+
+        await Assert.That(name).StartsWith("Value");
+        await Assert.That(name.Length).IsLessThanOrEqualTo(21);
+        await Assert.That(name.All(char.IsLetterOrDigit)).IsTrue();
+    }
+
+    [Test]
     public async ValueTask Fix_should_repair_final_discriminator_and_response_requirements(CancellationToken cancellationToken)
     {
         const string spec = """

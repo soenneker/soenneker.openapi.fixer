@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -46,15 +47,48 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
             return json;
 
         JsonNode? root;
+        bool requiresCanonicalization = false;
 
         try
         {
             root = JsonNode.Parse(json);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            _logger.LogDebug(ex, "Unable to parse OpenAPI JSON during preprocessing");
-            return json;
+            try
+            {
+                root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip
+                });
+                requiresCanonicalization = true;
+            }
+            catch (JsonException ex)
+            {
+                string sanitized = EscapeUnescapedControlCharacters(json);
+
+                if (ReferenceEquals(sanitized, json))
+                {
+                    _logger.LogDebug(ex, "Unable to parse OpenAPI JSON during preprocessing");
+                    return json;
+                }
+
+                try
+                {
+                    root = JsonNode.Parse(sanitized, documentOptions: new JsonDocumentOptions
+                    {
+                        AllowTrailingCommas = true,
+                        CommentHandling = JsonCommentHandling.Skip
+                    });
+                    requiresCanonicalization = true;
+                }
+                catch (JsonException sanitizedException)
+                {
+                    _logger.LogDebug(sanitizedException, "Unable to parse OpenAPI JSON during preprocessing after escaping control characters");
+                    return json;
+                }
+            }
         }
 
         if (root is null)
@@ -62,6 +96,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
         bool changed = NormalizeLooseSchemaFields(root, false, false, normalizeLegacyNullable);
+        changed |= requiresCanonicalization;
         changed |= NormalizePathParameterRequirements(root);
 
         if (options?.RedactCredentialLikeValues == true)
@@ -520,5 +555,48 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         }
 
         return false;
+    }
+
+    private static string EscapeUnescapedControlCharacters(string json)
+    {
+        StringBuilder? builder = null;
+        bool inString = false;
+        bool escaped = false;
+
+        for (var index = 0; index < json.Length; index++)
+        {
+            char value = json[index];
+
+            if (inString && value < ' ')
+            {
+                builder ??= new StringBuilder(json.Length + 16).Append(json, 0, index);
+                builder.Append("\\u").Append(((int)value).ToString("X4", CultureInfo.InvariantCulture));
+                escaped = false;
+                continue;
+            }
+
+            builder?.Append(value);
+
+            if (!inString)
+            {
+                if (value == '"')
+                    inString = true;
+
+                continue;
+            }
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (value == '\\')
+                escaped = true;
+            else if (value == '"')
+                inString = false;
+        }
+
+        return builder?.ToString() ?? json;
     }
 }

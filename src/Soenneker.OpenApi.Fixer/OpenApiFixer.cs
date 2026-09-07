@@ -270,6 +270,10 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // inventing discriminator fields or replacing the source oneOf/anyOf constraints.
             ExposeComposedObjectPropertiesForGenerators(document);
 
+            // Composition exposure can make nested error messages visible only after the earlier
+            // error-response pass. Re-run it so Kiota never dereferences an array as an error item.
+            FixErrorMessageArrayCollision(document);
+
             // Structural passes above can introduce new discriminators and operations after the earlier cleanup stages.
             // Repair the final document shape before strict validation of the serialized output.
             EnsureDiscriminatorRequiredEverywhere(document);
@@ -285,6 +289,10 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
+
+            // The OpenAPI serializer can write decoded control characters back into string values.
+            // Canonicalize once more before the JSON-based post-processing passes.
+            json = _preprocessingFixer.Fix(json, options);
 
             // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.

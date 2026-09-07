@@ -984,12 +984,14 @@ public sealed partial class OpenApiFixer
                 container.Properties["message"] = replacement;
             }
 
-            // Kiota can generate a broken ApiException.Message override for wrappers shaped like
-            // { errors: [ { message: "..." } ] }. Adding a root-level message property steers
-            // generation toward a safe string-backed override while preserving the array payload.
+            // Kiota can generate a broken ApiException.Message override for an error wrapper whose
+            // only useful message is inside an array item. It dereferences the collection itself as
+            // though it were an item (for example, Errors?.MessageEscaped). A root-level string
+            // message steers generation toward a safe override while preserving the array payload.
             if (container.Properties is { } containerProps && !containerProps.ContainsKey("message") &&
-                containerProps.TryGetValue("errors", out IOpenApiSchema? errorsSchema) && TryGetArrayItemSchema(errorsSchema, out IOpenApiSchema? itemSchema) &&
-                HasDirectStringMessage(itemSchema, new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance)))
+                containerProps.Values.Any(property => TryGetArrayItemSchema(property, out IOpenApiSchema? itemSchema) &&
+                                                       HasDirectStringMessage(itemSchema,
+                                                           new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance))))
             {
                 containerProps["message"] = new OpenApiSchema
                 {

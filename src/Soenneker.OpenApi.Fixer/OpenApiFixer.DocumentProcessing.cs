@@ -1194,12 +1194,19 @@ public sealed partial class OpenApiFixer
 
         try
         {
-            if (JsonNode.Parse(raw) is JsonObject root)
+            var documentOptions = new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            };
+
+            if (JsonNode.Parse(raw, documentOptions: documentOptions) is JsonObject root)
                 version = root["openapi"]?.GetValue<string>() ?? root["swagger"]?.GetValue<string>();
         }
         catch (JsonException)
         {
-            Match match = Regex.Match(raw, @"(?m)^\s*(?:openapi|swagger)\s*:\s*['\""']?(?<version>\d+\.\d+(?:\.\d+)?)");
+            Match match = Regex.Match(raw,
+                @"(?m)^\s*['\""']?(?:openapi|swagger)['\""']?\s*:\s*['\""']?(?<version>\d+\.\d+(?:\.\d+)?)");
 
             if (match.Success)
                 version = match.Groups["version"].Value;

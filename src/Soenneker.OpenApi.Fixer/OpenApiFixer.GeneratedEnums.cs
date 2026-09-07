@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using Soenneker.Utils.PooledStringBuilders;
 using System.Text.Json;
@@ -360,6 +361,14 @@ public sealed partial class OpenApiFixer
     {
         if (string.IsNullOrEmpty(enumValue))
             return "EnumValue";
+
+        // Enum values can be certificates, tokens, or other payloads rather than human-readable
+        // labels. Feeding those through Kiota produces identifiers that exceed CLR metadata limits.
+        if (enumValue.Length > 128)
+        {
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(enumValue));
+            return $"Value{Convert.ToHexString(hash.AsSpan(0, 8))}";
+        }
 
         if (enumValue.All(char.IsWhiteSpace))
             return BuildWhitespaceOnlyEnumMemberName(enumValue);
