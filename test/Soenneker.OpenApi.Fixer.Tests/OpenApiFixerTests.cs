@@ -31,6 +31,46 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async ValueTask Fix_should_preserve_boolean_consts_as_boolean_defaults(bool value, CancellationToken cancellationToken)
+    {
+        string sourcePath = Path.Combine(Path.GetTempPath(), $"boolean-const-{Guid.NewGuid():N}.json");
+        string targetPath = Path.Combine(Path.GetTempPath(), $"boolean-const-fixed-{Guid.NewGuid():N}.json");
+        string spec = $$"""
+            {
+              "openapi": "3.1.0", "info": { "title": "Boolean const", "version": "1" },
+              "paths": { "/status": { "get": { "operationId": "getStatus", "responses": {
+                "200": { "description": "OK", "content": { "application/json": {
+                  "schema": { "$ref": "#/components/schemas/QueryStatus" }
+                } } }
+              } } } },
+              "components": { "schemas": { "QueryStatus": {
+                "type": "object", "properties": { "query_async": {
+                  "type": "boolean", "const": {{value.ToString().ToLowerInvariant()}}, "default": {{value.ToString().ToLowerInvariant()}}
+                } }
+              } } }
+            }
+            """;
+        try
+        {
+            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode property = root["components"]!["schemas"]!["QueryStatus"]!["properties"]!["query_async"]!;
+            await Assert.That(property["type"]!.GetValue<string>()).IsEqualTo("boolean");
+            await Assert.That(property["default"]!.GetValue<bool>()).IsEqualTo(value);
+            await Assert.That(property["enum"]).IsNull();
+            await Assert.That(property["$ref"]).IsNull();
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(targetPath);
+        }
+    }
+
+    [Test]
     public void Default()
     {
     }

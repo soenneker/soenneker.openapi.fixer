@@ -645,7 +645,13 @@ public sealed partial class OpenApiFixer
 
             if (concreteSchema.Const is { } value && concreteSchema.Enum is not { Count: > 0 })
             {
-                concreteSchema.Enum = [JsonValue.Create(value)];
+                // OpenAPI.NET exposes Const as text, even for a JSON boolean. Turning it into
+                // a string enum creates invalid boolean defaults in Kiota-generated clients.
+                if (HasSchemaType(concreteSchema, JsonSchemaType.Boolean) && bool.TryParse(value, out bool booleanValue))
+                    concreteSchema.Default ??= JsonValue.Create(booleanValue);
+                else
+                    concreteSchema.Enum = [JsonValue.Create(value)];
+
                 concreteSchema.Const = null;
                 normalized++;
             }
