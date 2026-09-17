@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -19,11 +20,11 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
     private static readonly (string Token, string Canonical)[] LooseJsonLiterals =
         [("true", "true"), ("false", "false"), ("null", "null"), ("None", "null")];
 
-    private static readonly HashSet<string> CredentialNames = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenSet<string> CredentialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "access_token", "accesstoken", "refresh_token", "refreshtoken", "auth_token", "authtoken", "token", "api_key", "apikey",
         "client_secret", "clientsecret", "secret", "password", "passwd", "webhook", "webhook_url", "webhookurl"
-    };
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Regex WebhookUrlRegex = new(
         @"https?://[^\s\""'`<>]*(?:hooks\.slack\.com/services|discord(?:app)?\.com/api/webhooks|/webhooks?/)[^\s\""'`<>]*",
@@ -45,6 +46,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
     public string Fix(string json, OpenApiFixerOptions? options = null)
     {
+        using IDisposable? loggingScope = OpenApiFixerLogging.BeginIfNeeded(options?.VerboseLogging ?? false);
         if (string.IsNullOrWhiteSpace(json))
             return json;
 
@@ -82,7 +84,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogDebug(ex, "Unable to parse OpenAPI JSON after syntax recovery");
+                    _logger.LogVerbose(ex, "Unable to parse OpenAPI JSON after syntax recovery");
                     return json;
                 }
             }

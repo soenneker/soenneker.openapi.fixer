@@ -38,7 +38,7 @@ await fixer.Fix(
 
 The fixer reads JSON, normalizes the document, and writes formatted JSON. It uses a temporary file in the target directory and replaces an existing target only after the result parses successfully. Cancellation and processing failures propagate to the caller.
 
-The fixer emits one completion message at `Information`. Stage progress and repair summaries use `Debug`; individual schema, name, and reference changes use `Trace`. Warnings identify ambiguous input, discarded data, fallback schemas, or unresolved problems. Processing failures are logged once at `Error`. Enable diagnostic levels for the `Soenneker.OpenApi.Fixer` logging category when troubleshooting.
+The fixer logs source and target file paths, major processing stages, temporary output and validation paths, completion timing, warnings, and errors by default. Set `OpenApiFixerOptions.VerboseLogging` to `true` to also see detailed progress, repair summaries, and individual repair details.
 
 Input recovery accepts comments, trailing commas, unescaped control characters in strings, and bare `True`, `False`, and `None` values. Quoted text is preserved. Duplicate JSON properties use the last occurrence and produce a warning; conflicting duplicate values are inherently ambiguous. Version detection runs after recovery, so malformed JSON does not prevent an otherwise readable version from being recognized.
 
@@ -77,6 +77,17 @@ await fixer.Fix(
 - `Int32IdTransform` changes integer properties and parameters ending in `Id` from `int32` to `int64`.
 - `StripDateSuffixesFromGeneratedNames` removes trailing date tokens from generated path prefixes, operation IDs, and schema names.
 - `RedactCredentialLikeValues` removes credential-like values from examples and descriptions. It is disabled by default because it intentionally changes documentation content.
+
+## Logging
+
+Turn on diagnostics for a call with one flag:
+
+```csharp
+var options = new OpenApiFixerOptions { VerboseLogging = true };
+await fixer.Fix("openapi.json", "openapi.fixed.json", options, cancellationToken);
+```
+
+`VerboseLogging` defaults to `false`. Progress and verbose messages use `Information` severity; warnings and errors are always available. The host's logging filters still apply. The flag is captured per call, applies to built-in helpers, and is isolated between concurrent calls, including singleton use. Standalone preprocessing accepts the same flag.
 
 ## Repair generated enum members
 

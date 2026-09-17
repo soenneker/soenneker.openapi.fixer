@@ -416,13 +416,13 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                 {
                     concreteSchema.Default = misplacedDefault.DeepClone();
                     promotedItemDefaults.Add(itemSchema);
-                    _logger.LogTrace("Moved array-shaped item default to its parent array schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
+                    _logger.LogVerbose("Moved array-shaped item default to its parent array schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
                 }
 
                 if (concreteSchema.Default is not null and not JsonArray && IsDefaultValueValidForSchema(concreteSchema.Default, itemSchema))
                 {
                     concreteSchema.Default = new JsonArray(concreteSchema.Default.DeepClone());
-                    _logger.LogTrace("Wrapped scalar default in an array on schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
+                    _logger.LogVerbose("Wrapped scalar default in an array on schema '{SchemaTitle}'", concreteSchema.Title ?? "(no title)");
                 }
             }
 
@@ -563,7 +563,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             if (!ReferenceEquals(schema.Default, matchingEnumElement))
                             {
                                 concreteSchema.Default = matchingEnumElement;
-                                _logger.LogTrace("Fixed enum default on '{SchemaTitle}' to '{NewDefault}'", schema.Title ?? "(no title)", defText);
+                                _logger.LogVerbose("Fixed enum default on '{SchemaTitle}' to '{NewDefault}'", schema.Title ?? "(no title)", defText);
                             }
                         }
                         else
@@ -612,7 +612,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         if (schema.Items is OpenApiSchema itemSchema && IsDefaultValueValidForSchema(schema.Default, itemSchema))
                         {
                             concreteSchema.Default = new JsonArray(schema.Default.DeepClone());
-                            _logger.LogTrace("Wrapped scalar default in an array on schema '{SchemaTitle}'", schema.Title ?? "(no title)");
+                            _logger.LogVerbose("Wrapped scalar default in an array on schema '{SchemaTitle}'", schema.Title ?? "(no title)");
                         }
                         else
                         {
@@ -1036,7 +1036,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
 
         if (removed > 0)
-            _logger.LogDebug("Deduplicated {Count} duplicate composition branches (anyOf/oneOf/allOf) across the document", removed);
+            _logger.LogVerbose("Deduplicated {Count} duplicate composition branches (anyOf/oneOf/allOf) across the document", removed);
     }
 
     public void NormalizeNullablePrimitiveCompositions(OpenApiDocument document)
@@ -1126,7 +1126,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         }
 
         if (normalized > 0)
-            _logger.LogDebug("Normalized {Count} nullable primitive, array, or object-like anyOf/oneOf schemas", normalized);
+            _logger.LogVerbose("Normalized {Count} nullable primitive, array, or object-like anyOf/oneOf schemas", normalized);
     }
 
     private static void NormalizeComposition(IList<IOpenApiSchema>? branches, OpenApiSchema target, ref int normalized)

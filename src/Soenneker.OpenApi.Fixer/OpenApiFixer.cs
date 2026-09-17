@@ -5,15 +5,10 @@ using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Diagnostics;
 using System.Linq;
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
 using Soenneker.Extensions.Task;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
@@ -63,12 +58,25 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
     public async ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options,
         CancellationToken cancellationToken = default)
     {
+        options ??= new OpenApiFixerOptions();
+        using IDisposable loggingScope = OpenApiFixerLogging.Begin(options.VerboseLogging);
+        var stopwatch = Stopwatch.StartNew();
         try
         {
-            options ??= new OpenApiFixerOptions();
+            sourceFilePath = Path.GetFullPath(sourceFilePath);
+            targetFilePath = Path.GetFullPath(targetFilePath);
+            using IDisposable? fileScope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["SourceFilePath"] = sourceFilePath,
+                ["TargetFilePath"] = targetFilePath
+            });
+            _logger.LogProgress("Starting OpenAPI fix: {SourceFilePath} -> {TargetFilePath} (verbose: {VerboseLogging})",
+                sourceFilePath, targetFilePath, options.VerboseLogging);
+            _logger.LogProgress("Reading and preprocessing OpenAPI source {SourceFilePath}", sourceFilePath);
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
             await using MemoryStream pre = await PreprocessSpecFile(sourceFilePath, options, cancellationToken);
             OpenApiSpecVersion sourceSpecVersion = DetectSpecVersion(pre);
+            _logger.LogProgress("Parsing OpenAPI source {SourceFilePath} as {SourceSpecVersion}", sourceFilePath, sourceSpecVersion);
             ReadResult read = await new OpenApiJsonReader().ReadAsync(pre, new Uri(Path.GetFullPath(sourceFilePath)),
                 new OpenApiReaderSettings(), cancellationToken).NoSync();
             OpenApiDocument? document = read.Document;
@@ -77,7 +85,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             if (diagnostics?.Errors?.Any() == true)
             {
                 string msgs = string.Join("; ", diagnostics.Errors.Select(e => e.Message));
-                _logger.LogWarning("OpenAPI parsing errors during loading: {Messages}", msgs);
+                _logger.LogWarning("OpenAPI parsing errors in {SourceFilePath}: {Messages}", sourceFilePath, msgs);
             }
 
             if (document is null)
@@ -89,7 +97,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             Dictionary<string, string> attachedWebhooks = AttachWebhooksToPaths(document!);
 
             // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY
-            _logger.LogDebug("Running initial cleanup on identifiers, paths, and security schemes...");
+            _logger.LogProgress("Running initial cleanup on identifiers, paths, and security schemes... Source: {SourceFilePath}", sourceFilePath);
             _descriptionFixer.FixYamlUnsafeDescriptions(document!);
             _namingFixer.RenameConflictingPaths(document!);
 
@@ -98,21 +106,21 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             _namingFixer.RenameInvalidComponentSchemas(document!);
 
-            _logger.LogDebug("Normalizing operation IDs...");
+            _logger.LogVerbose("Normalizing operation IDs...");
             _namingFixer.NormalizeOperationIds(document!);
 
-            _logger.LogDebug("Ensuring unique operation IDs...");
+            _logger.LogVerbose("Ensuring unique operation IDs...");
             _namingFixer.EnsureUniqueOperationIds(document!);
 
-            _logger.LogDebug("Resolving collisions between operation IDs and schema names...");
+            _logger.LogVerbose("Resolving collisions between operation IDs and schema names...");
             _namingFixer.ResolveSchemaOperationNameCollisions(document!);
 
             // STAGE 2: REFERENCE INTEGRITY & SCRUBBING
-            _logger.LogDebug("Scrubbing all component references to fix broken links...");
+            _logger.LogProgress("Scrubbing all component references to fix broken links... Source: {SourceFilePath}", sourceFilePath);
             _referenceFixer.ScrubComponentRefs(document!, cancellationToken);
 
             // STAGE 3: STRUCTURAL TRANSFORMATIONS
-            _logger.LogDebug("Performing major structural transformations (inlining, extraction)...");
+            _logger.LogProgress("Performing major structural transformations (inlining, extraction)... Source: {SourceFilePath}", sourceFilePath);
             InlinePrimitiveComponents(document!);
             DisambiguateMultiContentRequestSchemas(document!);
 
@@ -126,15 +134,15 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
 
-            _logger.LogDebug("Removing shadowed untyped properties…");
+            _logger.LogVerbose("Removing shadowed untyped properties…");
             RemoveShadowingUntypedProperties(document!);
             RemoveRedundantDerivedValue(document!);
 
-            _logger.LogDebug("Re-scrubbing references after extraction...");
+            _logger.LogVerbose("Re-scrubbing references after extraction...");
             _referenceFixer.ScrubComponentRefs(document!, cancellationToken);
 
             // STAGE 4: DEEP SCHEMA NORMALIZATION & CLEANING
-            _logger.LogDebug("Applying deep schema normalizations and cleaning...");
+            _logger.LogProgress("Applying deep schema normalizations and cleaning... Source: {SourceFilePath}", sourceFilePath);
 
             RewriteCombinedUnionsAsIntersection(document);
 
@@ -171,12 +179,12 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             _referenceFixer.ScrubComponentRefs(document, cancellationToken);
 
             // STAGE 5: FINAL CLEANUP
-            _logger.LogDebug("Performing final cleanup of empty keys and invalid structures...");
+            _logger.LogProgress("Performing final cleanup of empty keys and invalid structures... Source: {SourceFilePath}", sourceFilePath);
             _schemaFixer.RemoveEmptyInlineSchemas(document);
             _schemaFixer.RemoveInvalidDefaults(document);
 
             // STAGE 6: FINAL VALIDATION AND CLEANUP
-            _logger.LogDebug("Final validation and cleanup process started...");
+            _logger.LogProgress("Final validation and cleanup process started... Source: {SourceFilePath}", sourceFilePath);
 
             // Scrub bogus enums under vendor extensions and harden enum schemas missing type
             FixBadEnums(document);
@@ -259,6 +267,8 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             DetachWebhooksFromPaths(document, attachedWebhooks);
 
             OpenApiSpecVersion outputSpecVersion = options.OutputSpecVersion ?? sourceSpecVersion;
+            _logger.LogProgress("Serializing OpenAPI source {SourceFilePath} to {TargetFilePath} as {OutputSpecVersion}",
+                sourceFilePath, targetFilePath, outputSpecVersion);
             string json = await document.SerializeAsync(outputSpecVersion, OpenApiConstants.Json,
                 cancellationToken: cancellationToken);
 
@@ -281,8 +291,11 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             try
             {
-                await _fileUtil.Write(temporaryTargetPath, json, cancellationToken: cancellationToken);
+                _logger.LogProgress("Writing temporary OpenAPI output {TemporaryFilePath}", temporaryTargetPath);
+                await _fileUtil.Write(temporaryTargetPath, json, log: false, cancellationToken: cancellationToken);
+                _logger.LogProgress("Validating temporary OpenAPI output {TemporaryFilePath}", temporaryTargetPath);
                 await ReadAndValidateOpenApi(temporaryTargetPath, cancellationToken).NoSync();
+                _logger.LogProgress("Validation succeeded; moving {TemporaryFilePath} to {TargetFilePath}", temporaryTargetPath, fullTargetPath);
                 await _fileUtil.Move(temporaryTargetPath, fullTargetPath, log: false, cancellationToken).NoSync();
             }
             finally
@@ -290,16 +303,19 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
                 await _fileUtil.TryDelete(temporaryTargetPath, log: false, CancellationToken.None).NoSync();
             }
 
-            _logger.LogInformation("Cleaned OpenAPI spec saved to {TargetFilePath}", fullTargetPath);
+            _logger.LogProgress("Cleaned OpenAPI spec saved to {TargetFilePath} from {SourceFilePath} in {ElapsedMilliseconds} ms",
+                fullTargetPath, sourceFilePath, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("OpenAPI fix was canceled.");
+            _logger.LogProgress("OpenAPI fix was canceled: {SourceFilePath} -> {TargetFilePath} after {ElapsedMilliseconds} ms",
+                sourceFilePath, targetFilePath, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during OpenAPI fix");
+            _logger.LogError(ex, "Error during OpenAPI fix: {SourceFilePath} -> {TargetFilePath} after {ElapsedMilliseconds} ms",
+                sourceFilePath, targetFilePath, stopwatch.ElapsedMilliseconds);
             throw;
         }
     }
@@ -311,13 +327,13 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         if (string.IsNullOrWhiteSpace(document.Info.Title))
         {
             document.Info.Title = "OpenAPI";
-            _logger.LogDebug("Injected fallback OpenAPI info title");
+            _logger.LogVerbose("Injected fallback OpenAPI info title");
         }
 
         if (string.IsNullOrWhiteSpace(document.Info.Version))
         {
             document.Info.Version = "1.0.0";
-            _logger.LogDebug("Injected fallback OpenAPI info version");
+            _logger.LogVerbose("Injected fallback OpenAPI info version");
         }
     }
 }

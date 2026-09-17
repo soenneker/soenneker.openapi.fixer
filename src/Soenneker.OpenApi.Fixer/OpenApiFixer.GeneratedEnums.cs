@@ -1,9 +1,7 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi;
 using Soenneker.Extensions.Task;
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -31,7 +29,7 @@ public sealed partial class OpenApiFixer
         ["=="] = "DoubleEqual"
     };
 
-    private static readonly Dictionary<char, string> _enumSymbolTokens = new()
+    private static readonly FrozenDictionary<char, string> _enumSymbolTokens = new Dictionary<char, string>()
     {
         ['!'] = "Exclamation",
         ['"'] = "Quote",
@@ -63,7 +61,7 @@ public sealed partial class OpenApiFixer
         ['|'] = "Pipe",
         ['}'] = "RightBrace",
         ['~'] = "Tilde"
-    };
+    }.ToFrozenDictionary();
 
     private string InjectKiotaEnumValueNames(string json)
     {
@@ -78,7 +76,7 @@ public sealed partial class OpenApiFixer
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when injecting Kiota enum names");
+            _logger.LogVerbose(ex, "Unable to parse serialized OpenAPI JSON when injecting Kiota enum names");
             return json;
         }
 

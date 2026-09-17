@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Net.Http;
-using System.Text;
 using Soenneker.Utils.PooledStringBuilders;
 using System.Text.RegularExpressions;
 
@@ -12,7 +12,7 @@ internal static class OpenApiNameNormalizer
     private static readonly Regex _tokenRegex = new(@"\p{Lu}+(?=\p{Lu}\p{Ll}|\p{Nd}|$)|\p{Lu}?\p{Ll}+|\p{Nd}+|\p{L}+",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static readonly Dictionary<string, string> _acronyms = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenDictionary<string, string> _acronyms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["api"] = "Api",
         ["dns"] = "Dns",
@@ -33,9 +33,9 @@ internal static class OpenApiNameNormalizer
         ["oauth"] = "OAuth",
         ["jwt"] = "Jwt",
         ["sql"] = "Sql"
-    };
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> _csharpKeywords = new(StringComparer.Ordinal)
+    private static readonly FrozenSet<string> _csharpKeywords = new HashSet<string>(StringComparer.Ordinal)
     {
         "abstract",
         "as",
@@ -114,9 +114,9 @@ internal static class OpenApiNameNormalizer
         "void",
         "volatile",
         "while"
-    };
+    }.ToFrozenSet(StringComparer.Ordinal);
 
-    private static readonly HashSet<string> _weakTypeNames = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenSet<string> _weakTypeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "Data",
         "Item",
@@ -132,7 +132,7 @@ internal static class OpenApiNameNormalizer
         "Type",
         "Value",
         "Values"
-    };
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     public static string NormalizeComponentName(string? input, string fallback = "UnnamedComponent")
     {
@@ -324,12 +324,6 @@ internal static class OpenApiNameNormalizer
         }
 
         string lower = token.ToLowerInvariant();
-
-        if (_acronyms.TryGetValue(lower, out acronym))
-        {
-            builder.Append(acronym);
-            return;
-        }
 
         builder.Append(char.ToUpperInvariant(lower[0]));
 

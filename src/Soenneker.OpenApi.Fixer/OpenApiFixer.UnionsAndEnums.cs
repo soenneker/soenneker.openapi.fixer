@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using System;
 using System.Collections.Generic;

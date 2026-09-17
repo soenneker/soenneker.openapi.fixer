@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Soenneker.Extensions.Task;
@@ -62,17 +61,17 @@ public sealed partial class OpenApiFixer
 
         if (existingEmpty && !candidateEmpty)
         {
-            _logger.LogDebug("Replacing empty media type '{MediaType}' while normalizing duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+            _logger.LogVerbose("Replacing empty media type '{MediaType}' while normalizing duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
             return candidate;
         }
 
         if (!existingEmpty && candidateEmpty)
         {
-            _logger.LogDebug("Keeping non-empty media type '{MediaType}' while skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+            _logger.LogVerbose("Keeping non-empty media type '{MediaType}' while skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
             return existing;
         }
 
-        _logger.LogDebug("Keeping first normalized media type '{MediaType}' and skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
+        _logger.LogVerbose("Keeping first normalized media type '{MediaType}' and skipping duplicate '{OriginalMediaType}'.", normalizedKey, originalKey);
         return existing;
     }
 
@@ -130,7 +129,7 @@ public sealed partial class OpenApiFixer
     private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
     {
         // Validate exactly the bytes that will replace the target, without repairing a different copy.
-        string json = await _fileUtil.Read(filePath, cancellationToken: cancellationToken);
+        string json = await _fileUtil.Read(filePath, log: false, cancellationToken: cancellationToken);
         await using MemoryStream stream = await _memoryStreamUtil.Get(json, cancellationToken).NoSync();
 
         var reader = new OpenApiJsonReader(); // force JSON
@@ -293,7 +292,7 @@ public sealed partial class OpenApiFixer
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "Unable to parse serialized OpenAPI JSON when normalizing multi-type schemas");
+            _logger.LogVerbose(ex, "Unable to parse serialized OpenAPI JSON when normalizing multi-type schemas");
             return json;
         }
 
@@ -314,10 +313,10 @@ public sealed partial class OpenApiFixer
             return json;
 
         if (normalized > 0)
-            _logger.LogDebug("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
+            _logger.LogVerbose("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
 
         if (narrowed > 0)
-            _logger.LogDebug("Narrowed {Count} mixed-union allOf references to their object-compatible branches", narrowed);
+            _logger.LogVerbose("Narrowed {Count} mixed-union allOf references to their object-compatible branches", narrowed);
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }

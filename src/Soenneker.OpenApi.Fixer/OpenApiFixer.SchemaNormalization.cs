@@ -67,7 +67,7 @@ public sealed partial class OpenApiFixer
                     if (os.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
                     {
                         os.Items = inlineSchema;
-                        _logger.LogTrace("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
+                        _logger.LogVerbose("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
                     }
                     else if (os.Items is OpenApiSchema itemsSchema)
                     {
@@ -78,7 +78,7 @@ public sealed partial class OpenApiFixer
                     if (os.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
                     {
                         os.AdditionalProperties = inlineSchema;
-                        _logger.LogTrace("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
+                        _logger.LogVerbose("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
                     }
                     else if (os.AdditionalProperties is OpenApiSchema additionalSchema)
                     {
@@ -144,7 +144,7 @@ public sealed partial class OpenApiFixer
                     {
                         // Replace the reference with the inline schema
                         dict[key] = inlineSchema;
-                        _logger.LogTrace("Replaced reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogVerbose("Replaced reference to '{PrimKey}' with inline schema", primKey);
                     }
                     else if (dict[key] is OpenApiSchema concreteSchema)
                     {
@@ -173,13 +173,13 @@ public sealed partial class OpenApiFixer
                     if (concreteCs.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
                     {
                         concreteCs.Items = inlineSchema;
-                        _logger.LogTrace("Replaced Items reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogVerbose("Replaced Items reference to '{PrimKey}' with inline schema", primKey);
                     }
 
                     if (concreteCs.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
                     {
                         concreteCs.AdditionalProperties = inlineSchema;
-                        _logger.LogTrace("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogVerbose("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema", primKey);
                     }
                 }
             }
@@ -197,7 +197,7 @@ public sealed partial class OpenApiFixer
                             else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
-                                _logger.LogTrace("Replaced Component RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
+                                _logger.LogVerbose("Replaced Component RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
                             }
                         }
 
@@ -215,7 +215,7 @@ public sealed partial class OpenApiFixer
                             else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
-                                _logger.LogTrace("Replaced Component Response schema reference to '{PrimKey}' with inline schema", primKey);
+                                _logger.LogVerbose("Replaced Component Response schema reference to '{PrimKey}' with inline schema", primKey);
                             }
                         }
                 }
@@ -263,7 +263,7 @@ public sealed partial class OpenApiFixer
                                 else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                                 {
                                     mt.Schema = inlineSchema;
-                                    _logger.LogTrace("Replaced RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
+                                    _logger.LogVerbose("Replaced RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
                                 }
                             }
 
@@ -280,7 +280,7 @@ public sealed partial class OpenApiFixer
                                         else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                                         {
                                             mt.Schema = inlineSchema;
-                                            _logger.LogTrace("Replaced Response schema reference to '{PrimKey}' with inline schema", primKey);
+                                            _logger.LogVerbose("Replaced Response schema reference to '{PrimKey}' with inline schema", primKey);
                                         }
                                     }
                         }
@@ -617,7 +617,7 @@ public sealed partial class OpenApiFixer
 
                 if (schema.Discriminator.Mapping.Any())
                 {
-                    _logger.LogTrace("Populated discriminator mapping for schema '{SchemaKey}'", kv.Key);
+                    _logger.LogVerbose("Populated discriminator mapping for schema '{SchemaKey}'", kv.Key);
                 }
             }
         }
@@ -798,7 +798,7 @@ public sealed partial class OpenApiFixer
                 if (!concreteSchema.Required.Contains(discProp))
                 {
                     concreteSchema.Required.Add(discProp);
-                    _logger.LogTrace("Added discriminator property '{Prop}' to required field list for schema '{Schema}'", discProp, schemaName);
+                    _logger.LogVerbose("Added discriminator property '{Prop}' to required field list for schema '{Schema}'", discProp, schemaName);
                 }
             }
         }

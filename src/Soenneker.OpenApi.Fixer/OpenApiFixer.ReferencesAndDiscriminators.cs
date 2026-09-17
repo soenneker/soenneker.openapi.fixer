@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi;
 using System;
 using System.Collections.Generic;
@@ -90,7 +89,7 @@ public sealed partial class OpenApiFixer
                 concreteSchema.Items = new OpenApiSchemaReference(finalItemName);
             }
 
-            _logger.LogTrace("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
+            _logger.LogVerbose("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
                 itemName);
         }
     }

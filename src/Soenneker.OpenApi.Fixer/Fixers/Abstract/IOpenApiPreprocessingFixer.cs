@@ -16,6 +16,6 @@ public interface IOpenApiPreprocessingFixer
     /// </remarks>
     /// <param name="json">The raw OpenAPI JSON.</param>
     /// <returns>The normalized JSON.</returns>
-    /// <param name="options">Optional preprocessing behavior.</param>
+    /// <param name="options">Optional preprocessing and logging behavior. Standalone calls honor the logging settings; calls made during a fix use that operation's captured settings.</param>
     string Fix(string json, OpenApiFixerOptions? options = null);
 }

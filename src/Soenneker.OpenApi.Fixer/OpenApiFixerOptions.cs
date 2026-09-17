@@ -8,6 +8,12 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Enables detailed progress, repair summaries, and individual repair details at Information severity.
+    /// Disabled by default. File paths, major stages, completion timing, warnings, and errors remain logged, subject to the host's logging filters.
+    /// </summary>
+    public bool VerboseLogging { get; set; }
+
+    /// <summary>
     /// Overrides the OpenAPI version used for the fixed document. When unset, the source document version is preserved.
     /// </summary>
     public OpenApiSpecVersion? OutputSpecVersion { get; set; }

@@ -3,7 +3,6 @@ using Microsoft.OpenApi;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
@@ -288,7 +287,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             }
         }
 
-        _logger.LogDebug("Updated {ReferenceCount} schema references across {MappingCount} schema renames.", replacementCount, mapping.Count);
+        _logger.LogVerbose("Updated {ReferenceCount} schema references across {MappingCount} schema renames.", replacementCount, mapping.Count);
     }
 
     public bool IsValidSchemaReference(OpenApiSchemaReference? reference, OpenApiDocument doc)
@@ -386,7 +385,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 
         if (schema is OpenApiSchemaReference schemaRef && !IsValidSchemaReference(schemaRef, doc))
         {
-            _logger.LogTrace("Unresolved schema reference '{RefId}' during reference scrubbing", schemaRef.Reference.Id);
+            _logger.LogVerbose("Unresolved schema reference '{RefId}' during reference scrubbing", schemaRef.Reference.Id);
         }
 
         if (schema.AllOf != null)

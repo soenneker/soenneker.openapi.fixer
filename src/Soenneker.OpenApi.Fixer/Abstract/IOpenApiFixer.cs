@@ -1,4 +1,3 @@
-using Soenneker.OpenApi.Fixer;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,7 +22,7 @@ public interface IOpenApiFixer
     /// </summary>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
-    /// <param name="options">Optional transformations to apply in addition to the default normalization.</param>
+    /// <param name="options">Optional normalization and logging settings. Logging includes file paths, major processing stages, completion timing, warnings, and errors by default, with settings captured independently for each call.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the operation.</returns>
     ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default);
