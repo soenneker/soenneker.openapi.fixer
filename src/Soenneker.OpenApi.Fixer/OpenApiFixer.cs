@@ -37,9 +37,10 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
     private readonly IDirectoryUtil _directoryUtil;
     private readonly IMemoryStreamUtil _memoryStreamUtil;
 
-    public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer, IOpenApiReferenceFixer referenceFixer,
-        IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer, IOpenApiInt32IdFixer int32IdFixer, IOpenApiPreprocessingFixer preprocessingFixer,
-        IFileUtil fileUtil, IDirectoryUtil directoryUtil, IMemoryStreamUtil memoryStreamUtil)
+    public OpenApiFixer(ILogger<OpenApiFixer> logger, IOpenApiDescriptionFixer descriptionFixer,
+        IOpenApiReferenceFixer referenceFixer, IOpenApiNamingFixer namingFixer, IOpenApiSchemaFixer schemaFixer,
+        IOpenApiInt32IdFixer int32IdFixer, IOpenApiPreprocessingFixer preprocessingFixer, IFileUtil fileUtil,
+        IDirectoryUtil directoryUtil, IMemoryStreamUtil memoryStreamUtil)
     {
         _logger = logger;
         _descriptionFixer = descriptionFixer;
@@ -53,13 +54,14 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         _memoryStreamUtil = memoryStreamUtil;
     }
 
-    public async ValueTask Fix(string sourceFilePath, string targetFilePath, CancellationToken cancellationToken = default)
+    public async ValueTask Fix(string sourceFilePath, string targetFilePath,
+        CancellationToken cancellationToken = default)
     {
-        await Fix(sourceFilePath, targetFilePath, null, cancellationToken)
-            .NoSync();
+        await Fix(sourceFilePath, targetFilePath, null, cancellationToken).NoSync();
     }
 
-    public async ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default)
+    public async ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -283,7 +285,8 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             DetachWebhooksFromPaths(document, attachedWebhooks);
 
             OpenApiSpecVersion outputSpecVersion = options.OutputSpecVersion ?? sourceSpecVersion;
-            string json = await document.SerializeAsync(outputSpecVersion, OpenApiConstants.Json, cancellationToken: cancellationToken);
+            string json = await document.SerializeAsync(outputSpecVersion, OpenApiConstants.Json,
+                cancellationToken: cancellationToken);
 
             // Fix JSON boolean values (convert Python-style True/False to JSON true/false)
             json = FixJsonBooleanValues(json);
@@ -329,7 +332,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
     private void NormalizeRequiredInfo(OpenApiDocument document)
     {
-        document.Info ??= new OpenApiInfo {Title = "OpenAPI", Version = "1.0.0"};
+        document.Info ??= new OpenApiInfo { Title = "OpenAPI", Version = "1.0.0" };
 
         if (string.IsNullOrWhiteSpace(document.Info.Title))
         {
@@ -343,5 +346,4 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             _logger.LogInformation("Injected fallback OpenAPI info version");
         }
     }
-
 }
