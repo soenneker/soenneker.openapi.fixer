@@ -8,6 +8,12 @@ public interface IOpenApiPreprocessingFixer
     /// <summary>
     /// Normalizes raw OpenAPI JSON so the parser can read malformed-but-recoverable specs.
     /// </summary>
+    /// <remarks>
+    /// Recovers loose JSON syntax, duplicate properties (last occurrence wins, with a warning), metadata,
+    /// schema field shapes, and path parameter declarations. Schema traversal distinguishes schema maps from
+    /// examples, defaults, constants, and extension payloads. Unparseable input is returned unchanged for the
+    /// document loader to report; recovery does not guarantee a valid contract for arbitrary input.
+    /// </remarks>
     /// <param name="json">The raw OpenAPI JSON.</param>
     /// <returns>The normalized JSON.</returns>
     /// <param name="options">Optional preprocessing behavior.</param>

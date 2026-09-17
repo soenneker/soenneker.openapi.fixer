@@ -85,62 +85,9 @@ public sealed partial class OpenApiFixer
         if (root is null)
             return json;
 
-        bool changed = InjectKiotaEnumValueNames(root, null);
+        bool changed = OpenApiJsonSchemaWalker.Visit(root, TryInjectKiotaEnumValueNames);
 
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
-    }
-
-    private static bool InjectKiotaEnumValueNames(JsonNode? node, string? suggestedName)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-            {
-                bool changed = TryInjectKiotaEnumValueNames(obj, suggestedName);
-
-                foreach ((string key, JsonNode? child) in obj)
-                {
-                    switch (key)
-                    {
-                        case "schemas":
-                        case "properties":
-                            if (child is JsonObject namedChildren)
-                            {
-                                foreach ((string childName, JsonNode? namedChild) in namedChildren)
-                                {
-                                    changed |= InjectKiotaEnumValueNames(namedChild, childName);
-                                }
-                            }
-
-                            break;
-                        case "items":
-                            changed |= InjectKiotaEnumValueNames(child, $"{suggestedName ?? "Item"}Item");
-                            break;
-                        case "additionalProperties":
-                            changed |= InjectKiotaEnumValueNames(child, $"{suggestedName ?? "AdditionalProperty"}AdditionalProperty");
-                            break;
-                        default:
-                            changed |= InjectKiotaEnumValueNames(child, suggestedName);
-                            break;
-                    }
-                }
-
-                return changed;
-            }
-            case JsonArray array:
-            {
-                bool changed = false;
-
-                foreach (JsonNode? child in array)
-                {
-                    changed |= InjectKiotaEnumValueNames(child, suggestedName);
-                }
-
-                return changed;
-            }
-            default:
-                return false;
-        }
     }
 
     private static bool TryInjectKiotaEnumValueNames(JsonObject schemaObject, string? suggestedName)

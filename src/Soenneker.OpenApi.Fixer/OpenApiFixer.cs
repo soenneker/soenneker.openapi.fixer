@@ -23,7 +23,6 @@ using Soenneker.Utils.MemoryStream.Abstract;
 
 namespace Soenneker.OpenApi.Fixer;
 
-/// <inheritdoc cref="IOpenApiFixer" />
 public sealed partial class OpenApiFixer : IOpenApiFixer
 {
     private readonly ILogger<OpenApiFixer> _logger;
@@ -65,14 +64,13 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         try
         {
             options ??= new OpenApiFixerOptions();
-            OpenApiSpecVersion sourceSpecVersion = await DetectSpecVersion(sourceFilePath, cancellationToken).NoSync();
-
             // STAGE 0: DOCUMENT LOADING & INITIAL PARSING
-            await ReadAndValidateOpenApi(sourceFilePath, options, cancellationToken)
-                .NoSync();
             await using MemoryStream pre = await PreprocessSpecFile(sourceFilePath, options, cancellationToken);
-            (OpenApiDocument? document, OpenApiDiagnostic? diagnostics) = await OpenApiDocument.LoadAsync(pre, cancellationToken: cancellationToken)
-                                                                                               .NoSync();
+            OpenApiSpecVersion sourceSpecVersion = DetectSpecVersion(pre);
+            ReadResult read = await new OpenApiJsonReader().ReadAsync(pre, new Uri(Path.GetFullPath(sourceFilePath)),
+                new OpenApiReaderSettings(), cancellationToken).NoSync();
+            OpenApiDocument? document = read.Document;
+            OpenApiDiagnostic? diagnostics = read.Diagnostic;
 
             if (diagnostics?.Errors?.Any() == true)
             {
@@ -307,7 +305,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             try
             {
                 await _fileUtil.Write(temporaryTargetPath, json, cancellationToken: cancellationToken);
-                await ReadAndValidateOpenApi(temporaryTargetPath, options, cancellationToken, throwOnErrors: true).NoSync();
+                await ReadAndValidateOpenApi(temporaryTargetPath, cancellationToken).NoSync();
                 await _fileUtil.Move(temporaryTargetPath, fullTargetPath, log: false, cancellationToken).NoSync();
             }
             finally

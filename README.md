@@ -38,6 +38,14 @@ await fixer.Fix(
 
 The fixer reads JSON, normalizes the document, and writes formatted JSON. It uses a temporary file in the target directory and replaces an existing target only after the result parses successfully. Cancellation and processing failures propagate to the caller.
 
+Input recovery accepts comments, trailing commas, unescaped control characters in strings, and bare `True`, `False`, and `None` values. Quoted text is preserved. Duplicate JSON properties use the last occurrence and produce a warning; conflicting duplicate values are inherently ambiguous. Version detection runs after recovery, so malformed JSON does not prevent an otherwise readable version from being recognized.
+
+The preprocessing rules also recover numeric version metadata, quoted numeric constraints, singleton `required`/`enum`/composition collections, and singleton parameter objects. Missing route placeholders receive required string parameters only where no path-level or operation-level definition exists, including local parameter references. Existing parameter types and constraints are retained.
+
+JSON schema traversal follows OpenAPI structure through callbacks, webhooks, reusable components, Swagger definitions, and nested JSON Schema keywords. Properties named `example`, `type`, or `x-*` receive the same repairs as other properties. These traversal passes treat examples, defaults, constants, enum values, and extensions as payload data instead of nested schema definitions. Separate compatibility passes can still normalize enum and default values. Numeric exclusive bounds in OpenAPI 3.1 and media-type parameters and ranges are preserved.
+
+Recovery cannot infer missing contracts from arbitrary text or resolve conflicting definitions without a policy. Unrecoverable JSON and unsupported versions still fail explicitly. Final validation reads the exact output without preprocessing it again, and a failed or canceled run leaves an existing target intact.
+
 The default normalization focuses on generated-client compatibility, including component and operation names, references, inline schemas, compositions, discriminators, enum representations, media types, defaults, and empty structures. These are material contract transformations: keep the source file, review the output diff, and generate and test the client before publishing it.
 
 ## Optional transformations

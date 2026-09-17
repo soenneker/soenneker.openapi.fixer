@@ -22,16 +22,19 @@ public sealed partial class OpenApiFixer
     {
         if (string.IsNullOrWhiteSpace(mediaType))
             return "application/json";
-        int separator = mediaType.IndexOf(';');
-        string baseType = separator >= 0 ? mediaType.AsSpan(0, separator).Trim().ToString() : mediaType.Trim();
-        if (baseType.Contains('*') || !baseType.Contains('/'))
+        string trimmed = mediaType.Trim();
+        int separator = trimmed.IndexOf(';');
+        string baseType = separator >= 0 ? trimmed[..separator].Trim() : trimmed;
+        if (!baseType.Contains('/'))
             return "application/json";
-        return baseType;
+        // Media ranges and parameters are part of the contract. Distinct profiles/versions can
+        // describe different payloads; dropping the suffix silently discards an entire variant.
+        return trimmed;
     }
 
     private Dictionary<string, IOpenApiMediaType> NormalizeMediaTypes(IDictionary<string, IOpenApiMediaType> content)
     {
-        var normalized = new Dictionary<string, IOpenApiMediaType>(StringComparer.OrdinalIgnoreCase);
+        var normalized = new Dictionary<string, IOpenApiMediaType>(StringComparer.Ordinal);
 
         foreach (KeyValuePair<string, IOpenApiMediaType> entry in content)
         {
@@ -124,13 +127,14 @@ public sealed partial class OpenApiFixer
         }
     }
 
-    private async ValueTask ReadAndValidateOpenApi(string filePath, OpenApiFixerOptions? options, CancellationToken cancellationToken,
-        bool throwOnErrors = false)
+    private async ValueTask ReadAndValidateOpenApi(string filePath, CancellationToken cancellationToken)
     {
-        await using MemoryStream stream = await PreprocessSpecFile(filePath, options, cancellationToken);
+        // Validate exactly the bytes that will replace the target, without repairing a different copy.
+        string json = await _fileUtil.Read(filePath, cancellationToken: cancellationToken);
+        await using MemoryStream stream = await _memoryStreamUtil.Get(json, cancellationToken).NoSync();
 
         var reader = new OpenApiJsonReader(); // force JSON
-        ReadResult read = await reader.ReadAsync(stream, new Uri(filePath), // base URI for relative $refs
+        ReadResult read = await reader.ReadAsync(stream, new Uri(Path.GetFullPath(filePath)), // base URI for relative $refs
                                           new OpenApiReaderSettings(), cancellationToken)
                                       .NoSync();
 
@@ -144,8 +148,7 @@ public sealed partial class OpenApiFixer
             _logger.LogWarning("OpenAPI parsing errors in {File}: {Msgs}", Path.GetFileName(filePath),
                 messages);
 
-            if (throwOnErrors)
-                throw new InvalidOperationException($"The fixed OpenAPI document is invalid: {messages}");
+            throw new InvalidOperationException($"The fixed OpenAPI document is invalid: {messages}");
         }
     }
 
@@ -302,7 +305,13 @@ public sealed partial class OpenApiFixer
             return json;
 
         var normalized = 0;
-        NormalizeKiotaIncompatibleMultiTypes(root, false, false, ref normalized);
+        OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
+        {
+            if (!TryNormalizeKiotaIncompatibleMultiType(schema))
+                return false;
+            normalized++;
+            return true;
+        });
         int narrowed = NarrowKiotaIncompatibleMixedUnionAllOfReferences(root);
 
         if (normalized == 0 && narrowed == 0)
@@ -323,34 +332,12 @@ public sealed partial class OpenApiFixer
             return 0;
 
         var narrowed = 0;
-        Visit(root, false, false);
-        return narrowed;
-
-        void Visit(JsonNode? node, bool isSchema, bool childrenAreSchemas)
+        OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
         {
-            switch (node)
-            {
-                case JsonObject obj:
-                    if (isSchema)
-                        NarrowSchema(obj);
-
-                    foreach ((string key, JsonNode? child) in obj.ToList())
-                    {
-                        if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum")
-                            continue;
-
-                        bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
-                        bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
-                        Visit(child, childIsSchema, childChildrenAreSchemas);
-                    }
-
-                    break;
-                case JsonArray array:
-                    foreach (JsonNode? child in array)
-                        Visit(child, isSchema, false);
-                    break;
-            }
-        }
+            NarrowSchema(schema);
+            return false;
+        });
+        return narrowed;
 
         void NarrowSchema(JsonObject schema)
         {
@@ -428,34 +415,6 @@ public sealed partial class OpenApiFixer
         return referencedSchema is not null;
     }
 
-    private static void NormalizeKiotaIncompatibleMultiTypes(JsonNode? node, bool isSchema, bool childrenAreSchemas, ref int normalized)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-                if (isSchema && TryNormalizeKiotaIncompatibleMultiType(obj))
-                    normalized++;
-
-                foreach ((string key, JsonNode? child) in obj.ToList())
-                {
-                    if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples" or "enum")
-                        continue;
-
-                    bool childIsSchema = childrenAreSchemas || key == "schema" || (isSchema && IsSchemaChild(key));
-                    bool childChildrenAreSchemas = key == "schemas" || (isSchema && key is "properties" or "dependentSchemas");
-
-                    NormalizeKiotaIncompatibleMultiTypes(child, childIsSchema, childChildrenAreSchemas, ref normalized);
-                }
-
-                break;
-            case JsonArray array:
-                foreach (JsonNode? child in array)
-                    NormalizeKiotaIncompatibleMultiTypes(child, isSchema, false, ref normalized);
-
-                break;
-        }
-    }
-
     private static bool TryNormalizeKiotaIncompatibleMultiType(JsonObject schema)
     {
         if (schema["type"] is not JsonArray types)
@@ -496,9 +455,5 @@ public sealed partial class OpenApiFixer
     }
 
     private static bool IsJsonSchemaType(string? type) => type is "null" or "boolean" or "object" or "array" or "number" or "string" or "integer";
-
-    private static bool IsSchemaChild(string key) =>
-        key is "properties" or "items" or "prefixItems" or "additionalProperties" or "propertyNames" or "contains" or "not" or "allOf" or "anyOf" or
-            "oneOf" or "dependentSchemas" or "if" or "then" or "else";
 
 }

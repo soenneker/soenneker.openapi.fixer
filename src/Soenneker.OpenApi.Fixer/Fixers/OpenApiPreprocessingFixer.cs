@@ -12,10 +12,12 @@ using System.Text.RegularExpressions;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
-/// <inheritdoc cref="IOpenApiPreprocessingFixer"/>
 public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 {
     private const string Redacted = "[REDACTED]";
+
+    private static readonly (string Token, string Canonical)[] LooseJsonLiterals =
+        [("true", "true"), ("false", "false"), ("null", "null"), ("None", "null")];
 
     private static readonly HashSet<string> CredentialNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -48,56 +50,53 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
         JsonNode? root;
         bool requiresCanonicalization = false;
-
         try
         {
-            root = JsonNode.Parse(json);
+            // Reject duplicate names up front: JsonNode otherwise throws later when a lazy object
+            // is first accessed, outside the parsing recovery path.
+            root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { AllowDuplicateProperties = false });
         }
         catch (JsonException)
         {
+            string sanitized = NormalizeLooseJsonSyntax(json);
+            var documentOptions = new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowDuplicateProperties = false
+            };
             try
             {
-                root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                });
-                requiresCanonicalization = true;
+                root = JsonNode.Parse(sanitized, documentOptions: documentOptions);
             }
-            catch (JsonException ex)
+            catch (JsonException)
             {
-                string sanitized = EscapeUnescapedControlCharacters(json);
-
-                if (ReferenceEquals(sanitized, json))
-                {
-                    _logger.LogDebug(ex, "Unable to parse OpenAPI JSON during preprocessing");
-                    return json;
-                }
-
                 try
                 {
-                    root = JsonNode.Parse(sanitized, documentOptions: new JsonDocumentOptions
-                    {
-                        AllowTrailingCommas = true,
-                        CommentHandling = JsonCommentHandling.Skip
-                    });
-                    requiresCanonicalization = true;
+                    documentOptions.AllowDuplicateProperties = true;
+                    using JsonDocument document = JsonDocument.Parse(sanitized, documentOptions);
+                    int duplicates = 0;
+                    root = ReadDuplicateTolerantNode(document.RootElement, ref duplicates);
+                    if (duplicates > 0)
+                        _logger.LogWarning("Recovered {Count} duplicate JSON properties using the last occurrence of each property", duplicates);
                 }
-                catch (JsonException sanitizedException)
+                catch (JsonException ex)
                 {
-                    _logger.LogDebug(sanitizedException, "Unable to parse OpenAPI JSON during preprocessing after escaping control characters");
+                    _logger.LogDebug(ex, "Unable to parse OpenAPI JSON after syntax recovery");
                     return json;
                 }
             }
+            requiresCanonicalization = true;
         }
 
         if (root is null)
             return json;
 
+        bool changed = root is JsonObject metadata && NormalizeDocumentMetadata(metadata);
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
-        bool changed = NormalizeLooseSchemaFields(root, false, false, normalizeLegacyNullable);
-        changed |= requiresCanonicalization;
         changed |= NormalizePathParameterRequirements(root);
+        changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable));
+        changed |= requiresCanonicalization;
 
         if (options?.RedactCredentialLikeValues == true)
             changed |= RedactCredentialLikeContent(root, null);
@@ -105,68 +104,157 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
     }
 
-    private static bool NormalizePathParameterRequirements(JsonNode root)
+    private static JsonNode? ReadDuplicateTolerantNode(JsonElement element, ref int duplicates)
     {
-        if (root is not JsonObject rootObject)
-            return false;
-
-        bool changed = false;
-
-        if (rootObject["paths"] is JsonObject paths)
+        switch (element.ValueKind)
         {
-            foreach ((string path, JsonNode? pathNode) in paths)
-            {
-                if (pathNode is not JsonObject pathItem)
-                    continue;
-
-                HashSet<string> pathParameterNames = Regex.Matches(path, @"\{([^/{}]+)\}", RegexOptions.CultureInvariant)
-                                                          .Select(match => match.Groups[1].Value)
-                                                          .ToHashSet(StringComparer.Ordinal);
-
-                changed |= NormalizePathParameterArray(pathItem["parameters"], pathParameterNames);
-
-                foreach ((string key, JsonNode? operationNode) in pathItem)
+            case JsonValueKind.Object:
+                var obj = new JsonObject();
+                foreach (JsonProperty property in element.EnumerateObject())
                 {
-                    if (key is not ("get" or "put" or "post" or "delete" or "options" or "head" or "patch" or "trace") ||
-                        operationNode is not JsonObject operation)
-                        continue;
-
-                    changed |= NormalizePathParameterArray(operation["parameters"], pathParameterNames);
+                    if (obj.ContainsKey(property.Name))
+                        duplicates++;
+                    obj[property.Name] = ReadDuplicateTolerantNode(property.Value, ref duplicates);
                 }
-            }
+                return obj;
+            case JsonValueKind.Array:
+                var array = new JsonArray();
+                foreach (JsonElement item in element.EnumerateArray())
+                    array.Add(ReadDuplicateTolerantNode(item, ref duplicates));
+                return array;
+            case JsonValueKind.Null:
+                return null;
+            default:
+                return JsonValue.Create(element.Clone());
         }
-
-        if (rootObject["components"]?["parameters"] is JsonObject componentParameters)
-        {
-            foreach (JsonNode? parameter in componentParameters.Select(entry => entry.Value))
-                changed |= NormalizePathParameterRequirement(parameter);
-        }
-
-        return changed;
     }
 
-    private static bool NormalizePathParameterArray(JsonNode? node, IReadOnlySet<string>? pathParameterNames = null)
+    private static bool NormalizePathParameterRequirements(JsonNode root)
     {
-        if (node is not JsonArray parameters)
+        if (root is not JsonObject document)
             return false;
 
         bool changed = false;
+        bool swagger = document.ContainsKey("swagger");
+        var pending = new Queue<(JsonObject Path, string? Template)>();
+        AddPaths(document["paths"], hasTemplate: true);
+        AddPaths(document["webhooks"], hasTemplate: false);
 
-        for (int i = parameters.Count - 1; i >= 0; i--)
+        if (document["components"] is JsonObject components)
         {
-            JsonNode? parameter = parameters[i];
+            if (components["parameters"] is JsonObject parameters)
+                foreach (JsonNode? parameter in parameters.Select(entry => entry.Value))
+                    changed |= NormalizeParameterFields(parameter);
+            AddPaths(components["pathItems"], hasTemplate: false);
+            if (components["callbacks"] is JsonObject callbacks)
+                foreach (JsonNode? callback in callbacks.Select(entry => entry.Value))
+                    AddPaths(callback, hasTemplate: false, skipExtensions: true);
+        }
+        if (document["parameters"] is JsonObject legacyParameters)
+            foreach (JsonNode? parameter in legacyParameters.Select(entry => entry.Value))
+                changed |= NormalizeParameterFields(parameter);
 
-            if (pathParameterNames != null && IsExtraneousPathParameter(parameter, pathParameterNames))
+        while (pending.TryDequeue(out var entry))
+        {
+            (JsonObject pathItem, string? template) = entry;
+            HashSet<string>? names = template is null ? null : Regex.Matches(template, @"\{([^/{}]+)\}", RegexOptions.CultureInvariant)
+                .Select(match => match.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+            NormalizeParameters(pathItem, names);
+            var operations = pathItem.Where(entry => OpenApiJsonSchemaWalker.IsOperation(entry.Key)).Select(entry => entry.Value).OfType<JsonObject>().ToList();
+            if (pathItem["additionalOperations"] is JsonObject additionalOperations)
+                operations.AddRange(additionalOperations.Select(entry => entry.Value).OfType<JsonObject>());
+            foreach (JsonObject operation in operations)
             {
-                parameters.RemoveAt(i);
-                changed = true;
-                continue;
+                NormalizeParameters(operation, names);
+                if (names != null)
+                {
+                    var declared = new HashSet<string>(StringComparer.Ordinal);
+                    CollectDeclared(pathItem["parameters"], declared);
+                    CollectDeclared(operation["parameters"], declared);
+                    foreach (string name in names)
+                    {
+                        if (declared.Contains(name))
+                            continue;
+                        var parameter = new JsonObject { ["name"] = name, ["in"] = "path", ["required"] = true };
+                        if (swagger)
+                            parameter["type"] = "string";
+                        else
+                            parameter["schema"] = new JsonObject { ["type"] = "string" };
+                        if (operation["parameters"] is not JsonArray)
+                            operation["parameters"] = new JsonArray();
+                        operation["parameters"]!.AsArray().Add(parameter);
+                        changed = true;
+                    }
+                }
+                if (operation["callbacks"] is JsonObject callbacks)
+                    foreach (JsonNode? callback in callbacks.Select(entry => entry.Value))
+                        AddPaths(callback, hasTemplate: false, skipExtensions: true);
             }
+        }
+        return changed;
 
-            changed |= NormalizePathParameterRequirement(parameter);
+        void AddPaths(JsonNode? node, bool hasTemplate, bool skipExtensions = false)
+        {
+            if (node is not JsonObject paths)
+                return;
+            foreach ((string key, JsonNode? path) in paths)
+                if (key != "$ref" && (!(hasTemplate || skipExtensions) || !key.StartsWith("x-", StringComparison.Ordinal)) && path is JsonObject item)
+                    pending.Enqueue((item, hasTemplate ? key : null));
         }
 
-        return changed;
+        void NormalizeParameters(JsonObject owner, IReadOnlySet<string>? names)
+        {
+            if (owner["parameters"] is JsonObject singleParameter)
+            {
+                owner["parameters"] = new JsonArray(singleParameter.DeepClone());
+                changed = true;
+            }
+            if (owner["parameters"] is not JsonArray parameters)
+                return;
+            for (int i = parameters.Count - 1; i >= 0; i--)
+            {
+                JsonObject? parameter = ResolveParameter(parameters[i]);
+                if (names != null && IsExtraneousPathParameter(parameter, names))
+                {
+                    parameters.RemoveAt(i);
+                    changed = true;
+                    continue;
+                }
+                changed |= NormalizeParameterFields(parameter);
+            }
+        }
+
+        void CollectDeclared(JsonNode? node, ISet<string> declared)
+        {
+            if (node is not JsonArray parameters)
+                return;
+            foreach (JsonNode? entry in parameters)
+            {
+                JsonObject? parameter = ResolveParameter(entry);
+                if (parameter?["in"] is JsonValue location && location.TryGetValue(out string? where) && where == "path" &&
+                    parameter["name"] is JsonValue name && name.TryGetValue(out string? text) && text != null)
+                    declared.Add(text);
+            }
+        }
+
+        JsonObject? ResolveParameter(JsonNode? node)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (node is JsonObject parameter)
+            {
+                if (parameter["$ref"] is not JsonValue reference || !reference.TryGetValue(out string? text))
+                    return parameter;
+                if (text is null || !text.StartsWith("#/", StringComparison.Ordinal) || !visited.Add(text))
+                    return null;
+                node = document;
+                foreach (string token in text[2..].Split('/'))
+                {
+                    string key = Uri.UnescapeDataString(token).Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+                    node = node is JsonObject obj ? obj[key] : null;
+                }
+            }
+            return null;
+        }
     }
 
     private static bool IsExtraneousPathParameter(JsonNode? node, IReadOnlySet<string> pathParameterNames)
@@ -191,58 +279,135 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         return true;
     }
 
-    private static bool NormalizeLooseSchemaFields(JsonNode? node, bool isSchema, bool childrenAreSchemas, bool normalizeLegacyNullable)
+    private static bool NormalizeParameterFields(JsonNode? node)
     {
-        switch (node)
-        {
-            case JsonObject obj:
-            {
-                bool changed = isSchema && NormalizeSchemaFields(obj, normalizeLegacyNullable);
-
-                foreach ((string key, JsonNode? child) in obj.ToList())
-                {
-                    if (key.StartsWith("x-", StringComparison.Ordinal) || key is "example" or "examples")
-                        continue;
-
-                    bool childIsSchema = childrenAreSchemas || IsSchemaChild(key, isSchema);
-                    bool childChildrenAreSchemas = key is "schemas" || (isSchema && key is "properties");
-
-                    changed |= NormalizeLooseSchemaFields(child, childIsSchema, childChildrenAreSchemas, normalizeLegacyNullable);
-                }
-
-                return changed;
-            }
-            case JsonArray array:
-            {
-                bool changed = false;
-
-                foreach (JsonNode? child in array)
-                {
-                    changed |= NormalizeLooseSchemaFields(child, isSchema, false, normalizeLegacyNullable);
-                }
-
-                return changed;
-            }
-            default:
-                return false;
-        }
+        if (node is not JsonObject parameter)
+            return false;
+        bool changed = NormalizePathParameterRequirement(parameter);
+        foreach (string key in new[] { "required", "deprecated", "explode", "allowEmptyValue", "allowReserved" })
+            changed |= TryCoerceBooleanField(parameter, key);
+        return changed;
     }
 
     private static bool NormalizeSchemaFields(JsonObject obj, bool normalizeLegacyNullable)
     {
         bool changed = NormalizeIntegerValues(obj);
 
+        // These shapes occur in hand-authored and loosely generated specs. Preserve the supplied
+        // value when its intended collection shape is unambiguous.
+        if (obj["required"] is JsonValue required && required.TryGetValue(out string? propertyName))
+        {
+            obj["required"] = new JsonArray(propertyName);
+            changed = true;
+        }
+
+        foreach (string key in new[] { "allOf", "anyOf", "oneOf" })
+        {
+            if (obj[key] is not JsonObject branch)
+                continue;
+            obj[key] = new JsonArray(branch.DeepClone());
+            changed = true;
+        }
+
+        if (obj["enum"] is JsonValue scalarEnum)
+        {
+            obj["enum"] = new JsonArray(scalarEnum.DeepClone());
+            changed = true;
+        }
+
+        foreach (string key in new[] { "minimum", "maximum", "multipleOf", "exclusiveMinimum", "exclusiveMaximum" })
+        {
+            if (key is "exclusiveMinimum" or "exclusiveMaximum" && !normalizeLegacyNullable)
+                continue;
+            changed |= TryCoerceNumericField(obj, key, integerOnly: false);
+        }
+        foreach (string key in new[] { "minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties", "minContains", "maxContains" })
+            changed |= TryCoerceNumericField(obj, key, integerOnly: true);
+
         changed |= TryCoerceBooleanField(obj, "nullable");
         changed |= TryCoerceBooleanField(obj, "readOnly");
         changed |= TryCoerceBooleanField(obj, "writeOnly");
         changed |= TryCoerceBooleanField(obj, "deprecated");
         changed |= TryCoerceBooleanField(obj, "uniqueItems");
-        changed |= TryCoerceBooleanField(obj, "exclusiveMaximum");
-        changed |= TryCoerceBooleanField(obj, "exclusiveMinimum");
+        // In 3.1+, these are numeric bounds. In particular, 0 and 1 are not boolean flags.
+        if (!normalizeLegacyNullable)
+        {
+            changed |= TryCoerceBooleanField(obj, "exclusiveMaximum");
+            changed |= TryCoerceBooleanField(obj, "exclusiveMinimum");
+        }
+        else
+        {
+            changed |= NormalizeExclusiveBound(obj, "exclusiveMinimum", "minimum");
+            changed |= NormalizeExclusiveBound(obj, "exclusiveMaximum", "maximum");
+        }
 
         if (normalizeLegacyNullable)
             changed |= NormalizeLegacyNullable(obj);
 
+        return changed;
+    }
+
+    private static bool TryCoerceNumericField(JsonObject schema, string key, bool integerOnly)
+    {
+        if (schema[key] is not JsonValue value || !value.TryGetValue(out string? text) || text is null)
+            return false;
+
+        if (integerOnly)
+        {
+            if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int count) || count < 0)
+                return false;
+            schema[key] = count;
+            return true;
+        }
+
+        try
+        {
+            // Keep the original numeric token, including precision beyond decimal/double.
+            // Recovery must not round a constraint or turn a tiny positive limit into zero.
+            if (JsonNode.Parse(text) is not JsonValue number || number.GetValueKind() != JsonValueKind.Number)
+                return false;
+            schema[key] = number;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool NormalizeDocumentMetadata(JsonObject root)
+    {
+        bool changed = false;
+        foreach (string key in new[] { "openapi", "swagger" })
+        {
+            if (root[key] is not JsonValue value)
+                continue;
+            string? text = value.TryGetValue(out string? version) ? version :
+                value.GetValueKind() == JsonValueKind.Number ? value.ToJsonString() : null;
+            if (text is null)
+                continue;
+            string normalized = text.Trim();
+            if (key == "openapi" && normalized is "3.0" or "3.1" or "3.2")
+                normalized += ".0";
+            if (key == "swagger" && normalized == "2")
+                normalized = "2.0";
+            if (version != normalized)
+            {
+                root[key] = normalized;
+                changed = true;
+            }
+        }
+
+        if (root["info"] is JsonObject info)
+        {
+            foreach (string key in new[] { "title", "version" })
+            {
+                if (info[key] is not JsonValue value || value.GetValueKind() != JsonValueKind.Number)
+                    continue;
+                info[key] = value.ToJsonString();
+                changed = true;
+            }
+        }
         return changed;
     }
 
@@ -450,7 +615,7 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 
     private static bool IsOpenApi31OrLater(JsonObject root)
     {
-        string? version = root["openapi"]?.GetValue<string>();
+        string? version = root["openapi"] is JsonValue value && value.TryGetValue(out string? text) ? text : null;
 
         return Version.TryParse(version, out Version? parsed) && parsed.Major == 3 && parsed.Minor >= 1;
     }
@@ -488,15 +653,29 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         return true;
     }
 
-    private static bool IsSchemaChild(string key, bool parentIsSchema)
+    private static bool NormalizeExclusiveBound(JsonObject schema, string exclusiveKey, string inclusiveKey)
     {
-        if (key is "schema")
-            return true;
-
-        if (!parentIsSchema)
+        if (schema[exclusiveKey] is not JsonValue value)
             return false;
 
-        return key is "properties" or "items" or "additionalProperties" or "propertyNames" or "not" or "allOf" or "anyOf" or "oneOf";
+        bool exclusive;
+        if (!value.TryGetValue(out exclusive))
+        {
+            if (!value.TryGetValue(out string? text) || !bool.TryParse(text, out exclusive))
+                return false;
+        }
+
+        // Convert a legacy flag only when its corresponding numeric limit supplies the bound.
+        // A false flag imposes no extra constraint; the inclusive limit stays in place.
+        if (exclusive && schema[inclusiveKey] is JsonValue bound && bound.GetValueKind() == JsonValueKind.Number)
+        {
+            schema[exclusiveKey] = bound.DeepClone();
+            schema.Remove(inclusiveKey);
+        }
+        else
+            schema.Remove(exclusiveKey);
+
+        return true;
     }
 
     private static bool TryCoerceBooleanField(JsonObject obj, string key)
@@ -557,46 +736,96 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         return false;
     }
 
-    private static string EscapeUnescapedControlCharacters(string json)
+    private static string NormalizeLooseJsonSyntax(string json)
     {
-        StringBuilder? builder = null;
+        var builder = new StringBuilder(json.Length + 16);
         bool inString = false;
         bool escaped = false;
+        bool lineComment = false;
+        bool blockComment = false;
+        char previous = '\0';
 
-        for (var index = 0; index < json.Length; index++)
+        for (int index = 0; index < json.Length; index++)
         {
             char value = json[index];
+            if (index == 0 && value == '\uFEFF')
+                continue;
 
-            if (inString && value < ' ')
+            if (lineComment || blockComment)
             {
-                builder ??= new StringBuilder(json.Length + 16).Append(json, 0, index);
-                builder.Append("\\u").Append(((int)value).ToString("X4", CultureInfo.InvariantCulture));
-                escaped = false;
+                builder.Append(value);
+                if (lineComment && value is '\r' or '\n')
+                    lineComment = false;
+                else if (blockComment && value == '*' && index + 1 < json.Length && json[index + 1] == '/')
+                {
+                    builder.Append(json[++index]);
+                    blockComment = false;
+                }
                 continue;
             }
 
-            builder?.Append(value);
-
-            if (!inString)
+            if (inString)
             {
-                if (value == '"')
-                    inString = true;
+                if (value < ' ')
+                {
+                    builder.Append(escaped ? "u" : "\\u").Append(((int)value).ToString("X4", CultureInfo.InvariantCulture));
+                    escaped = false;
+                    continue;
+                }
 
+                builder.Append(value);
+                if (escaped)
+                    escaped = false;
+                else if (value == '\\')
+                    escaped = true;
+                else if (value == '"')
+                {
+                    inString = false;
+                    previous = '"';
+                }
                 continue;
             }
 
-            if (escaped)
+            if (value == '/' && index + 1 < json.Length && json[index + 1] is '/' or '*')
             {
-                escaped = false;
+                lineComment = json[index + 1] == '/';
+                blockComment = !lineComment;
+                builder.Append(value).Append(json[++index]);
                 continue;
             }
 
-            if (value == '\\')
-                escaped = true;
-            else if (value == '"')
-                inString = false;
+            if (value == '"')
+                inString = true;
+            else if (previous is ':' or '[' or ',')
+            {
+                string? replacement = null;
+                int length = 0;
+                foreach ((string token, string canonical) in LooseJsonLiterals)
+                {
+                    if (!json.AsSpan(index).StartsWith(token, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    int end = index + token.Length;
+                    if (end < json.Length && !char.IsWhiteSpace(json[end]) && json[end] is not (',' or ']' or '}' or '/'))
+                        continue;
+                    replacement = canonical;
+                    length = token.Length;
+                    break;
+                }
+                if (replacement != null)
+                {
+                    builder.Append(replacement);
+                    index += length - 1;
+                    previous = replacement[^1];
+                    continue;
+                }
+            }
+
+            builder.Append(value);
+            if (!char.IsWhiteSpace(value))
+                previous = value;
         }
 
-        return builder?.ToString() ?? json;
+        string result = builder.ToString();
+        return string.Equals(result, json, StringComparison.Ordinal) ? json : result;
     }
 }

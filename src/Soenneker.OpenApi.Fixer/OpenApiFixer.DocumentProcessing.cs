@@ -1179,45 +1179,29 @@ public sealed partial class OpenApiFixer
     {
         string raw = await _fileUtil.Read(path, cancellationToken: cancellationToken);
 
-        //raw = Regex.Replace(raw, @"\{\s*""\$ref""\s*:\s*""(?<id>[^""#/][^""]*)""\s*\}",
-        //    m => $"{{ \"$ref\": \"#/components/schemas/{m.Groups["id"].Value}\" }}");
-
         raw = _preprocessingFixer.Fix(raw, options);
 
         return await _memoryStreamUtil.Get(raw, cancellationToken).NoSync();
     }
 
-    private async ValueTask<OpenApiSpecVersion> DetectSpecVersion(string path, CancellationToken cancellationToken)
+    private static OpenApiSpecVersion DetectSpecVersion(MemoryStream stream)
     {
-        string raw = await _fileUtil.Read(path, cancellationToken: cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(stream);
+        stream.Position = 0;
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("The OpenAPI document must be a JSON object.");
+
         string? version = null;
-
-        try
-        {
-            var documentOptions = new JsonDocumentOptions
-            {
-                AllowTrailingCommas = true,
-                CommentHandling = JsonCommentHandling.Skip
-            };
-
-            if (JsonNode.Parse(raw, documentOptions: documentOptions) is JsonObject root)
-                version = root["openapi"]?.GetValue<string>() ?? root["swagger"]?.GetValue<string>();
-        }
-        catch (JsonException)
-        {
-            Match match = Regex.Match(raw,
-                @"(?m)^\s*['\""']?(?:openapi|swagger)['\""']?\s*:\s*['\""']?(?<version>\d+\.\d+(?:\.\d+)?)");
-
-            if (match.Success)
-                version = match.Groups["version"].Value;
-        }
+        if (root.TryGetProperty("openapi", out JsonElement value) || root.TryGetProperty("swagger", out value))
+            version = value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
         if (!Version.TryParse(version, out Version? parsed))
-            throw new InvalidOperationException($"Unable to determine the OpenAPI version of '{path}'.");
+            throw new InvalidOperationException("Unable to determine the OpenAPI version of the preprocessed document.");
 
         return (parsed.Major, parsed.Minor) switch
         {
-            (2, _) => OpenApiSpecVersion.OpenApi2_0,
+            (2, 0) => OpenApiSpecVersion.OpenApi2_0,
             (3, 0) => OpenApiSpecVersion.OpenApi3_0,
             (3, 1) => OpenApiSpecVersion.OpenApi3_1,
             (3, 2) => OpenApiSpecVersion.OpenApi3_2,
