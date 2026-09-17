@@ -312,7 +312,8 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
         JsonNode result = await Fix(spec, cancellationToken);
         JsonNode parameter = result["paths"]!["/items"]!["get"]!["parameters"]![0]!;
         await Assert.That(parameter["required"]?.GetValue<bool>() ?? false).IsFalse();
-        await Assert.That(parameter["explode"]!.GetValue<bool>()).IsTrue();
+        // Query parameters use form style with explode=true by default, which the serializer may omit.
+        await Assert.That(parameter["explode"]?.GetValue<bool>() ?? true).IsTrue();
         await Assert.That(parameter["schema"]!["minimum"]!.GetValue<int>()).IsEqualTo(1);
     }
 
