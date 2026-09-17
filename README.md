@@ -38,6 +38,8 @@ await fixer.Fix(
 
 The fixer reads JSON, normalizes the document, and writes formatted JSON. It uses a temporary file in the target directory and replaces an existing target only after the result parses successfully. Cancellation and processing failures propagate to the caller.
 
+The fixer emits one completion message at `Information`. Stage progress and repair summaries use `Debug`; individual schema, name, and reference changes use `Trace`. Warnings identify ambiguous input, discarded data, fallback schemas, or unresolved problems. Processing failures are logged once at `Error`. Enable diagnostic levels for the `Soenneker.OpenApi.Fixer` logging category when troubleshooting.
+
 Input recovery accepts comments, trailing commas, unescaped control characters in strings, and bare `True`, `False`, and `None` values. Quoted text is preserved. Duplicate JSON properties use the last occurrence and produce a warning; conflicting duplicate values are inherently ambiguous. Version detection runs after recovery, so malformed JSON does not prevent an otherwise readable version from being recognized.
 
 The preprocessing rules also recover numeric version metadata, quoted numeric constraints, singleton `required`/`enum`/composition collections, and singleton parameter objects. Missing route placeholders receive required string parameters only where no path-level or operation-level definition exists, including local parameter references. Existing parameter types and constraints are retained.

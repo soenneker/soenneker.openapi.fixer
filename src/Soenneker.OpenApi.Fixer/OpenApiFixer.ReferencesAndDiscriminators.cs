@@ -54,14 +54,12 @@ public sealed partial class OpenApiFixer
         }
     }
 
-
     private static string CanonicalSuccess(HttpMethod op) => op.Method switch
     {
         "POST" => "201",
         "DELETE" => "204",
         _ => "200"
     };
-
 
     private void ExtractInlineArrayItemSchemas(OpenApiDocument document)
     {
@@ -92,7 +90,7 @@ public sealed partial class OpenApiFixer
                 concreteSchema.Items = new OpenApiSchemaReference(finalItemName);
             }
 
-            _logger.LogInformation("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
+            _logger.LogTrace("Promoted inline array item schema from '{Parent}' to components schema '{ItemName}'", schemaName,
                 itemName);
         }
     }
@@ -686,7 +684,6 @@ public sealed partial class OpenApiFixer
         foreach (IOpenApiSchema schema in comps.Values)
             Visit(schema);
     }
-
 
     /// <summary>
     /// Ensures parent has a string discriminator property and the property is required.

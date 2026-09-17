@@ -21,6 +21,9 @@ public sealed partial class OpenApiFixer
 {
     private void LogDanglingOrPrimitivePropertyRefs(OpenApiDocument doc)
     {
+        if (!_logger.IsEnabled(LogLevel.Warning) && !_logger.IsEnabled(LogLevel.Trace))
+            return;
+
         IDictionary<string, IOpenApiSchema> comps = doc.Components?.Schemas ?? new Dictionary<string, IOpenApiSchema>();
         var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
 
@@ -42,8 +45,8 @@ public sealed partial class OpenApiFixer
                 string? id = r.Reference.Id;
                 if (string.IsNullOrWhiteSpace(id) || !comps.ContainsKey(id))
                     _logger.LogWarning("Dangling $ref to '{Id}' at {Where}", id ?? "(null)", where);
-                else if (IsPrimitive(r))
-                    _logger.LogInformation("Property $ref points to primitive component '{Id}' at {Where}", id, where);
+                else if (_logger.IsEnabled(LogLevel.Trace) && IsPrimitive(r))
+                    _logger.LogTrace("Property $ref points to primitive component '{Id}' at {Where}", id, where);
             }
 
             if (s is OpenApiSchema os && visited.Add(os) && os.Properties != null)
@@ -164,7 +167,7 @@ public sealed partial class OpenApiFixer
                 if (existingWrapperName != null && doc.Components.Schemas.TryGetValue(existingWrapperName, out IOpenApiSchema? schema))
                 {
                     string newName = ReserveUniqueSchemaName(doc.Components.Schemas, existingWrapperName, "Body");
-                    _logger.LogWarning("Schema '{Old}' collides with Kiota wrapper in operation '{Op}'. Renaming to '{New}'.", existingWrapperName,
+                    _logger.LogTrace("Schema '{Old}' collides with Kiota wrapper in operation '{Op}'. Renaming to '{New}'.", existingWrapperName,
                         op.OperationId!, newName);
 
                     doc.Components.Schemas.Remove(existingWrapperName);
@@ -252,7 +255,7 @@ public sealed partial class OpenApiFixer
                         Type = JsonSchemaType.String,
                         Description = "Union discriminator"
                     };
-                    _logger.LogInformation("Injected discriminator property '{Prop}' into schema '{Schema}'.", discProp, schemaName);
+                    _logger.LogTrace("Injected discriminator property '{Prop}' into schema '{Schema}'.", discProp, schemaName);
                 }
 
                 concreteSchema.Required ??= new HashSet<string>();
@@ -279,7 +282,7 @@ public sealed partial class OpenApiFixer
                     concreteSchema.Discriminator.Mapping.TryAdd(mappingKey, new OpenApiSchemaReference(refId));
                 }
 
-                _logger.LogInformation("Added discriminator mapping for polymorphic schema '{Schema}'.", schemaName);
+                _logger.LogTrace("Added discriminator mapping for polymorphic schema '{Schema}'.", schemaName);
             }
             else
             {
@@ -410,7 +413,7 @@ public sealed partial class OpenApiFixer
         }
 
         if (normalized > 0)
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Rewrote {Count} schemas that declared both oneOf and anyOf as an equivalent allOf intersection so generators can process them",
                 normalized);
     }
@@ -705,7 +708,7 @@ public sealed partial class OpenApiFixer
                 {
                     frag.Properties.Remove("value");
                     frag.Required?.Remove("value");
-                    _logger.LogInformation("Removed redundant 'value' property override in schema fragment");
+                    _logger.LogTrace("Removed redundant 'value' property override in schema fragment");
                 }
             }
         }
@@ -752,7 +755,7 @@ public sealed partial class OpenApiFixer
                 {
                     baseSchema.Properties.Remove(propName);
                     baseSchema.Required?.Remove(propName);
-                    _logger.LogInformation("Removed untyped shadowed property '{Prop}' from base schema '{Base}' (overridden in '{Child}')", propName,
+                    _logger.LogTrace("Removed untyped shadowed property '{Prop}' from base schema '{Base}' (overridden in '{Child}')", propName,
                         baseSchema.Title ?? "(unnamed)", container.Title ?? "(unnamed)");
                 }
             }
@@ -774,7 +777,7 @@ public sealed partial class OpenApiFixer
                 continue;
             }
 
-            _logger.LogInformation("Found multi-content requestBody in operation '{OperationId}'. Checking for schema renaming.",
+            _logger.LogTrace("Found multi-content requestBody in operation '{OperationId}'. Checking for schema renaming.",
                 operation.OperationId ?? "unnamed");
 
             // We must materialize the list to modify it during iteration
@@ -794,7 +797,7 @@ public sealed partial class OpenApiFixer
                     string mediaName = OpenApiNameNormalizer.NormalizeMediaTypeName(mediaType);
                     string newSchemaName = ReserveUniqueSchemaName(schemas, $"{operation.OperationId ?? "UnnamedOperation"} {mediaName} Request", "RequestBody");
 
-                    _logger.LogInformation("Extracting inline request body schema for '{MediaType}' in operation '{OpId}' to new component '{NewSchemaName}'.",
+                    _logger.LogTrace("Extracting inline request body schema for '{MediaType}' in operation '{OpId}' to new component '{NewSchemaName}'.",
                         mediaType, operation.OperationId ?? "unnamed", newSchemaName);
 
                     // Add the inline schema to the components dictionary.
@@ -821,13 +824,13 @@ public sealed partial class OpenApiFixer
                     {
                         // Create a new reference with the updated ID
                         media.Schema = new OpenApiSchemaReference(newName);
-                        _logger.LogInformation("Updated reference from '{OldId}' to '{NewId}'", originalSchemaName, newName);
+                        _logger.LogTrace("Updated reference from '{OldId}' to '{NewId}'", originalSchemaName, newName);
                         continue;
                     }
 
                     newName = ReserveUniqueSchemaName(schemas, $"{originalSchemaName}Body", "Dto");
 
-                    _logger.LogWarning("CRITICAL COLLISION: Schema '{Original}' (used in {OpId}) matches OperationId. Renaming to '{New}'.", originalSchemaName,
+                    _logger.LogTrace("Schema '{Original}' (used in {OpId}) matches OperationId. Renaming to '{New}'.", originalSchemaName,
                         operation.OperationId ?? "unnamed", newName);
 
                     if (schemas.TryGetValue(originalSchemaName, out IOpenApiSchema? schemaToRename))
@@ -837,7 +840,7 @@ public sealed partial class OpenApiFixer
 
                         // Create a new reference with the updated ID
                         media.Schema = new OpenApiSchemaReference(newName);
-                        _logger.LogInformation("Updated reference from '{OldId}' to '{NewId}'", originalSchemaName, newName);
+                        _logger.LogTrace("Updated reference from '{OldId}' to '{NewId}'", originalSchemaName, newName);
                         renameMap[originalSchemaName] = newName;
                     }
                 }
@@ -846,7 +849,7 @@ public sealed partial class OpenApiFixer
 
         if (renameMap.Any())
         {
-            _logger.LogInformation("Applying global reference updates for request body schema collisions...");
+            _logger.LogDebug("Applying global reference updates for request body schema collisions...");
             _referenceFixer.UpdateAllReferences(document, renameMap);
         }
     }
@@ -890,7 +893,6 @@ public sealed partial class OpenApiFixer
 
         return hasQuotedPropertyPattern || (hasJsonDelimiters && hasJsonFragmentMarkers);
     }
-
 
     private void RemoveDeprecatedOperationsAndSchemas(OpenApiDocument document)
     {
@@ -955,7 +957,7 @@ public sealed partial class OpenApiFixer
 
         if (removedOperations > 0 || removedPaths > 0 || removedSchemas > 0)
         {
-            _logger.LogInformation("Removed deprecated elements. Operations: {OperationCount}, Paths: {PathCount}, Schemas: {SchemaCount}.", removedOperations,
+            _logger.LogDebug("Removed deprecated elements. Operations: {OperationCount}, Paths: {PathCount}, Schemas: {SchemaCount}.", removedOperations,
                 removedPaths, removedSchemas);
         }
     }
@@ -1098,24 +1100,6 @@ public sealed partial class OpenApiFixer
 
         return referencedSchemaIds;
     }
-
-
-    private void LogState(string stage, OpenApiDocument document)
-    {
-        // LogState is disabled by default (_logState = false)
-        // Uncomment the following code if debugging is needed:
-        /*
-        if (document?.Components?.Schemas?.TryGetValue("CreateDocument", out IOpenApiSchema? schema) == true)
-        {
-            _logger.LogWarning("DEBUG >>> STAGE: CreateDocument is FOUND");
-        }
-        else
-        {
-            _logger.LogWarning("DEBUG >>> STAGE: CreateDocument value not found. Stage: {Stage}", stage);
-        }
-        */
-    }
-
 
     private static IList<IOpenApiSchema>? RemoveRedundantEmptyEnums(IList<IOpenApiSchema>? list, Func<OpenApiSchema, bool> isRedundant)
     {

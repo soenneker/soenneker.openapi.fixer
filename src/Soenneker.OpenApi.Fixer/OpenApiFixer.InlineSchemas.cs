@@ -322,7 +322,7 @@ public sealed partial class OpenApiFixer
                     continue;
 
                 media.Schema = new OpenApiSchemaReference(finalComponentName);
-                _logger.LogInformation("Promoted component content schema '{Context}' to components schema '{ComponentName}'", schemaBaseName,
+                _logger.LogTrace("Promoted component content schema '{Context}' to components schema '{ComponentName}'", schemaBaseName,
                     finalComponentName);
             }
         }
@@ -404,7 +404,7 @@ public sealed partial class OpenApiFixer
                 return false;
 
             reference = new OpenApiSchemaReference(finalComponentName);
-            _logger.LogInformation("Promoted inline property schema '{Context}' to components schema '{ComponentName}'", baseName, finalComponentName);
+            _logger.LogTrace("Promoted inline property schema '{Context}' to components schema '{ComponentName}'", baseName, finalComponentName);
             return true;
         }
 
@@ -508,7 +508,7 @@ public sealed partial class OpenApiFixer
                     return false;
 
                 promotedSchemas[concreteSchema] = componentName;
-                _logger.LogInformation("Promoted inline composed schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
+                _logger.LogTrace("Promoted inline composed schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
             }
 
             replacement = new OpenApiSchemaReference(componentName);
@@ -748,7 +748,7 @@ public sealed partial class OpenApiFixer
         }
 
         if (normalized > 0)
-            _logger.LogInformation("Normalized {Count} singleton string const schemas into Kiota-compatible enums", normalized);
+            _logger.LogDebug("Normalized {Count} singleton string const schemas into Kiota-compatible enums", normalized);
     }
 
     private void ExtractInlineEnumSchemas(OpenApiDocument document)
@@ -796,7 +796,7 @@ public sealed partial class OpenApiFixer
                     return false;
 
                 promotedSchemas[concreteSchema] = componentName;
-                _logger.LogInformation("Promoted inline enum schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
+                _logger.LogTrace("Promoted inline enum schema '{Context}' to components schema '{ComponentName}'", baseName, componentName);
             }
 
             replacement = new OpenApiSchemaReference(componentName);

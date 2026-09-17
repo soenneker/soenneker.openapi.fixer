@@ -50,7 +50,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             if (!string.Equals(key, uniqueName, StringComparison.Ordinal))
             {
                 mapping[key] = uniqueName;
-                _logger.LogDebug("Renamed schema '{OldName}' to '{NewName}' during {Reason}.", key, uniqueName, reason);
+                _logger.LogTrace("Renamed schema '{OldName}' to '{NewName}' during {Reason}.", key, uniqueName, reason);
             }
         }
 
@@ -65,7 +65,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
 
         _referenceFixer.UpdateAllReferences(document, mapping);
-        _logger.LogInformation("Normalized {SchemaRenameCount} component schema names during {Reason}.", mapping.Count, reason);
+        _logger.LogDebug("Normalized {SchemaRenameCount} component schema names during {Reason}.", mapping.Count, reason);
     }
 
     public void RenameInvalidComponentSchemas(OpenApiDocument document)
@@ -102,7 +102,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
                 if (!string.Equals(operation.OperationId, unique, StringComparison.Ordinal))
                 {
-                    _logger.LogDebug("Normalized operationId from '{OldOperationId}' to '{NewOperationId}'", operation.OperationId ?? "(missing)",
+                    _logger.LogTrace("Normalized operationId from '{OldOperationId}' to '{NewOperationId}'", operation.OperationId ?? "(missing)",
                         unique);
                     operation.OperationId = unique;
                 }
@@ -171,7 +171,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             reservedNames.Add(newKey);
 
             mapping[key] = newKey;
-            _logger.LogWarning("Schema name '{OldKey}' conflicts with an operationId. Renaming schema to '{NewKey}'.", key, newKey);
+            _logger.LogTrace("Schema name '{OldKey}' conflicts with an operationId. Renaming schema to '{NewKey}'.", key, newKey);
         }
 
         if (mapping.Any())
@@ -186,7 +186,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             }
 
             // After all renames are done, update all references throughout the entire document.
-            _logger.LogInformation("Applying global reference updates for operationId/schema name collisions...");
+            _logger.LogDebug("Applying global reference updates for operationId/schema name collisions...");
             _referenceFixer.UpdateAllReferences(doc, mapping);
         }
     }
@@ -195,7 +195,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
     {
         if (doc.Paths == null || !doc.Paths.Any())
         {
-            _logger.LogInformation("Document contains no paths to process in RenameConflictingPaths. Skipping.");
+            _logger.LogDebug("Document contains no paths to process in RenameConflictingPaths. Skipping.");
             return;
         }
 
@@ -253,16 +253,6 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                                     Description = "Identifier of the member account to add/remove from the Address Map."
                                 }
                             });
-                        }
-
-                        foreach (IOpenApiParameter? param in operation.Parameters)
-                        {
-                            if (param?.Name == "member_account_id" && param?.In == ParameterLocation.Path)
-                            {
-                                // In v2.3, Schema is read-only, so we can't modify it directly
-                                // We'll handle this in a different way if needed
-                                _logger.LogDebug("Would update schema description for parameter 'member_account_id'");
-                            }
                         }
                     }
                 }
@@ -331,7 +321,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             newPaths[normalizedPath] = pathItem;
 
             if (!string.Equals(path, normalizedPath, StringComparison.Ordinal))
-                _logger.LogInformation("Stripped date suffix from path '{Path}' to '{NormalizedPath}'", path, normalizedPath);
+                _logger.LogTrace("Stripped date suffix from path '{Path}' to '{NormalizedPath}'", path, normalizedPath);
         }
 
         doc.Paths = newPaths;
@@ -356,7 +346,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
                 if (!string.Equals(operation.OperationId, normalizedOperationId, StringComparison.Ordinal))
                 {
-                    _logger.LogInformation("Stripped date suffix from operationId '{OperationId}' to '{NormalizedOperationId}'", operation.OperationId,
+                    _logger.LogTrace("Stripped date suffix from operationId '{OperationId}' to '{NormalizedOperationId}'", operation.OperationId,
                         normalizedOperationId);
                     operation.OperationId = normalizedOperationId;
                 }
@@ -397,7 +387,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             IOpenApiSchema schema = schemas[oldKey];
             schemas.Remove(oldKey);
             schemas[newKey] = schema;
-            _logger.LogInformation("Stripped date suffix from schema '{OldName}' to '{NewName}'", oldKey, newKey);
+            _logger.LogTrace("Stripped date suffix from schema '{OldName}' to '{NewName}'", oldKey, newKey);
         }
 
         _referenceFixer.UpdateAllReferences(doc, mapping);
@@ -421,7 +411,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
         if (!string.Equals(path, normalized, StringComparison.Ordinal))
         {
-            _logger.LogInformation("Canonicalized path '{OriginalPath}' to '{NormalizedPath}'", path, normalized);
+            _logger.LogTrace("Canonicalized path '{OriginalPath}' to '{NormalizedPath}'", path, normalized);
         }
 
         return normalized;
@@ -444,7 +434,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         if (renameMap.Count == 0)
             return;
 
-        _logger.LogInformation("Merging same-signature path '{IncomingPath}' into canonical path '{CanonicalPath}'", incomingPath, canonicalPath);
+        _logger.LogTrace("Merging same-signature path '{IncomingPath}' into canonical path '{CanonicalPath}'", incomingPath, canonicalPath);
 
         if (pathItem.Parameters != null)
         {
@@ -514,7 +504,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         renameMap = localRenameMap;
 
         if (renameMap.Count > 0)
-            _logger.LogInformation("Normalized path parameter names in '{Path}' to '{NormalizedPath}'", path, normalizedPath);
+            _logger.LogTrace("Normalized path parameter names in '{Path}' to '{NormalizedPath}'", path, normalizedPath);
 
         return normalizedPath;
     }
@@ -571,7 +561,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             {
                 if (existingConcrete.Operations.ContainsKey(method))
                 {
-                    _logger.LogInformation("Dropping duplicate {Method} operation from aliased path '{OriginalPath}' after normalization to '{NormalizedPath}'", method,
+                    _logger.LogTrace("Dropping duplicate {Method} operation from aliased path '{OriginalPath}' after normalization to '{NormalizedPath}'", method,
                         originalPath, normalizedPath);
                     continue;
                 }

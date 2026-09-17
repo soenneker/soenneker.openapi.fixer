@@ -77,7 +77,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             if (diagnostics?.Errors?.Any() == true)
             {
                 string msgs = string.Join("; ", diagnostics.Errors.Select(e => e.Message));
-                _logger.LogWarning($"OpenAPI parsing errors during loading: {msgs}");
+                _logger.LogWarning("OpenAPI parsing errors during loading: {Messages}", msgs);
             }
 
             if (document is null)
@@ -86,11 +86,10 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             NormalizeRequiredInfo(document);
             document.Paths ??= new OpenApiPaths();
 
-            LogState("After STAGE 0: Initial Load", document);
             Dictionary<string, string> attachedWebhooks = AttachWebhooksToPaths(document!);
 
             // STAGE 1: IDENTIFIERS, NAMING, AND SECURITY
-            _logger.LogInformation("Running initial cleanup on identifiers, paths, and security schemes...");
+            _logger.LogDebug("Running initial cleanup on identifiers, paths, and security schemes...");
             _descriptionFixer.FixYamlUnsafeDescriptions(document!);
             _namingFixer.RenameConflictingPaths(document!);
 
@@ -99,22 +98,21 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             _namingFixer.RenameInvalidComponentSchemas(document!);
 
-            _logger.LogInformation("Normalizing operation IDs...");
+            _logger.LogDebug("Normalizing operation IDs...");
             _namingFixer.NormalizeOperationIds(document!);
 
-            _logger.LogInformation("Ensuring unique operation IDs...");
+            _logger.LogDebug("Ensuring unique operation IDs...");
             _namingFixer.EnsureUniqueOperationIds(document!);
 
-            _logger.LogInformation("Resolving collisions between operation IDs and schema names...");
+            _logger.LogDebug("Resolving collisions between operation IDs and schema names...");
             _namingFixer.ResolveSchemaOperationNameCollisions(document!);
 
             // STAGE 2: REFERENCE INTEGRITY & SCRUBBING
-            _logger.LogInformation("Scrubbing all component references to fix broken links...");
+            _logger.LogDebug("Scrubbing all component references to fix broken links...");
             _referenceFixer.ScrubComponentRefs(document!, cancellationToken);
-            LogState("After STAGE 2: Ref Scrubbing", document!);
 
             // STAGE 3: STRUCTURAL TRANSFORMATIONS
-            _logger.LogInformation("Performing major structural transformations (inlining, extraction)...");
+            _logger.LogDebug("Performing major structural transformations (inlining, extraction)...");
             InlinePrimitiveComponents(document!);
             DisambiguateMultiContentRequestSchemas(document!);
 
@@ -127,33 +125,23 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             ExtractInlineComposedSchemas(document!);
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
-            LogState("After STAGE 3A: Transformations", document!);
 
-            LogState("After STAGE 3A.1: PreserveCompositionSemantics", document!);
-
-            _logger.LogInformation("Removing shadowed untyped properties…");
+            _logger.LogDebug("Removing shadowed untyped properties…");
             RemoveShadowingUntypedProperties(document!);
             RemoveRedundantDerivedValue(document!);
 
-            _logger.LogInformation("Re-scrubbing references after extraction...");
+            _logger.LogDebug("Re-scrubbing references after extraction...");
             _referenceFixer.ScrubComponentRefs(document!, cancellationToken);
-            LogState("After STAGE 3B: Re-Scrubbing", document!);
 
             // STAGE 4: DEEP SCHEMA NORMALIZATION & CLEANING
-            _logger.LogInformation("Applying deep schema normalizations and cleaning...");
+            _logger.LogDebug("Applying deep schema normalizations and cleaning...");
 
             RewriteCombinedUnionsAsIntersection(document);
-            LogState("After STAGE 4A: RewriteCombinedUnionsAsIntersection", document!);
 
             ApplySchemaNormalizations(document!, cancellationToken);
             RemoveDiscriminatorsFromNonObjectSchemas(document!);
-            LogState("After STAGE 4B: ApplySchemaNormalizations", document!);
 
             FixErrorMessageArrayCollision(document!);
-            LogState("FixErrorMessageArrayCollision", document!);
-
-            //SetExplicitNullabilityOnAllSchemas(document); // This now contains the robust fix
-            // LogState("After STAGE 4C: SetExplicitNullability", document!);
 
             if (document!.Components?.Schemas != null)
             {
@@ -166,40 +154,29 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            LogState("After STAGE 4D: Deep Cleaning", document);
-
             FixMalformedEnumValues(document);
-            LogState("After STAGE 4E.1: FixMalformedEnumValues", document);
 
             StripEmptyEnumBranches(document);
-            LogState("After STAGE 4E: StripEmptyEnumBranches", document);
 
             _schemaFixer.FixInvalidDefaults(document);
             RemoveStringDefaultsFromUuidSchemas(document);
-            LogState("After STAGE 4F: FixInvalidDefaults", document);
 
             FixAllInlineValueEnums(document);
-            LogState("After STAGE 4G: FixAllInlineValueEnums", document);
 
             PromoteEnumBranchesUnderDiscriminator(document);
-            LogState("After STAGE 4H: PromoteEnumBranchesUnderDiscriminator", document);
 
             WrapEnumBranchesInCompositions(document);
-            LogState("After STAGE 4H.1: WrapEnumBranchesInCompositions", document);
 
             // Re-scrub references after creating new wrapper components
             _referenceFixer.ScrubComponentRefs(document, cancellationToken);
-            LogState("After STAGE 4I: Re-Scrub After Enum Promotion", document);
 
             // STAGE 5: FINAL CLEANUP
-            _logger.LogInformation("Performing final cleanup of empty keys and invalid structures...");
+            _logger.LogDebug("Performing final cleanup of empty keys and invalid structures...");
             _schemaFixer.RemoveEmptyInlineSchemas(document);
             _schemaFixer.RemoveInvalidDefaults(document);
 
-            LogState("After STAGE 5: Final Cleanup", document);
-
             // STAGE 6: FINAL VALIDATION AND CLEANUP
-            _logger.LogInformation("Final validation and cleanup process started...");
+            _logger.LogDebug("Final validation and cleanup process started...");
 
             // Scrub bogus enums under vendor extensions and harden enum schemas missing type
             FixBadEnums(document);
@@ -245,10 +222,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             EnsureNoNullSchemas(document);
 
             if (options.Int32IdTransform)
-            {
                 _int32IdFixer.Transform(document);
-                LogState("After STAGE 6A: TransformInt32IdsToInt64", document);
-            }
 
             // Kiota (and some other generators) fail on duplicate branches in anyOf/oneOf/allOf (e.g. duplicated $ref entries).
             _schemaFixer.DeduplicateCompositionBranches(document);
@@ -320,7 +294,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("OpenAPI fix was canceled.");
+            _logger.LogDebug("OpenAPI fix was canceled.");
             throw;
         }
         catch (Exception ex)
@@ -337,13 +311,13 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
         if (string.IsNullOrWhiteSpace(document.Info.Title))
         {
             document.Info.Title = "OpenAPI";
-            _logger.LogInformation("Injected fallback OpenAPI info title");
+            _logger.LogDebug("Injected fallback OpenAPI info title");
         }
 
         if (string.IsNullOrWhiteSpace(document.Info.Version))
         {
             document.Info.Version = "1.0.0";
-            _logger.LogInformation("Injected fallback OpenAPI info version");
+            _logger.LogDebug("Injected fallback OpenAPI info version");
         }
     }
 }

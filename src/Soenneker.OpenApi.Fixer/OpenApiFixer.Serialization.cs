@@ -145,13 +145,10 @@ public sealed partial class OpenApiFixer
         if (diagnostics?.Errors?.Any() == true)
         {
             string messages = string.Join("; ", diagnostics.Errors.Select(error => error.Message));
-            _logger.LogWarning("OpenAPI parsing errors in {File}: {Msgs}", Path.GetFileName(filePath),
-                messages);
-
+            // Fix logs the failure once, including these diagnostics in the exception.
             throw new InvalidOperationException($"The fixed OpenAPI document is invalid: {messages}");
         }
     }
-
 
     /// <summary>
     /// Converts schemas that declare boolean type with enum constraints into plain booleans,
@@ -224,7 +221,6 @@ public sealed partial class OpenApiFixer
         foreach (IOpenApiSchema s in doc.Components.Schemas.Values)
             Visit(s);
     }
-
 
     private static string FixJsonBooleanValues(string json)
     {
@@ -318,10 +314,10 @@ public sealed partial class OpenApiFixer
             return json;
 
         if (normalized > 0)
-            _logger.LogInformation("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
+            _logger.LogDebug("Normalized {Count} multi-type schemas into Kiota-compatible anyOf constraints", normalized);
 
         if (narrowed > 0)
-            _logger.LogInformation("Narrowed {Count} mixed-union allOf references to their object-compatible branches", narrowed);
+            _logger.LogDebug("Narrowed {Count} mixed-union allOf references to their object-compatible branches", narrowed);
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }

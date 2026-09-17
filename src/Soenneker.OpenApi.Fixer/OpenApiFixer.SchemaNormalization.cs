@@ -67,7 +67,7 @@ public sealed partial class OpenApiFixer
                     if (os.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
                     {
                         os.Items = inlineSchema;
-                        _logger.LogInformation("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
+                        _logger.LogTrace("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
                     }
                     else if (os.Items is OpenApiSchema itemsSchema)
                     {
@@ -78,7 +78,7 @@ public sealed partial class OpenApiFixer
                     if (os.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
                     {
                         os.AdditionalProperties = inlineSchema;
-                        _logger.LogInformation("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
+                        _logger.LogTrace("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
                     }
                     else if (os.AdditionalProperties is OpenApiSchema additionalSchema)
                     {
@@ -123,7 +123,7 @@ public sealed partial class OpenApiFixer
                         // Replace the reference with the inline schema
                         // We need to cast through IOpenApiSchema since T is constrained to it
                         collection[i] = (T)(IOpenApiSchema)inlineSchema;
-                        //_logger.LogInformation("Replaced reference to '{PrimKey}' with inline schema", primKey);
+
                     }
                     else if (collection[i] is OpenApiSchema concreteSchema)
                     {
@@ -144,7 +144,7 @@ public sealed partial class OpenApiFixer
                     {
                         // Replace the reference with the inline schema
                         dict[key] = inlineSchema;
-                        _logger.LogInformation("Replaced reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogTrace("Replaced reference to '{PrimKey}' with inline schema", primKey);
                     }
                     else if (dict[key] is OpenApiSchema concreteSchema)
                     {
@@ -173,13 +173,13 @@ public sealed partial class OpenApiFixer
                     if (concreteCs.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
                     {
                         concreteCs.Items = inlineSchema;
-                        _logger.LogInformation("Replaced Items reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogTrace("Replaced Items reference to '{PrimKey}' with inline schema", primKey);
                     }
 
                     if (concreteCs.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
                     {
                         concreteCs.AdditionalProperties = inlineSchema;
-                        _logger.LogInformation("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema", primKey);
+                        _logger.LogTrace("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema", primKey);
                     }
                 }
             }
@@ -197,7 +197,7 @@ public sealed partial class OpenApiFixer
                             else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
-                                _logger.LogInformation("Replaced Component RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
+                                _logger.LogTrace("Replaced Component RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
                             }
                         }
 
@@ -215,7 +215,7 @@ public sealed partial class OpenApiFixer
                             else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
-                                _logger.LogInformation("Replaced Component Response schema reference to '{PrimKey}' with inline schema", primKey);
+                                _logger.LogTrace("Replaced Component Response schema reference to '{PrimKey}' with inline schema", primKey);
                             }
                         }
                 }
@@ -263,7 +263,7 @@ public sealed partial class OpenApiFixer
                                 else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                                 {
                                     mt.Schema = inlineSchema;
-                                    _logger.LogInformation("Replaced RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
+                                    _logger.LogTrace("Replaced RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
                                 }
                             }
 
@@ -280,7 +280,7 @@ public sealed partial class OpenApiFixer
                                         else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
                                         {
                                             mt.Schema = inlineSchema;
-                                            _logger.LogInformation("Replaced Response schema reference to '{PrimKey}' with inline schema", primKey);
+                                            _logger.LogTrace("Replaced Response schema reference to '{PrimKey}' with inline schema", primKey);
                                         }
                                     }
                         }
@@ -559,7 +559,7 @@ public sealed partial class OpenApiFixer
             {
                 // In v2.3, Title is read-only, so we can't modify it directly
                 // We'll handle this in a different way if needed
-                //_logger.LogDebug("Schema '{Key}' has no title, but Title is read-only in v2.3", kv.Key);
+
             }
         }
 
@@ -617,7 +617,7 @@ public sealed partial class OpenApiFixer
 
                 if (schema.Discriminator.Mapping.Any())
                 {
-                    _logger.LogInformation("Populated discriminator mapping for schema '{SchemaKey}'", kv.Key);
+                    _logger.LogTrace("Populated discriminator mapping for schema '{SchemaKey}'", kv.Key);
                 }
             }
         }
@@ -798,7 +798,7 @@ public sealed partial class OpenApiFixer
                 if (!concreteSchema.Required.Contains(discProp))
                 {
                     concreteSchema.Required.Add(discProp);
-                    _logger.LogInformation("Added discriminator property '{Prop}' to required field list for schema '{Schema}'", discProp, schemaName);
+                    _logger.LogTrace("Added discriminator property '{Prop}' to required field list for schema '{Schema}'", discProp, schemaName);
                 }
             }
         }
@@ -821,7 +821,6 @@ public sealed partial class OpenApiFixer
 
         return refId;
     }
-
 
     private static OpenApiResponses CreateFallbackResponses(HttpMethod op)
     {

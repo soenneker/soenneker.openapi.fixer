@@ -293,34 +293,8 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 
     public bool IsValidSchemaReference(OpenApiSchemaReference? reference, OpenApiDocument doc)
     {
-        if (reference == null)
-        {
-            _logger.LogTrace("IsValidSchemaReference check: Reference object is null.");
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(reference.Reference.Id))
-        {
-            _logger.LogTrace("IsValidSchemaReference check: Reference.Id is null or whitespace.");
-            return false;
-        }
-
-        OpenApiComponents? comps = doc.Components;
-        if (comps == null)
-        {
-            _logger.LogWarning("IsValidSchemaReference check failed: doc.Components is null.");
-            return false;
-        }
-
-        bool keyExists = comps.Schemas?.ContainsKey(reference.Reference.Id) ?? false;
-
-        if (!keyExists)
-        {
-            _logger.LogWarning("IsValidSchemaReference failed for Ref ID '{RefId}'. Key does not exist in the schemas component dictionary.",
-                reference.Reference.Id);
-        }
-
-        return keyExists;
+        return reference != null && !string.IsNullOrWhiteSpace(reference.Reference.Id) &&
+               doc.Components?.Schemas?.ContainsKey(reference.Reference.Id) == true;
     }
 
     public void ScrubBrokenRefs(IDictionary<string, IOpenApiMediaType>? contentDict, OpenApiDocument doc)
@@ -336,7 +310,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             IOpenApiSchema? schema = media.Schema;
             if (schema is OpenApiSchemaReference schemaRef && !IsValidSchemaReference(schemaRef, doc))
             {
-                _logger.LogWarning("Found broken media-type ref @ {Key}", key);
+                _logger.LogWarning("Unresolved schema reference '{RefId}' for media type '{MediaType}'", schemaRef.Reference.Id, key);
             }
 
             ScrubAllRefs(schema, doc, visited);
@@ -412,7 +386,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 
         if (schema is OpenApiSchemaReference schemaRef && !IsValidSchemaReference(schemaRef, doc))
         {
-            // _logger.LogWarning("Found broken ref for schema {Schema}", schema.Title ?? "(no title)");
+            _logger.LogTrace("Unresolved schema reference '{RefId}' during reference scrubbing", schemaRef.Reference.Id);
         }
 
         if (schema.AllOf != null)
