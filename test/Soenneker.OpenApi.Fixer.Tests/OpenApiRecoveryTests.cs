@@ -24,6 +24,45 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_repairs_trailing_media_type_separators(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Media types","version":"1"},"paths":{"/items":{"post":{
+              "operationId":"createItem",
+              "requestBody":{"content":{"application/json; charset=utf-8;":{"schema":{"type":"string"}}}},
+              "responses":{"200":{"description":"OK","content":{"application/json; charset=utf-8;":{"schema":{"type":"string"}}}}}
+            }}}}
+            """;
+        JsonNode result = await Fix(spec, cancellationToken);
+        JsonNode operation = result["paths"]!["/items"]!["post"]!;
+        await Assert.That(operation["requestBody"]!["content"]!["application/json; charset=utf-8"]).IsNotNull();
+        await Assert.That(operation["responses"]!["200"]!["content"]!["application/json; charset=utf-8"]).IsNotNull();
+        await Assert.That(operation["responses"]!["200"]!["content"]!["application/json; charset=utf-8;"]).IsNull();
+    }
+
+    [Test]
+    public async ValueTask Preprocessing_repairs_media_types_without_changing_payloads_or_canonical_entries()
+    {
+        const string spec = """
+            {"openapi":"3.1.0","paths":{},"components":{
+              "headers":{"Header":{"content":{" application/json; ; ":{"schema":{"type":"string"}},"application/json":{"schema":{"type":"integer"}}}}},
+              "requestBodies":{"Body":{"content":{"application/json; charset=utf-8;":{"example":{"content":{"application/json;":"keep"}}}}}},
+              "parameters":{"Parameter":{"name":"q","in":"query","content":{"text/plain;":{"schema":{"type":"string"}}}}},
+              "responses":{"Response":{"description":"OK","content":{"application/json; profile=\"a;b\"":{"schema":{"type":"string"}}}}}
+            }}
+            """;
+        string fixedJson = _preprocessor.Fix(spec);
+        JsonNode components = JsonNode.Parse(fixedJson)!["components"]!;
+        var headerContent = (JsonObject)components["headers"]!["Header"]!["content"]!;
+        await Assert.That(headerContent.Count).IsEqualTo(1);
+        await Assert.That(headerContent["application/json"]!["schema"]!["type"]!.GetValue<string>()).IsEqualTo("integer");
+        await Assert.That(components["requestBodies"]!["Body"]!["content"]!["application/json; charset=utf-8"]!["example"]!["content"]!["application/json;"]!.GetValue<string>()).IsEqualTo("keep");
+        await Assert.That(components["parameters"]!["Parameter"]!["content"]!["text/plain"]).IsNotNull();
+        await Assert.That(components["responses"]!["Response"]!["content"]!["application/json; profile=\"a;b\""]).IsNotNull();
+        await Assert.That(_preprocessor.Fix(fixedJson)).IsEqualTo(fixedJson);
+    }
+
+    [Test]
     public async ValueTask Fix_repairs_loose_literals_before_detecting_version(CancellationToken cancellationToken)
     {
         const string spec = """

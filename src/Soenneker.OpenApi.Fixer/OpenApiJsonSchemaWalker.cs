@@ -9,7 +9,7 @@ namespace Soenneker.OpenApi.Fixer;
 // a property named "example", "type", or "x-value" is still a schema, not a keyword or extension.
 internal static class OpenApiJsonSchemaWalker
 {
-    internal static bool Visit(JsonNode root, Func<JsonObject, string?, bool> visitor)
+    internal static bool Visit(JsonNode root, Func<JsonObject, string?, bool> visitor, Func<JsonObject, bool>? contentVisitor = null)
     {
         if (root is not JsonObject document)
             return false;
@@ -70,15 +70,15 @@ internal static class OpenApiJsonSchemaWalker
                         AddSchemaChildren(node, name);
                     }
                     Add(node["schema"], "schema", name);
-                    AddMap(node["content"], "media");
+                    AddContent(node["content"]);
                     break;
                 case "response":
                     Add(node["schema"], "schema", name);
                     AddMap(node["headers"], "parameter");
-                    AddMap(node["content"], "media");
+                    AddContent(node["content"]);
                     break;
                 case "body":
-                    AddMap(node["content"], "media");
+                    AddContent(node["content"]);
                     break;
                 case "media":
                     Add(node["schema"], "schema", name);
@@ -95,6 +95,13 @@ internal static class OpenApiJsonSchemaWalker
         }
 
         return changed;
+
+        void AddContent(JsonNode? node)
+        {
+            if (node is JsonObject content && contentVisitor != null)
+                changed |= contentVisitor(content);
+            AddMap(node, "media");
+        }
 
         void Add(JsonNode? node, string kind, string? name)
         {

@@ -97,13 +97,34 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         bool changed = root is JsonObject metadata && NormalizeDocumentMetadata(metadata);
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
         changed |= NormalizePathParameterRequirements(root);
-        changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable));
+        changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable), NormalizeMediaTypeKeys);
         changed |= requiresCanonicalization;
 
         if (options?.RedactCredentialLikeValues == true)
             changed |= RedactCredentialLikeContent(root, null);
 
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+    }
+
+    private static bool NormalizeMediaTypeKeys(JsonObject content)
+    {
+        bool changed = false;
+        foreach ((string mediaType, JsonNode? value) in content.ToList())
+        {
+            string normalized = mediaType.Trim();
+            while (normalized.EndsWith(';'))
+                normalized = normalized[..^1].TrimEnd();
+
+            if (normalized.Length == 0 || normalized == mediaType)
+                continue;
+
+            // Keep an explicitly supplied canonical entry when both spellings exist.
+            content.Remove(mediaType);
+            if (!content.ContainsKey(normalized))
+                content[normalized] = value;
+            changed = true;
+        }
+        return changed;
     }
 
     private static JsonNode? ReadDuplicateTolerantNode(JsonElement element, ref int duplicates)
