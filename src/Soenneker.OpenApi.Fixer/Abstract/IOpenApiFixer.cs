@@ -9,6 +9,19 @@ namespace Soenneker.OpenApi.Fixer.Abstract;
 public interface IOpenApiFixer
 {
     /// <summary>
+    /// Repairs inline response operation-ID links in OpenAPI JSON files beneath a directory before merging them, updating changed files in place.
+    /// </summary>
+    /// <remarks>
+    /// Local operation IDs take precedence. Unique cross-document IDs become relative operation references.
+    /// Unresolved or ambiguous operation-ID links are removed with a warning; operation references, API operations,
+    /// schemas, reusable link components, and example payloads are preserved. Files without an OpenAPI declaration are skipped.
+    /// </remarks>
+    /// <param name="directoryPath">The directory containing all JSON documents to be merged.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A task representing the operation.</returns>
+    ValueTask FixOperationLinks(string directoryPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads an OpenAPI JSON file, applies the default normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
