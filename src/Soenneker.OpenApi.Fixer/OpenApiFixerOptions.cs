@@ -8,6 +8,13 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Infers missing JSON media schemas from inline or locally referenced examples and widens integer
+    /// formats when payload examples demonstrate values beyond Int32. Existing schema constraints are retained.
+    /// Enabled by default. Inferred media schemas are marked with <c>x-schema-inferred-from-examples</c>.
+    /// </summary>
+    public bool InferSchemasFromExamples { get; set; } = true;
+
+    /// <summary>
     /// Enables detailed progress, repair summaries, and individual repair details at Information severity.
     /// Disabled by default. File paths, major stages, completion timing, warnings, and errors remain logged, subject to the host's logging filters.
     /// </summary>

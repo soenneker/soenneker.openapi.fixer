@@ -506,7 +506,8 @@ public sealed partial class OpenApiFixer
     private static void WrapNonObjectUnionBranchesEverywhere(OpenApiDocument doc)
     {
         var newSchemas = new Dictionary<string, IOpenApiSchema>();
-        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
+        doc.Components ??= new OpenApiComponents();
+        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
         Dictionary<IOpenApiSchema, string>? reverseLookup = null;
 
         if (comps != null)
@@ -602,7 +603,8 @@ public sealed partial class OpenApiFixer
                         if (IsNonObjectLike(resolved) && !isWrapperAlready && (refId != null || allowInlineWrap))
                         {
                             string baseName = refId ?? BuildInlineBranchBaseName(pos, contextName, i);
-                            string wrapperName = ReserveUniqueSchemaName(comps ?? new Dictionary<string, IOpenApiSchema>(), baseName, "Wrapper");
+                            string wrapperName = OpenApiNameNormalizer.ReserveComponentName(
+                                (comps?.Keys ?? []).Concat(newSchemas.Keys), baseName, "Wrapper");
                             if (comps != null && !comps.ContainsKey(wrapperName) && !newSchemas.ContainsKey(wrapperName))
                             {
                                 newSchemas[wrapperName] = new OpenApiSchema
@@ -713,6 +715,11 @@ public sealed partial class OpenApiFixer
                     }
             }
         }
+
+        // Inline operation schemas are visited after components and can create more wrappers.
+        // Publish those targets too, before subsequent passes follow or serialize their references.
+        foreach ((string name, IOpenApiSchema schema) in newSchemas)
+            doc.Components.Schemas[name] = schema;
     }
 
     private static void NormalizeNonObjectAllOfCompositions(OpenApiDocument doc)

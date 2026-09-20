@@ -186,7 +186,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // STAGE 6: FINAL VALIDATION AND CLEANUP
             _logger.LogProgress("Final validation and cleanup process started... Source: {SourceFilePath}", sourceFilePath);
 
-            // Scrub bogus enums under vendor extensions and harden enum schemas missing type
+            // Repair enum schema types while retaining extension payloads and inference provenance.
             FixBadEnums(document);
 
             // Fix discriminator mappings that reference non-existent or enum schemas

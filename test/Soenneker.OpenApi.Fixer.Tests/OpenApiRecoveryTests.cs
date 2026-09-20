@@ -24,6 +24,108 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Preprocessing_recovers_json_examples_and_widens_nested_referenced_integer_schemas()
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Examples","version":"1"},"paths":{"/items":{"get":{"responses":{
+              "200":{"description":"OK","content":{"application/json":{"examples":{"first":{"$ref":"#/components/examples/First"},"second":{"value":{"elements":[{"at":1760631246905,"label":"two"}]}}}}}},
+              "201":{"description":"Existing","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Result"},"example":{"at":1760631246905}}}},
+              "202":{"description":"Explicit unconstrained","content":{"application/json":{"schema":{},"example":{"shouldNotBeAdded":true}}}},
+              "203":{"description":"External only","content":{"application/json":{"examples":{"remote":{"externalValue":"https://example.com/value.json"}}}}}
+            }}}},"components":{"examples":{"First":{"value":{"elements":[{"at":1,"label":null}]}}},"schemas":{"Result":{"type":"object","properties":{"at":{"type":"integer","format":"int32","minimum":0}}}}}}
+            """;
+        JsonNode result = JsonNode.Parse(_preprocessor.Fix(spec))!;
+        JsonNode responses = result["paths"]!["/items"]!["get"]!["responses"]!;
+        JsonNode media = responses["200"]!["content"]!["application/json"]!;
+        await Assert.That(media["x-schema-inferred-from-examples"]!.GetValue<bool>()).IsTrue();
+        JsonNode properties = media["schema"]!["properties"]!["elements"]!["items"]!["properties"]!;
+        await Assert.That(properties["at"]!["format"]!.ToString()).IsEqualTo("int64");
+        await Assert.That(properties["label"]!["nullable"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(result["components"]!["schemas"]!["Result"]!["properties"]!["at"]!["format"]!.ToString()).IsEqualTo("int64");
+        await Assert.That(result["components"]!["schemas"]!["Result"]!["properties"]!["at"]!["minimum"]!.GetValue<int>()).IsEqualTo(0);
+        await Assert.That(responses["202"]!["content"]!["application/json"]!["schema"]!.AsObject().Count).IsEqualTo(0);
+        await Assert.That(responses["203"]!["content"]!["application/json"]!["schema"]).IsNull();
+        JsonNode disabled = JsonNode.Parse(_preprocessor.Fix(spec, new OpenApiFixerOptions { InferSchemasFromExamples = false }))!;
+        await Assert.That(disabled["paths"]!["/items"]!["get"]!["responses"]!["200"]!["content"]!["application/json"]!["schema"]).IsNull();
+    }
+
+    [Test]
+    public async ValueTask Fix_preserves_inferred_success_response_and_provenance(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Inferred","version":"1"},"paths":{"/identity":{"get":{"operationId":"readIdentity","x-postman-warnings":["Inferred status"],"responses":{
+              "2XX":{"description":"Inferred success","x-postman-response-inference":"unclassified-json-body","content":{"application/json":{"example":{"at":1760631246905,"name":"name"}}}},
+              "default":{"description":"Unknown status"}
+            }}}}}
+            """;
+        JsonNode result = await Fix(spec, cancellationToken);
+        JsonNode operation = result["paths"]!["/identity"]!["get"]!;
+        await Assert.That(operation["responses"]!["2XX"]!["content"]!["application/json"]!["schema"]).IsNotNull();
+        await Assert.That(operation["responses"]!["default"]).IsNotNull();
+        await Assert.That(operation["responses"]!["2XX"]!["x-postman-response-inference"]?.ToString()).IsEqualTo("unclassified-json-body");
+        await Assert.That(operation["x-postman-warnings"]).IsNotNull();
+    }
+
+    [Test]
+    public async ValueTask Preprocessing_infers_31_null_unions_and_handles_recursive_example_schemas()
+    {
+        const string spec = """
+            {"openapi":"3.1.0","info":{"title":"Examples","version":"1"},"paths":{},"components":{
+              "schemas":{"Node":{"type":"object","properties":{"at":{"type":"integer"},"next":{"$ref":"#/components/schemas/Node"}}}},
+              "responses":{
+                "Node":{"description":"Recursive","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Node"},"example":{"at":1,"next":{"at":1760631246905}}}}},
+                "Mixed":{"description":"Mixed","content":{"application/problem+json":{"examples":{"one":{"value":{"value":null}},"two":{"value":{"value":1}},"three":{"value":{"value":"other"}}}}}},
+                "Binary":{"description":"Binary","content":{"application/octet-stream":{"example":{"notASchema":true}}}}
+              }
+            }}
+            """;
+        JsonNode result = JsonNode.Parse(_preprocessor.Fix(spec))!;
+        await Assert.That(result["components"]!["schemas"]!["Node"]!["properties"]!["at"]!["format"]?.ToString()).IsEqualTo("int64");
+        JsonArray branches = result["components"]!["responses"]!["Mixed"]!["content"]!["application/problem+json"]!["schema"]!["properties"]!["value"]!["anyOf"]!.AsArray();
+        await Assert.That(branches.Count).IsEqualTo(3);
+        await Assert.That(branches.Any(branch => branch?["type"]?.ToString() == "null")).IsTrue();
+        await Assert.That(result["components"]!["responses"]!["Binary"]!["content"]!["application/octet-stream"]!["schema"]).IsNull();
+    }
+
+    [Test]
+    public async ValueTask Fix_retains_targets_created_for_inline_mixed_response_unions(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Reporting","version":"1"},"paths":{"/reports":{"get":{
+              "operationId":"readReports","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{
+                "type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{
+                  "pivotValues~":{"type":"array","items":{"type":"object","nullable":true,"properties":{
+                    "name":{"anyOf":[{"type":"string"},{"type":"object","properties":{"localized":{"type":"object","properties":{"en_US":{"type":"string"}}}}}]}
+                  }}}
+                }}}}
+              }}}}}
+            }}}}
+            """;
+        JsonNode result = await Fix(spec, cancellationToken);
+        await CheckReferences(result);
+
+        async ValueTask CheckReferences(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["$ref"] is JsonValue reference && reference.GetValue<string>() is string pointer && pointer.StartsWith("#/", StringComparison.Ordinal))
+                {
+                    JsonNode? target = result;
+                    foreach (string segment in Uri.UnescapeDataString(pointer[2..]).Split('/'))
+                        target = target?[segment.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal)];
+                    await Assert.That(target).IsNotNull();
+                }
+                foreach ((string key, JsonNode? value) in obj)
+                    if (!key.StartsWith("x-", StringComparison.Ordinal))
+                        await CheckReferences(value);
+            }
+            else if (node is JsonArray array)
+                foreach (JsonNode? child in array)
+                    await CheckReferences(child);
+        }
+    }
+
+    [Test]
     public async ValueTask Fix_repairs_trailing_media_type_separators(CancellationToken cancellationToken)
     {
         const string spec = """

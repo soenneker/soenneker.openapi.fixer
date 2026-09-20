@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
 
-public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
+public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
 {
     private const string Redacted = "[REDACTED]";
 
@@ -98,6 +98,8 @@ public sealed class OpenApiPreprocessingFixer : IOpenApiPreprocessingFixer
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
         changed |= NormalizePathParameterRequirements(root);
         changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable), NormalizeMediaTypeKeys);
+        if (root is JsonObject responseDocument && options?.InferSchemasFromExamples != false)
+            changed |= RecoverSchemasFromExamples(responseDocument, normalizeLegacyNullable);
         changed |= requiresCanonicalization;
 
         if (options?.RedactCredentialLikeValues == true)

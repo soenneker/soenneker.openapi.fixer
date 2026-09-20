@@ -11,7 +11,9 @@ public interface IOpenApiPreprocessingFixer
     /// <remarks>
     /// Recovers loose JSON syntax, duplicate properties (last occurrence wins, with a warning), metadata,
     /// schema field shapes, and path parameter declarations. Schema traversal distinguishes schema maps from
-    /// examples, defaults, constants, and extension payloads. Unparseable input is returned unchanged for the
+    /// examples, defaults, constants, and extension payloads. By default, missing JSON media schemas are inferred
+    /// from examples and nested integer formats are widened when examples exceed Int32. Explicit schema constraints
+    /// are retained; examples and extensions remain unchanged. Unparseable input is returned unchanged for the
     /// document loader to report; recovery does not guarantee a valid contract for arbitrary input.
     /// </remarks>
     /// <param name="json">The raw OpenAPI JSON.</param>

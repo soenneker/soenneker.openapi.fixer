@@ -415,7 +415,7 @@ public sealed partial class OpenApiFixer
     }
 
     /// <summary>
-    /// Removes misleading enum definitions under vendor extensions and ensures schemas with enum but no type default to string.
+    /// Repairs schema enum types while preserving vendor extensions and their provenance metadata.
     /// Prevents Kiota from creating CodeEnum in places where a class is expected.
     /// </summary>
     private static void FixBadEnums(OpenApiDocument doc)
@@ -423,16 +423,7 @@ public sealed partial class OpenApiFixer
         if (doc == null)
             return;
 
-        // document-level
-        ScrubEnumsInExtensions(doc);
-
-        // servers
-        if (doc.Servers != null)
-        {
-            foreach (OpenApiServer s in doc.Servers)
-                ScrubEnumsInExtensions(s);
-        }
-
+        // Extension payloads are data, not schemas. Preserve them intact.
         // paths, operations, params, request/response/headers
         if (doc.Paths != null)
         {
@@ -440,16 +431,12 @@ public sealed partial class OpenApiFixer
             {
                 if (path == null)
                     continue;
-                if (path is IOpenApiExtensible pathExt)
-                    ScrubEnumsInExtensions(pathExt);
 
                 // path-level params
                 if (path.Parameters != null)
                 {
                     foreach (var p in path.Parameters)
                     {
-                        if (p is IOpenApiExtensible pExt)
-                            ScrubEnumsInExtensions(pExt);
                         if (p?.Schema is OpenApiSchema pSchema)
                             FixSchemaEnumWithoutType(pSchema, new HashSet<OpenApiSchema>());
                     }
@@ -462,22 +449,16 @@ public sealed partial class OpenApiFixer
                     {
                         if (op == null)
                             continue;
-                        if (op is IOpenApiExtensible opExt)
-                            ScrubEnumsInExtensions(opExt);
 
                         if (op.Parameters != null)
                             foreach (var p in op.Parameters)
                             {
-                                if (p is IOpenApiExtensible pExt)
-                                    ScrubEnumsInExtensions(pExt);
                                 if (p?.Schema is OpenApiSchema pSchema)
                                     FixSchemaEnumWithoutType(pSchema, new HashSet<OpenApiSchema>());
                             }
 
                         if (op.RequestBody is OpenApiRequestBody rb && rb.Content != null)
                         {
-                            if (rb is IOpenApiExtensible rbExt)
-                                ScrubEnumsInExtensions(rbExt);
                             foreach (OpenApiMediaType media in rb.Content.Values.OfType<OpenApiMediaType>())
                                 if (media.Schema is OpenApiSchema mtSchema)
                                 {
@@ -505,8 +486,6 @@ public sealed partial class OpenApiFixer
                             {
                                 if (resp == null)
                                     continue;
-                                if (resp is IOpenApiExtensible respExt)
-                                    ScrubEnumsInExtensions(respExt);
                                 if (resp.Content != null)
                                     foreach (OpenApiMediaType media in resp.Content.Values.OfType<OpenApiMediaType>())
                                         if (media.Schema is OpenApiSchema mtSchema)
@@ -514,8 +493,6 @@ public sealed partial class OpenApiFixer
                                 if (resp.Headers != null)
                                     foreach (var h in resp.Headers.Values)
                                     {
-                                        if (h is IOpenApiExtensible hExt)
-                                            ScrubEnumsInExtensions(hExt);
                                         if (h?.Schema is OpenApiSchema hSchema)
                                             FixSchemaEnumWithoutType(hSchema, new HashSet<OpenApiSchema>());
                                     }
@@ -528,8 +505,6 @@ public sealed partial class OpenApiFixer
         // components
         if (doc.Components != null)
         {
-            if (doc.Components is IOpenApiExtensible compExt)
-                ScrubEnumsInExtensions(compExt);
 
             if (doc.Components.Schemas != null)
                 foreach (IOpenApiSchema s in doc.Components.Schemas.Values)
@@ -539,8 +514,6 @@ public sealed partial class OpenApiFixer
             if (doc.Components.Parameters != null)
                 foreach (var p in doc.Components.Parameters.Values)
                 {
-                    if (p is IOpenApiExtensible pExt)
-                        ScrubEnumsInExtensions(pExt);
                     if (p?.Schema is OpenApiSchema pSchema)
                         FixSchemaEnumWithoutType(pSchema, new HashSet<OpenApiSchema>());
                 }
@@ -548,8 +521,6 @@ public sealed partial class OpenApiFixer
             if (doc.Components.RequestBodies != null)
                 foreach (var rb in doc.Components.RequestBodies.Values)
                 {
-                    if (rb is IOpenApiExtensible rbExt)
-                        ScrubEnumsInExtensions(rbExt);
                     if (rb?.Content != null)
                         foreach (var mt in rb.Content.Values)
                             if (mt?.Schema is OpenApiSchema mtSchema)
@@ -559,8 +530,6 @@ public sealed partial class OpenApiFixer
             if (doc.Components.Responses != null)
                 foreach (var r in doc.Components.Responses.Values)
                 {
-                    if (r is IOpenApiExtensible rExt)
-                        ScrubEnumsInExtensions(rExt);
                     if (r?.Content != null)
                         foreach (var mt in r.Content.Values)
                             if (mt?.Schema is OpenApiSchema mtSchema)
@@ -570,36 +539,9 @@ public sealed partial class OpenApiFixer
             if (doc.Components.Headers != null)
                 foreach (var h in doc.Components.Headers.Values)
                 {
-                    if (h is IOpenApiExtensible hExt)
-                        ScrubEnumsInExtensions(hExt);
                     if (h?.Schema is OpenApiSchema hSchema)
                         FixSchemaEnumWithoutType(hSchema, new HashSet<OpenApiSchema>());
                 }
-        }
-    }
-
-    private static void ScrubEnumsInExtensions(IOpenApiExtensible? target)
-    {
-        if (target?.Extensions == null || target.Extensions.Count == 0)
-            return;
-
-        // Create a list of keys to remove to avoid modification during enumeration
-        var keysToRemove = new List<string>();
-
-        foreach (KeyValuePair<string, IOpenApiExtension> kvp in target.Extensions)
-        {
-            string key = kvp.Key;
-            if (!key.StartsWith("x-", StringComparison.Ordinal))
-                continue;
-
-            // Mark this extension for removal to avoid enum confusion
-            keysToRemove.Add(key);
-        }
-
-        // Remove the marked extensions after enumeration is complete
-        foreach (string key in keysToRemove)
-        {
-            target.Extensions.Remove(key);
         }
     }
 

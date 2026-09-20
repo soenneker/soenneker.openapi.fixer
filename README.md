@@ -52,6 +52,10 @@ The default normalization focuses on generated-client compatibility, including c
 
 ## Optional transformations
 
+By default, missing JSON media schemas are inferred from inline examples or locally referenced Example Objects. Inferred schemas combine observed properties and array element types without declaring fields required or inventing enums. Explicit schemas remain authoritative; nested integer formats are widened to `int64` when payload examples demonstrate values outside Int32. This includes reusable schemas. Example payloads and vendor extensions, including response inference warnings, are preserved. No external examples are downloaded and no HTTP success status is guessed by the fixer.
+
+Set `InferSchemasFromExamples = false` to disable this recovery. Media schemas created from examples carry `x-schema-inferred-from-examples: true`.
+
 Pass `OpenApiFixerOptions` when you need behavior beyond the defaults:
 
 ```csharp
