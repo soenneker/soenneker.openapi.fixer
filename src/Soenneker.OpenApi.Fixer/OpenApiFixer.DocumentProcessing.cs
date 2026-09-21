@@ -1102,6 +1102,7 @@ public sealed partial class OpenApiFixer
         string raw = await _fileUtil.Read(path, log: false, cancellationToken: cancellationToken);
 
         raw = _preprocessingFixer.Fix(raw, options);
+        raw = await BundleLocalSchemaReferences(raw, Path.GetFullPath(path), cancellationToken);
 
         return await _memoryStreamUtil.Get(raw, cancellationToken).NoSync();
     }

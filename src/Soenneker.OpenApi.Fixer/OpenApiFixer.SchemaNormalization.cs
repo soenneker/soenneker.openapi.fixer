@@ -288,8 +288,8 @@ public sealed partial class OpenApiFixer
                 }
             }
 
-            // 8. Finally, remove the now‐inlined component
-            comps.Remove(primKey);
+            // Keep the definition for references outside the schema locations inlined above,
+            // including parameter content, response headers, callbacks, and other documents.
         }
     }
 

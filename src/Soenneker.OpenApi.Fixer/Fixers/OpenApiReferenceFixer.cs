@@ -43,6 +43,8 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
 
             if (schema is not OpenApiSchemaReference schemaRef)
                 return false;
+            if (!string.IsNullOrEmpty(schemaRef.Reference.ExternalResource))
+                return false;
 
             string? referenceId = schemaRef.Reference.Id;
             if (!string.IsNullOrWhiteSpace(referenceId) && mapping.TryGetValue(referenceId, out string? newKey))
@@ -188,6 +190,7 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             {
                 PatchSchema(concreteParam.Schema);
             }
+            PatchMediaContent(concreteParam.Content);
         }
 
         if (doc.Components?.Schemas != null)
@@ -206,43 +209,69 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             }
         }
 
-        if (doc.Paths != null)
+        var visitedPaths = new HashSet<IOpenApiPathItem>();
+        void PatchPath(IOpenApiPathItem? pathItem)
         {
-            foreach (IOpenApiPathItem pathItem in doc.Paths.Values)
+            if (pathItem == null || !visitedPaths.Add(pathItem))
+                return;
+            if (pathItem?.Parameters != null)
             {
-                if (pathItem?.Parameters != null)
+                foreach (IOpenApiParameter parameter in pathItem.Parameters)
                 {
-                    foreach (IOpenApiParameter parameter in pathItem.Parameters)
+                    PatchParameter(parameter);
+                }
+            }
+
+            if (pathItem?.Operations == null)
+                return;
+
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+            {
+                PatchMediaContent(operation.RequestBody?.Content);
+
+                if (operation.Responses != null)
+                {
+                    foreach (IOpenApiResponse response in operation.Responses.Values)
+                    {
+                        PatchMediaContent(response?.Content);
+                        if (response?.Headers != null)
+                            foreach (IOpenApiHeader header in response.Headers.Values)
+                                PatchHeader(header);
+                    }
+                }
+
+                if (operation.Parameters != null)
+                {
+                    foreach (IOpenApiParameter parameter in operation.Parameters)
                     {
                         PatchParameter(parameter);
                     }
                 }
-
-                if (pathItem?.Operations == null)
-                    continue;
-
-                foreach (OpenApiOperation operation in pathItem.Operations.Values)
-                {
-                    PatchMediaContent(operation.RequestBody?.Content);
-
-                    if (operation.Responses != null)
-                    {
-                        foreach (IOpenApiResponse response in operation.Responses.Values)
-                        {
-                            PatchMediaContent(response?.Content);
-                        }
-                    }
-
-                    if (operation.Parameters != null)
-                    {
-                        foreach (IOpenApiParameter parameter in operation.Parameters)
-                        {
-                            PatchParameter(parameter);
-                        }
-                    }
-                }
+                if (operation.Callbacks != null)
+                    foreach (IOpenApiCallback callback in operation.Callbacks.Values)
+                        PatchCallback(callback);
             }
         }
+
+        void PatchCallback(IOpenApiCallback callback)
+        {
+            if (callback.PathItems != null)
+                foreach (IOpenApiPathItem path in callback.PathItems.Values)
+                    PatchPath(path);
+        }
+
+        if (doc.Paths != null)
+            foreach (IOpenApiPathItem path in doc.Paths.Values)
+                PatchPath(path);
+        if (doc.Webhooks != null)
+            foreach (IOpenApiPathItem path in doc.Webhooks.Values)
+                PatchPath(path);
+        if (doc.Components?.PathItems != null)
+            foreach (IOpenApiPathItem path in doc.Components.PathItems.Values)
+                PatchPath(path);
+        if (doc.Components?.Callbacks != null)
+            foreach (IOpenApiCallback callback in doc.Components.Callbacks.Values)
+                PatchCallback(callback);
 
         if (doc.Components?.Parameters != null)
         {
@@ -265,27 +294,32 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
             foreach (IOpenApiResponse response in doc.Components.Responses.Values)
             {
                 PatchMediaContent(response?.Content);
+                if (response?.Headers != null)
+                    foreach (IOpenApiHeader header in response.Headers.Values)
+                        PatchHeader(header);
             }
+        }
+
+        void PatchHeader(IOpenApiHeader header)
+        {
+            if (header is not OpenApiHeader concreteHeader)
+                return;
+
+            if (TryCreateReplacement(concreteHeader.Schema, out IOpenApiSchema replacement))
+            {
+                concreteHeader.Schema = replacement;
+                replacementCount++;
+            }
+            else
+            {
+                PatchSchema(concreteHeader.Schema);
+            }
+            PatchMediaContent(concreteHeader.Content);
         }
 
         if (doc.Components?.Headers != null)
-        {
             foreach (IOpenApiHeader header in doc.Components.Headers.Values)
-            {
-                if (header is not OpenApiHeader concreteHeader)
-                    continue;
-
-                if (TryCreateReplacement(concreteHeader.Schema, out IOpenApiSchema replacement))
-                {
-                    concreteHeader.Schema = replacement;
-                    replacementCount++;
-                }
-                else
-                {
-                    PatchSchema(concreteHeader.Schema);
-                }
-            }
-        }
+                PatchHeader(header);
 
         _logger.LogVerbose("Updated {ReferenceCount} schema references across {MappingCount} schema renames.", replacementCount, mapping.Count);
     }

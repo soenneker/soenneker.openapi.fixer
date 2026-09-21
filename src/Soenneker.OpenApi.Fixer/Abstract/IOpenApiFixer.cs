@@ -24,6 +24,7 @@ public interface IOpenApiFixer
     /// <summary>
     /// Reads an OpenAPI JSON file, applies the default normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
+    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Only referenced component schemas are imported; recursive references and example payloads are preserved.</remarks>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -33,6 +34,7 @@ public interface IOpenApiFixer
     /// <summary>
     /// Reads an OpenAPI JSON file, applies the selected normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
+    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Dependency files must contain JSON, including any converted YAML files that retain their original filenames.</remarks>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
     /// <param name="options">Optional normalization and logging settings. Logging includes file paths, major processing stages, completion timing, warnings, and errors by default, with settings captured independently for each call.</param>
