@@ -854,13 +854,17 @@ public sealed partial class OpenApiFixer
             return;
 
         var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
+        var activeReferences = new HashSet<string>(StringComparer.Ordinal);
 
         bool IsMissing(OpenApiSchemaReference r) => string.IsNullOrWhiteSpace(r.Reference.Id) || !comps.ContainsKey(r.Reference.Id);
 
         IOpenApiSchema ResolveComponent(IOpenApiSchema s)
         {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             while (s is OpenApiSchemaReference r && !string.IsNullOrWhiteSpace(r.Reference.Id) && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? target))
             {
+                if (!seen.Add(r.Reference.Id))
+                    return s;
                 s = target;
             }
 
@@ -971,6 +975,22 @@ public sealed partial class OpenApiFixer
         }
 
         void Visit(ref IOpenApiSchema? s)
+        {
+            string? referenceId = (s as OpenApiSchemaReference)?.Reference.Id;
+            if (referenceId != null && !activeReferences.Add(referenceId))
+                return;
+            try
+            {
+                VisitCore(ref s);
+            }
+            finally
+            {
+                if (referenceId != null)
+                    activeReferences.Remove(referenceId);
+            }
+        }
+
+        void VisitCore(ref IOpenApiSchema? s)
         {
             if (s is OpenApiSchemaReference sr)
             {

@@ -318,19 +318,51 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
     {
         bool changed = NormalizeIntegerValues(obj);
 
-        // These shapes occur in hand-authored and loosely generated specs. Preserve the supplied
-        // value when its intended collection shape is unambiguous.
-        if (obj["required"] is JsonValue required && required.TryGetValue(out string? propertyName))
-        {
-            obj["required"] = new JsonArray(propertyName);
-            changed = true;
-        }
-
         foreach (string key in new[] { "allOf", "anyOf", "oneOf" })
         {
             if (obj[key] is not JsonObject branch)
                 continue;
             obj[key] = new JsonArray(branch.DeepClone());
+            changed = true;
+        }
+
+        // Some 3.0 publishers wrap a homogeneous item schema in a one-element array.
+        if (!normalizeLegacyNullable && obj["items"] is JsonArray { Count: 1 } items && items[0] is JsonObject item)
+        {
+            obj["items"] = item.DeepClone();
+            changed = true;
+        }
+
+        // Schema examples are an array of payloads, unlike media-type named examples.
+        if (obj["examples"] is JsonNode examples && examples is not JsonArray)
+        {
+            obj["examples"] = new JsonArray(examples.DeepClone());
+            changed = true;
+        }
+
+        // OpenAPI 3.0 readers require a scalar type. Keep multi-type constraints as a union.
+        if (!normalizeLegacyNullable && obj["type"] is JsonArray types && types.Count > 0 &&
+            types.All(static node => node is JsonValue value && value.TryGetValue(out string? type) &&
+                type is "string" or "number" or "integer" or "boolean" or "object" or "array" or "null"))
+        {
+            var branches = new JsonArray();
+            foreach (string type in types.Select(static node => node!.GetValue<string>()).Distinct(StringComparer.Ordinal))
+                branches.Add(type == "null"
+                    ? new JsonObject { ["type"] = "string", ["nullable"] = true, ["enum"] = new JsonArray((JsonNode?)null) }
+                    : new JsonObject { ["type"] = type });
+            obj.Remove("type");
+            if (obj.ContainsKey("anyOf"))
+                (obj["allOf"] ??= new JsonArray()).AsArray().Add(new JsonObject { ["anyOf"] = branches });
+            else
+                obj["anyOf"] = branches;
+            changed = true;
+        }
+
+        // These shapes occur in hand-authored and loosely generated specs. Preserve the supplied
+        // value when its intended collection shape is unambiguous.
+        if (obj["required"] is JsonValue required && required.TryGetValue(out string? propertyName))
+        {
+            obj["required"] = new JsonArray(propertyName);
             changed = true;
         }
 
