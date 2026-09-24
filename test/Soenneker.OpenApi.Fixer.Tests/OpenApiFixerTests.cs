@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using Microsoft.OpenApi;
 using Soenneker.OpenApi.Fixer.Abstract;
@@ -17,6 +18,8 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 [ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
 public sealed class OpenApiFixerTests : HostedUnitTest
 {
+    private readonly IFileUtil _fileUtil;
+
     private readonly IOpenApiFixer _util;
     private readonly IOpenApiNamingFixer _namingFixer;
     private readonly IOpenApiSchemaFixer _schemaFixer;
@@ -24,6 +27,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
     public OpenApiFixerTests(Host host) : base(host)
     {
+        _fileUtil = Resolve<IFileUtil>(true);
         _util = Resolve<IOpenApiFixer>(true);
         _namingFixer = Resolve<IOpenApiNamingFixer>(true);
         _schemaFixer = Resolve<IOpenApiSchemaFixer>(true);
@@ -54,7 +58,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             """;
         try
         {
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
             JsonNode root = await ReadJsonNode(targetPath);
             JsonNode property = root["components"]!["schemas"]!["QueryStatus"]!["properties"]!["query_async"]!;
@@ -65,8 +69,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -91,7 +95,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -100,8 +104,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -114,7 +118,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         try
         {
             string spec = "{\n\"openapi\":\"3.0.4\",\n\"info\":{\"title\":\"Before\u000BAfter\",\"version\":\"1\"},\n\"paths\":{}\n}";
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -122,8 +126,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -244,7 +248,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -259,8 +263,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -432,7 +436,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -463,7 +467,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -477,8 +481,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -490,7 +494,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -500,16 +504,16 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath))!;
+            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath))!;
             await Assert.That(root["info"]?["version"]?.GetValue<string>()).IsEqualTo("1.0.0");
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -521,7 +525,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -551,10 +555,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            string fixedJson = await File.ReadAllTextAsync(targetPath);
+            string fixedJson = await _fileUtil.Read(targetPath);
             JsonNode root = JsonNode.Parse(fixedJson)!;
 
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.1");
@@ -591,8 +595,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -604,7 +608,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -614,16 +618,16 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec);
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { OutputSpecVersion = OpenApiSpecVersion.OpenApi3_0 }, cancellationToken: cancellationToken);
 
-            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath))!;
+            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath))!;
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.0");
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -635,7 +639,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -712,10 +716,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode? root = JsonNode.Parse(await File.ReadAllTextAsync(targetPath, cancellationToken));
+            JsonNode? root = JsonNode.Parse(await _fileUtil.Read(targetPath, cancellationToken: cancellationToken));
             JsonNode? usage = root?["components"]?["schemas"]?["Usage"];
 
             await Assert.That(usage).IsNotNull();
@@ -729,8 +733,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -742,7 +746,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -792,11 +796,11 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            string fixedSpec = await File.ReadAllTextAsync(targetPath, cancellationToken);
+            string fixedSpec = await _fileUtil.Read(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(fixedSpec).DoesNotContain("\"nullable\": \"0\"");
             await Assert.That(fixedSpec).DoesNotContain("\"readOnly\": 0");
@@ -804,8 +808,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -817,7 +821,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -853,7 +857,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -870,8 +874,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -883,7 +887,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -930,7 +934,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -946,8 +950,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -1034,7 +1038,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -1073,7 +1077,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -1084,8 +1088,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -1097,7 +1101,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -1124,7 +1128,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -1142,8 +1146,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -1713,7 +1717,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -1739,7 +1743,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -1751,8 +1755,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2020,7 +2024,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2055,11 +2059,11 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            string fixedSpec = await File.ReadAllTextAsync(targetPath, cancellationToken);
+            string fixedSpec = await _fileUtil.Read(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(fixedSpec).Contains("\"CodeScanningVariantAnalysisSkippedRepositories\": {");
             await Assert.That(fixedSpec).Contains("\"CodeScanningVariantAnalysisSkippedRepositoriesNotFoundRepos\": {");
@@ -2068,8 +2072,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2081,7 +2085,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2145,7 +2149,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2166,8 +2170,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2179,7 +2183,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2242,7 +2246,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2261,8 +2265,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2274,7 +2278,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2319,7 +2323,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2336,8 +2340,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2349,7 +2353,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2402,7 +2406,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2418,8 +2422,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2431,7 +2435,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2458,7 +2462,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2473,8 +2477,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2486,7 +2490,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2513,7 +2517,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2528,8 +2532,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2541,7 +2545,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2582,7 +2586,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2595,8 +2599,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2608,7 +2612,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2644,7 +2648,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2667,20 +2671,20 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
     [Test]
     public async ValueTask Fix_should_process_cloudflare_unfixed_fixture(CancellationToken cancellationToken)
     {
-        string sourcePath = FindFixtureFile("cloudflare_unfixed.json");
+        string sourcePath = await FindFixtureFile("cloudflare_unfixed.json");
         string targetPath = Path.GetTempFileName();
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2693,7 +2697,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2705,7 +2709,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2776,7 +2780,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
@@ -2790,8 +2794,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2803,7 +2807,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2874,7 +2878,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: System.Threading.CancellationToken.None);
 
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
             {
@@ -2891,8 +2895,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -2904,7 +2908,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -2947,7 +2951,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, System.Threading.CancellationToken.None);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: System.Threading.CancellationToken.None);
 
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
             {
@@ -2968,8 +2972,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -3901,9 +3905,9 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         return (T)method.Invoke(method.IsStatic ? null : target, args)!;
     }
 
-    private static async ValueTask<JsonNode> ReadJsonNode(string path)
+    private async ValueTask<JsonNode> ReadJsonNode(string path)
     {
-        string contents = await File.ReadAllTextAsync(path);
+        string contents = await _fileUtil.Read(path);
         return JsonNode.Parse(contents)!;
     }
 
@@ -3933,7 +3937,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         return valueObject?["name"]?.GetValue<string>();
     }
 
-    private static string FindFixtureFile(string fileName)
+    private async Task<string> FindFixtureFile(string fileName)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
 
@@ -3941,7 +3945,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         {
             string candidate = Path.Combine(directory.FullName, fileName);
 
-            if (File.Exists(candidate))
+            if (await _fileUtil.Exists(candidate))
                 return candidate;
 
             directory = directory.Parent;
@@ -3958,7 +3962,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
 
             const string spec = """
                                 {
@@ -4002,7 +4006,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -4044,8 +4048,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -4057,7 +4061,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            File.Delete(targetPath);
+            await _fileUtil.Delete(targetPath);
             const string spec = """
                                 {
                                   "openapi": "3.1.0",
@@ -4066,7 +4070,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await File.WriteAllTextAsync(sourcePath, spec, cancellationToken);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath);
@@ -4075,8 +4079,8 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         }
         finally
         {
-            File.Delete(sourcePath);
-            File.Delete(targetPath);
+            await _fileUtil.Delete(sourcePath);
+            await _fileUtil.Delete(targetPath);
         }
     }
 
@@ -4087,7 +4091,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     {
         const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";
         const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\fixed.json";
-        File.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath);
 
         await _util.Fix(sourcePath, fixedPath, cancellationToken);
 
@@ -4103,7 +4107,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessCoinbase(CancellationToken cancellationToken)
     {
         const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\spec3fixed.json";
-        File.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath);
 
         await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, cancellationToken);
 
@@ -4119,7 +4123,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessTelnyx(CancellationToken cancellationToken)
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
-        File.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath);
 
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, cancellationToken);
 
@@ -4135,7 +4139,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessCloudflare(CancellationToken cancellationToken)
     {
         const string fixedPath = @"c:\cloudflare\spec3fixed.json";
-        File.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath);
 
         await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, cancellationToken);
 

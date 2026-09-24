@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.IO;
 using System.Linq;
@@ -27,9 +28,9 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
         try
         {
             string path = Path.Combine(directory, "api.json");
-            await File.WriteAllTextAsync(path, source, token);
+            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: token);
             await Resolve<IOpenApiFixer>(true).Fix(path, path, token);
-            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: token))!;
             JsonNode operation = root["components"]!["callbacks"]!["event"]!["{$request.body#/url}"]!["post"]!;
             foreach (JsonNode schema in new[] {
                          operation["requestBody"]!["content"]!["application/json"]!["schema"]!["properties"]!["created"]!,
@@ -64,10 +65,10 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
         {
             string path = Path.Combine(directory, "api.json");
             string dependencyPath = Path.Combine(directory, "external.yml");
-            await File.WriteAllTextAsync(path, source, token);
-            await File.WriteAllTextAsync(dependencyPath, dependency, token);
+            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: token);
+            await Resolve<IFileUtil>(true).Write(dependencyPath, dependency, cancellationToken: token);
             await Resolve<IOpenApiFixer>(true).Fix(path, path, token);
-            JsonNode root = JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: token))!;
             JsonObject schemas = root["components"]!["schemas"]!.AsObject();
             string reference = schemas["Container"]!["properties"]!["node"]!["$ref"]!.GetValue<string>();
             await Assert.That(reference.StartsWith("#/components/schemas/", StringComparison.Ordinal)).IsTrue();
@@ -77,7 +78,7 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
             await Assert.That(imported["properties"]!["next"]!["$ref"]!.GetValue<string>()).IsEqualTo(reference);
             await Assert.That(schemas.Any(entry => entry.Key.Contains("Unused", StringComparison.Ordinal))).IsFalse();
             await Assert.That(schemas["Container"]!["example"]!["$ref"]!.GetValue<string>()).IsEqualTo("literal-payload");
-            await Assert.That(await File.ReadAllTextAsync(dependencyPath, token)).IsEqualTo(dependency);
+            await Assert.That(await Resolve<IFileUtil>(true).Read(dependencyPath, cancellationToken: token)).IsEqualTo(dependency);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -91,17 +92,17 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
         {
             string source = Path.Combine(directory, "api.json");
             string target = Path.Combine(directory, "fixed.json");
-            await File.WriteAllTextAsync(source, """
+            await Resolve<IFileUtil>(true).Write(source, """
                 {"openapi":"3.0.3","info":{"title":"Missing","version":"1"},"paths":{},
                  "components":{"schemas":{"Container":{"$ref":"external.json#/components/schemas/Missing"}}}}
-                """, token);
-            await File.WriteAllTextAsync(Path.Combine(directory, "external.json"), """{"components":{"schemas":{}}}""", token);
-            await File.WriteAllTextAsync(target, "existing output", token);
+                """, cancellationToken: token);
+            await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "external.json"), """{"components":{"schemas":{}}}""", cancellationToken: token);
+            await Resolve<IFileUtil>(true).Write(target, "existing output", cancellationToken: token);
             bool rejected = false;
             try { await Resolve<IOpenApiFixer>(true).Fix(source, target, token); }
             catch (InvalidOperationException exception) { rejected = exception.Message.Contains("Unresolved schema reference", StringComparison.Ordinal); }
             await Assert.That(rejected).IsTrue();
-            await Assert.That(await File.ReadAllTextAsync(target, token)).IsEqualTo("existing output");
+            await Assert.That(await Resolve<IFileUtil>(true).Read(target, cancellationToken: token)).IsEqualTo("existing output");
         }
         finally { Directory.Delete(directory, true); }
     }

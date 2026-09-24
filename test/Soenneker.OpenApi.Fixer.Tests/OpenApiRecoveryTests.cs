@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.IO;
 using System.Linq;
@@ -14,11 +15,14 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 [ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
 public sealed class OpenApiRecoveryTests : HostedUnitTest
 {
+    private readonly IFileUtil _fileUtil;
+
     private readonly IOpenApiFixer _fixer;
     private readonly IOpenApiPreprocessingFixer _preprocessor;
 
     public OpenApiRecoveryTests(Host host) : base(host)
     {
+        _fileUtil = Resolve<IFileUtil>(true);
         _fixer = Resolve<IOpenApiFixer>(true);
         _preprocessor = Resolve<IOpenApiPreprocessingFixer>(true);
     }
@@ -487,19 +491,19 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
         const string existing = "Existing target";
         try
         {
-            await File.WriteAllTextAsync(source, "{ definitely not a specification", cancellationToken);
-            await File.WriteAllTextAsync(target, existing, cancellationToken);
+            await _fileUtil.Write(source, "{ definitely not a specification", cancellationToken: cancellationToken);
+            await _fileUtil.Write(target, existing, cancellationToken: cancellationToken);
             Exception? failure = null;
             try { await _fixer.Fix(source, target, cancellationToken); }
             catch (Exception ex) { failure = ex; }
             await Assert.That(failure).IsNotNull();
-            await Assert.That(await File.ReadAllTextAsync(target, cancellationToken)).IsEqualTo(existing);
+            await Assert.That(await _fileUtil.Read(target, cancellationToken: cancellationToken)).IsEqualTo(existing);
             await Assert.That(Directory.GetFiles(Path.GetDirectoryName(target)!, Path.GetFileName(target) + ".*.tmp").Length).IsEqualTo(0);
         }
         finally
         {
-            File.Delete(source);
-            File.Delete(target);
+            await _fileUtil.Delete(source);
+            await _fileUtil.Delete(target);
         }
     }
 
@@ -524,14 +528,14 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
         string target = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(source, spec, cancellationToken);
+            await _fileUtil.Write(source, spec, cancellationToken: cancellationToken);
             await _fixer.Fix(source, target, cancellationToken);
-            return JsonNode.Parse(await File.ReadAllTextAsync(target, cancellationToken))!;
+            return JsonNode.Parse(await _fileUtil.Read(target, cancellationToken: cancellationToken))!;
         }
         finally
         {
-            File.Delete(source);
-            File.Delete(target);
+            await _fileUtil.Delete(source);
+            await _fileUtil.Delete(target);
         }
     }
 }

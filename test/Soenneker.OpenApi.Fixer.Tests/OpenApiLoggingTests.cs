@@ -1,3 +1,6 @@
+using Soenneker.Utils.MemoryStream;
+using Microsoft.Extensions.Logging.Abstractions;
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -15,6 +18,8 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 
 public sealed class OpenApiLoggingTests
 {
+    private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
+
     private const string Spec = """
         {"openapi":"3.1.0","info":{"title":"Logging","version":"1"},"paths":{
           "/records":{"get":{"operationId":"get-record","responses":{"200":{"description":"OK","content":{
@@ -193,14 +198,14 @@ public sealed class OpenApiLoggingTests
         string target = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(source, spec, cancellationToken);
+            await _fileUtil.Write(source, spec, cancellationToken: cancellationToken, log: false);
             await fixer.Fix(source, target, options, cancellationToken);
-            return await File.ReadAllTextAsync(target, cancellationToken);
+            return await _fileUtil.Read(target, cancellationToken: cancellationToken, log: false);
         }
         finally
         {
-            File.Delete(source);
-            File.Delete(target);
+            await _fileUtil.Delete(source, log: false);
+            await _fileUtil.Delete(target, log: false);
         }
     }
 

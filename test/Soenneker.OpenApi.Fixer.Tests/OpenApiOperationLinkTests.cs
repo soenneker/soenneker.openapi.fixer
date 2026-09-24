@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.IO;
 using System.Text.Json.Nodes;
@@ -32,19 +33,19 @@ public sealed class OpenApiOperationLinkTests(Host host) : HostedUnitTest(host)
             if (scenario == "local")
                 source["paths"]!["/indexes/{index_name}"]!["get"]!["operationId"] = "upsert";
             string sourcePath = Path.Combine(directory, "control.json");
-            await File.WriteAllTextAsync(sourcePath, source.ToJsonString(), token);
+            await Resolve<IFileUtil>(true).Write(sourcePath, source.ToJsonString(), cancellationToken: token);
             const string target = """{"openapi":"3.1.0","paths":{"/vectors/upsert":{"post":{"operationId":"upsert","responses":{"200":{"description":"OK"}}}}}}""";
             if (scenario != "missing")
             {
                 Directory.CreateDirectory(Path.Combine(directory, "data files"));
-                await File.WriteAllTextAsync(Path.Combine(directory, "data files", "data.json"), target, token);
+                await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "data files", "data.json"), target, cancellationToken: token);
             }
             if (scenario is "ambiguous" or "local")
-                await File.WriteAllTextAsync(Path.Combine(directory, "other.json"), target, token);
+                await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "other.json"), target, cancellationToken: token);
 
             IOpenApiFixer fixer = Resolve<IOpenApiFixer>(true);
             await fixer.FixOperationLinks(directory, token);
-            string result = await File.ReadAllTextAsync(sourcePath, token);
+            string result = await Resolve<IFileUtil>(true).Read(sourcePath, cancellationToken: token);
             JsonNode response = JsonNode.Parse(result)!["paths"]!["/indexes/{index_name}"]!["get"]!["responses"]!["200"]!;
             JsonNode? link = response["links"]!["target"];
             if (scenario is "missing" or "ambiguous")
@@ -63,7 +64,7 @@ public sealed class OpenApiOperationLinkTests(Host host) : HostedUnitTest(host)
             await Assert.That(response["links"]!["explicit"]!["operationRef"]!.GetValue<string>()).IsEqualTo("https://example.com/spec.json#/paths/~1upsert/post");
             await Assert.That(response["content"]!["application/json"]!["example"]!["links"]!["fake"]!["operationId"]!.GetValue<string>()).IsEqualTo("missing");
             await fixer.FixOperationLinks(directory, token);
-            await Assert.That(await File.ReadAllTextAsync(sourcePath, token)).IsEqualTo(result);
+            await Assert.That(await Resolve<IFileUtil>(true).Read(sourcePath, cancellationToken: token)).IsEqualTo(result);
         }
         finally
         {
@@ -85,11 +86,10 @@ public sealed class OpenApiOperationLinkTests(Host host) : HostedUnitTest(host)
                 }}}}}}}
                 """;
             string path = Path.Combine(directory, "db_control_2026-07.json");
-            await File.WriteAllTextAsync(path, control, token);
-            await File.WriteAllTextAsync(Path.Combine(directory, "db_data_2026-07.json"),
-                """{"openapi":"3.0.3","paths":{"/vectors/upsert":{"post":{"operationId":"upsertVectors","responses":{"200":{"description":"OK"}}}}}}""", token);
+            await Resolve<IFileUtil>(true).Write(path, control, cancellationToken: token);
+            await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "db_data_2026-07.json"), """{"openapi":"3.0.3","paths":{"/vectors/upsert":{"post":{"operationId":"upsertVectors","responses":{"200":{"description":"OK"}}}}}}""", cancellationToken: token);
             await Resolve<IOpenApiFixer>(true).FixOperationLinks(directory, token);
-            JsonNode result = JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+            JsonNode result = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: token))!;
             await Assert.That(result["paths"]!["/indexes/{index_name}"]!["get"]!["responses"]!["200"]!["links"]!.AsObject().Count).IsEqualTo(0);
             await Assert.That(result["paths"]!["/indexes/{index_name}"]!["get"]!["operationId"]!.GetValue<string>()).IsEqualTo("describeIndex");
         }

@@ -20,7 +20,7 @@ public sealed partial class OpenApiFixer
                  { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint }).Order(StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            JsonNode? parsed = JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
+            JsonNode? parsed = JsonNode.Parse(await _fileUtil.Read(path, log: false, cancellationToken: cancellationToken).ConfigureAwait(false));
             if (parsed is not JsonObject root || !root.ContainsKey("openapi"))
                 continue;
             var nodes = new List<(JsonObject Node, string Pointer)>();
@@ -68,7 +68,7 @@ public sealed partial class OpenApiFixer
                 changed = true;
             }
             if (changed)
-                await File.WriteAllTextAsync(document.Path, document.Root.ToJsonString(), cancellationToken).ConfigureAwait(false);
+                await _fileUtil.Write(document.Path, document.Root.ToJsonString(), log: false, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
     }
 

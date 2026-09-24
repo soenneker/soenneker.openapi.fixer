@@ -60,9 +60,9 @@ public sealed partial class OpenApiFixer
                 if (!documents.TryGetValue(targetPath, out JsonObject? document))
                 {
                     // Remote and unavailable dependencies remain references for the caller to resolve.
-                    if (!File.Exists(targetPath))
+                    if (!(await _fileUtil.Exists(targetPath)))
                         continue;
-                    document = JsonNode.Parse(await File.ReadAllTextAsync(targetPath, cancellationToken).ConfigureAwait(false)) as JsonObject ??
+                    document = JsonNode.Parse(await _fileUtil.Read(targetPath, log: false, cancellationToken: cancellationToken).ConfigureAwait(false)) as JsonObject ??
                                throw new InvalidOperationException($"Expected a JSON document in schema dependency '{targetPath}'.");
                     documents.Add(targetPath, document);
                 }
