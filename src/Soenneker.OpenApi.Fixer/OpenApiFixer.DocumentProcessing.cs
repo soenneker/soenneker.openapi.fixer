@@ -1103,6 +1103,7 @@ public sealed partial class OpenApiFixer
 
         raw = _preprocessingFixer.Fix(raw, options);
         raw = await BundleLocalSchemaReferences(raw, Path.GetFullPath(path), cancellationToken);
+        raw = ApplySchemaTypeOverrides(raw, options);
 
         return await _memoryStreamUtil.Get(raw, cancellationToken).NoSync();
     }

@@ -1,4 +1,5 @@
 using Microsoft.OpenApi;
+using System.Collections.Generic;
 
 namespace Soenneker.OpenApi.Fixer;
 
@@ -7,6 +8,16 @@ namespace Soenneker.OpenApi.Fixer;
 /// </summary>
 public sealed class OpenApiFixerOptions
 {
+    /// <summary>
+    /// Overrides schema types before parsing and normalization, keyed by an exact JSON Pointer into the
+    /// preprocessed source document (for example, <c>/components/schemas/Library/properties/trustScore</c>).
+    /// Escape <c>~</c> as <c>~0</c> and <c>/</c> as <c>~1</c> in pointer segments.
+    /// Targets must be existing schema objects, not references or example payloads; invalid targets throw.
+    /// Other schema constraints and metadata are retained and must be compatible with the replacement type.
+    /// Empty by default.
+    /// </summary>
+    public Dictionary<string, OpenApiSchemaTypeOverride> SchemaTypeOverrides { get; set; } = new();
+
     /// <summary>
     /// Infers missing JSON media schemas from inline or locally referenced examples and widens integer
     /// formats when payload examples demonstrate values beyond Int32. Existing schema constraints are retained.
