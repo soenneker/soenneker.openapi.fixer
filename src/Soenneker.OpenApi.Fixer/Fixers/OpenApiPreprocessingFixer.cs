@@ -207,7 +207,7 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
                             parameter["schema"] = new JsonObject { ["type"] = "string" };
                         if (operation["parameters"] is not JsonArray)
                             operation["parameters"] = new JsonArray();
-                        operation["parameters"]!.AsArray().Add(parameter);
+                        operation["parameters"]!.AsArray().Add((JsonNode?)parameter);
                         changed = true;
                     }
                 }
@@ -349,10 +349,10 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
             foreach (string type in types.Select(static node => node!.GetValue<string>()).Distinct(StringComparer.Ordinal))
                 branches.Add(type == "null"
                     ? new JsonObject { ["type"] = "string", ["nullable"] = true, ["enum"] = new JsonArray((JsonNode?)null) }
-                    : new JsonObject { ["type"] = type });
+                    : (JsonNode)new JsonObject { ["type"] = type });
             obj.Remove("type");
             if (obj.ContainsKey("anyOf"))
-                (obj["allOf"] ??= new JsonArray()).AsArray().Add(new JsonObject { ["anyOf"] = branches });
+                (obj["allOf"] ??= new JsonArray()).AsArray().Add((JsonNode?)new JsonObject { ["anyOf"] = branches });
             else
                 obj["anyOf"] = branches;
             changed = true;
@@ -644,7 +644,10 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
                 return changed;
             }
             case JsonValue value when value.TryGetValue(out string? text) && ShouldRedactExampleValue(contextName, text):
-                node!.ReplaceWith(JsonValue.Create(Redacted));
+                if (node.Parent is JsonObject parentObject)
+                    parentObject[node.GetPropertyName()] = Redacted;
+                else if (node.Parent is JsonArray parentArray)
+                    parentArray[parentArray.IndexOf(node)] = Redacted;
                 return true;
             default:
                 return false;
@@ -699,7 +702,7 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
             bool hasNull = types.Any(node => node is JsonValue value && value.TryGetValue(out string? itemType) && itemType == "null");
 
             if (!hasNull)
-                types.Add("null");
+                types.Add((JsonNode?)"null");
 
             return true;
         }

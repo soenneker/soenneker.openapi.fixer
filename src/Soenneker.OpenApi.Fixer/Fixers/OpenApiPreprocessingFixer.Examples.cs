@@ -94,9 +94,9 @@ public sealed partial class OpenApiPreprocessingFixer
                 }
             }
             if (nullable && !is31) schema["nullable"] = true;
-            branches.Add(schema);
+            branches.Add((JsonNode?)schema);
         }
-        if (nullable && is31) branches.Add(new JsonObject { ["type"] = "null" });
+        if (nullable && is31) branches.Add((JsonNode?)new JsonObject { ["type"] = "null" });
         // A null-only 3.0 sample does not establish a non-null type.
         return branches.Count switch
         {

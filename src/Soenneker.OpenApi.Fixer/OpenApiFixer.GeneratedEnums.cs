@@ -171,7 +171,7 @@ public sealed partial class OpenApiFixer
 
             if (existingValue is null)
             {
-                valuesArray.Add(new JsonObject
+                valuesArray.Add((JsonNode?)new JsonObject
                 {
                     ["value"] = enumValue,
                     ["name"] = enumName

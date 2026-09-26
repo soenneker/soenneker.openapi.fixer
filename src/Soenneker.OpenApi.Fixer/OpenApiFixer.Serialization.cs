@@ -441,7 +441,7 @@ public sealed partial class OpenApiFixer
             var typeConstraint = new JsonObject { ["anyOf"] = branches };
 
             if (schema["allOf"] is JsonArray allOf)
-                allOf.Add(typeConstraint);
+                allOf.Add((JsonNode?)typeConstraint);
             else
                 schema["allOf"] = new JsonArray(typeConstraint);
         }
