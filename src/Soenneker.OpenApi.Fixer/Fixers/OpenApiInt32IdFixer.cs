@@ -188,34 +188,7 @@ public sealed class OpenApiInt32IdFixer : IOpenApiInt32IdFixer
                 id = sr.Reference.Id;
                 return true;
 
-            case OpenApiSchema os:
-            {
-                object? reference = os.GetType()
-                                      .GetProperty("Reference")
-                                      ?.GetValue(os);
-                if (reference == null)
-                    return false;
 
-                string? typeValue = reference.GetType()
-                                             .GetProperty("Type")
-                                             ?.GetValue(reference)
-                                             ?.ToString();
-                string? idValue = reference.GetType()
-                                           .GetProperty("Id")
-                                           ?.GetValue(reference)
-                                           ?.ToString();
-
-                if (string.IsNullOrEmpty(idValue))
-                    return false;
-
-                if (typeValue is null || string.Equals(typeValue, "Schema", StringComparison.OrdinalIgnoreCase))
-                {
-                    id = idValue;
-                    return true;
-                }
-
-                return false;
-            }
 
             default:
                 return false;
