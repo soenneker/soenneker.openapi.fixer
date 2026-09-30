@@ -23,7 +23,7 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task Fix_overrides_only_selected_schema_and_preserves_metadata(bool enabled, CancellationToken token)
+    public async ValueTask Fix_overrides_only_selected_schema_and_preserves_metadata(bool enabled, CancellationToken token)
     {
         var options = new OpenApiFixerOptions();
         if (enabled)
@@ -55,7 +55,7 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
     }
 
     [Test]
-    public async Task Fix_overrides_inline_array_branch_and_preserves_31_nullability(CancellationToken token)
+    public async ValueTask Fix_overrides_inline_array_branch_and_preserves_31_nullability(CancellationToken token)
     {
         const string sourceSpec = """
             {"openapi":"3.1.0","info":{"title":"Inline","version":"1"},"paths":{"/search":{"get":{
@@ -101,7 +101,7 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
     [Arguments("/components/schemas/Library/properties/a~2b", "number")]
     [Arguments("components/schemas/Library", "number")]
     [Arguments("/components/schemas/Library/properties/trustScore", "invalid")]
-    public async Task Fix_rejects_invalid_overrides_without_replacing_output(string pointer, string type, CancellationToken token)
+    public async ValueTask Fix_rejects_invalid_overrides_without_replacing_output(string pointer, string type, CancellationToken token)
     {
         var options = new OpenApiFixerOptions();
         options.SchemaTypeOverrides.Add(pointer, new() { Type = type });

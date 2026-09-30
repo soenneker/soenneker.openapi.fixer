@@ -17,7 +17,7 @@ public sealed class OpenApiOperationLinkTests(Host host) : HostedUnitTest(host)
     [Arguments("unique")]
     [Arguments("ambiguous")]
     [Arguments("local")]
-    public async Task FixOperationLinks_resolves_only_unambiguous_targets_and_preserves_payloads(string scenario, CancellationToken token)
+    public async ValueTask FixOperationLinks_resolves_only_unambiguous_targets_and_preserves_payloads(string scenario, CancellationToken token)
     {
         string directory = Path.Combine(Path.GetTempPath(), "operation-links-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -73,7 +73,7 @@ public sealed class OpenApiOperationLinkTests(Host host) : HostedUnitTest(host)
     }
 
     [Test]
-    public async Task FixOperationLinks_removes_all_six_stale_Pinecone_links_without_guessing_renamed_operations(CancellationToken token)
+    public async ValueTask FixOperationLinks_removes_all_six_stale_Pinecone_links_without_guessing_renamed_operations(CancellationToken token)
     {
         string directory = Path.Combine(Path.GetTempPath(), "pinecone-links-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);

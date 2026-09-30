@@ -14,7 +14,7 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
 {
     [Test]
-    public async Task Fix_preserves_renamed_primitive_references_in_callbacks_and_headers(CancellationToken token)
+    public async ValueTask Fix_preserves_renamed_primitive_references_in_callbacks_and_headers(CancellationToken token)
     {
         const string source = """
             {"openapi":"3.0.3","info":{"title":"Callbacks","version":"1"},"paths":{},"components":{
@@ -45,7 +45,7 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
     }
 
     [Test]
-    public async Task Fix_bundles_only_referenced_local_schemas_and_preserves_cycles_and_examples(CancellationToken token)
+    public async ValueTask Fix_bundles_only_referenced_local_schemas_and_preserves_cycles_and_examples(CancellationToken token)
     {
         const string dependency = """
             {"components":{"schemas":{
@@ -84,7 +84,7 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
     }
 
     [Test]
-    public async Task Fix_rejects_missing_dependency_schema_without_replacing_output(CancellationToken token)
+    public async ValueTask Fix_rejects_missing_dependency_schema_without_replacing_output(CancellationToken token)
     {
         string directory = Path.Combine(Path.GetTempPath(), "fix-premerge-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);

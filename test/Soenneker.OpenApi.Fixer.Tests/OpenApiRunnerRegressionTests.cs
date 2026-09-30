@@ -14,7 +14,7 @@ public sealed class OpenApiRunnerRegressionTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task Recursive_array_components_keep_a_reference_at_the_cycle(bool mutual)
+    public async ValueTask Recursive_array_components_keep_a_reference_at_the_cycle(bool mutual)
     {
         var array = new OpenApiSchema { Type = JsonSchemaType.Array, Items = new OpenApiSchemaReference(mutual ? "Other" : "Recursive") };
         var document = new OpenApiDocument
@@ -46,7 +46,7 @@ public sealed class OpenApiRunnerRegressionTests
     }
 
     [Test]
-    public async Task Cyclic_component_aliases_do_not_loop_during_primitive_resolution()
+    public async ValueTask Cyclic_component_aliases_do_not_loop_during_primitive_resolution()
     {
         var document = new OpenApiDocument { Components = new OpenApiComponents { Schemas = new Dictionary<string, IOpenApiSchema>
         {
@@ -61,7 +61,7 @@ public sealed class OpenApiRunnerRegressionTests
         .GetMethod("InlinePrimitivePropertyRefs", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [document]);
 
     [Test]
-    public async Task Preprocessing_repairs_publisher_schema_shapes_without_modifying_example_payloads()
+    public async ValueTask Preprocessing_repairs_publisher_schema_shapes_without_modifying_example_payloads()
     {
         const string source = """
             {"openapi":"3.0.3","info":{"title":"API","version":"1"},"paths":{},"components":{"schemas":{
