@@ -97,7 +97,8 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
         bool changed = root is JsonObject metadata && NormalizeDocumentMetadata(metadata);
         bool normalizeLegacyNullable = root is JsonObject rootObject && IsOpenApi31OrLater(rootObject);
         changed |= NormalizePathParameterRequirements(root);
-        changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable), NormalizeMediaTypeKeys);
+        changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) => NormalizeSchemaFields(schema, normalizeLegacyNullable), NormalizeMediaTypeKeys,
+            normalizeBooleanSchemas: normalizeLegacyNullable);
         if (root is JsonObject responseDocument && options?.InferSchemasFromExamples != false)
             changed |= RecoverSchemasFromExamples(responseDocument, normalizeLegacyNullable);
         changed |= requiresCanonicalization;

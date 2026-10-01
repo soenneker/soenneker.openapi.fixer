@@ -9,7 +9,8 @@ namespace Soenneker.OpenApi.Fixer;
 // a property named "example", "type", or "x-value" is still a schema, not a keyword or extension.
 internal static class OpenApiJsonSchemaWalker
 {
-    internal static bool Visit(JsonNode root, Func<JsonObject, string?, bool> visitor, Func<JsonObject, bool>? contentVisitor = null)
+    internal static bool Visit(JsonNode root, Func<JsonObject, string?, bool> visitor, Func<JsonObject, bool>? contentVisitor = null,
+        bool normalizeBooleanSchemas = false)
     {
         if (root is not JsonObject document)
             return false;
@@ -105,6 +106,15 @@ internal static class OpenApiJsonSchemaWalker
 
         void Add(JsonNode? node, string kind, string? name)
         {
+            // Microsoft.OpenApi 3.10 reads boolean schemas in collections as null, then
+            // dereferences them while registering identifiers. Use equivalent object schemas.
+            if (normalizeBooleanSchemas && kind == "schema" && node is JsonValue value && value.TryGetValue(out bool allowed))
+            {
+                JsonObject replacement = allowed ? new JsonObject() : new JsonObject { ["not"] = new JsonObject() };
+                node.ReplaceWith(replacement);
+                node = replacement;
+                changed = true;
+            }
             if (node is JsonObject obj)
                 pending.Push((obj, name, kind));
         }
@@ -113,7 +123,7 @@ internal static class OpenApiJsonSchemaWalker
         {
             if (node is not JsonObject map)
                 return;
-            foreach ((string key, JsonNode? value) in map.Reverse())
+            foreach ((string key, JsonNode? value) in map.Reverse().ToList())
                 if (!skipExtensions || !key.StartsWith("x-", StringComparison.Ordinal))
                     Add(value, kind, key);
         }
@@ -128,7 +138,7 @@ internal static class OpenApiJsonSchemaWalker
 
         void AddSchemaChildren(JsonObject schema, string? name)
         {
-            foreach ((string key, JsonNode? child) in schema)
+            foreach ((string key, JsonNode? child) in schema.ToList())
             {
                 switch (key)
                 {
@@ -150,7 +160,9 @@ internal static class OpenApiJsonSchemaWalker
                         AddArray(child, "schema", name);
                         break;
                     case "additionalProperties":
-                        Add(child, "schema", $"{name ?? "AdditionalProperty"}AdditionalProperty");
+                        // This keyword already has native boolean support in the reader.
+                        if (child is JsonObject)
+                            Add(child, "schema", $"{name ?? "AdditionalProperty"}AdditionalProperty");
                         break;
                     case "additionalItems":
                     case "unevaluatedItems":

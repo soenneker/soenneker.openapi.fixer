@@ -75,6 +75,76 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Fix_should_handle_boolean_property_schemas(CancellationToken cancellationToken)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"boolean-schemas-{Guid.NewGuid():N}.json");
+        const string spec = """
+            {
+              "openapi": "3.1.0", "info": { "title": "Boolean schemas", "version": "1" },
+              "paths": {},
+              "components": { "schemas": { "Fields": {
+                "type": "object", "properties": {
+                  "additionalProperties": false,
+                  "allowed": true,
+                  "name": { "type": "string", "example": false }
+                }, "additionalProperties": false
+              } } }
+            }
+            """;
+        try
+        {
+            await _fileUtil.Write(path, spec, cancellationToken: cancellationToken);
+            await _util.Fix(path, path, cancellationToken);
+            JsonNode root = await ReadJsonNode(path);
+            JsonNode schema = root["components"]!["schemas"]!["Fields"]!;
+            JsonNode forbidden = schema["properties"]!["additionalProperties"]!;
+            if (forbidden["$ref"] is JsonValue reference)
+                forbidden = root["components"]!["schemas"]![reference.GetValue<string>().Split('/')[^1]]!;
+            await Assert.That(forbidden["not"] is JsonObject { Count: 0 }).IsTrue();
+            await Assert.That(schema["additionalProperties"]!.GetValue<bool>()).IsFalse();
+            await Assert.That(schema["properties"]!["name"]!["example"]!.GetValue<bool>()).IsFalse();
+        }
+        finally
+        {
+            await _fileUtil.Delete(path);
+        }
+    }
+
+    [Test]
+    public async ValueTask Preprocessing_should_normalize_boolean_schemas_only_in_schema_positions()
+    {
+        const string spec = """
+            {
+              "openapi": "3.1.0", "info": { "title": "Boolean schemas", "version": "1" }, "paths": {},
+              "components": { "schemas": {
+                "Always": true, "Never": false,
+                "Nested": { "type": "object", "properties": { "yes": true, "no": false },
+                  "$defs": { "no": false }, "allOf": [true, false], "items": false,
+                  "additionalProperties": false, "example": { "properties": { "no": false } },
+                  "default": false, "enum": [true, false], "x-data": { "items": false }
+                }
+              } }
+            }
+            """;
+        JsonNode root = JsonNode.Parse(_preprocessingFixer.Fix(spec))!;
+        JsonNode schemas = root["components"]!["schemas"]!;
+        await Assert.That(schemas["Always"] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(schemas["Never"]!["not"] is JsonObject { Count: 0 }).IsTrue();
+        JsonNode nested = schemas["Nested"]!;
+        await Assert.That(nested["properties"]!["no"]!["not"] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(nested["$defs"]!["no"]!["not"] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(nested["allOf"]![0] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(nested["allOf"]![1]!["not"] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(nested["items"]!["not"] is JsonObject { Count: 0 }).IsTrue();
+        await Assert.That(nested["additionalProperties"]!.GetValue<bool>()).IsFalse();
+        await Assert.That(nested["example"]!["properties"]!["no"]!.GetValue<bool>()).IsFalse();
+        await Assert.That(nested["default"]!.GetValue<bool>()).IsFalse();
+        await Assert.That(nested["enum"]![0]!.GetValue<bool>()).IsTrue();
+        await Assert.That(nested["enum"]![1]!.GetValue<bool>()).IsFalse();
+        await Assert.That(nested["x-data"]!["items"]!.GetValue<bool>()).IsFalse();
+    }
+
+    [Test]
     public void Default()
     {
     }
