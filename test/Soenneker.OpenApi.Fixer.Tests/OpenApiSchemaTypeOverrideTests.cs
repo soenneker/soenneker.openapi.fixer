@@ -23,7 +23,7 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async ValueTask Fix_overrides_only_selected_schema_and_preserves_metadata(bool enabled, CancellationToken token)
+    public async ValueTask Fix_overrides_only_selected_schema_and_preserves_metadata(bool enabled, CancellationToken cancellationToken)
     {
         var options = new OpenApiFixerOptions();
         if (enabled)
@@ -34,8 +34,8 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
 
         await WithFiles(async (source, target) =>
         {
-            await Resolve<IOpenApiFixer>(true).Fix(source, target, options, token);
-            JsonNode library = JsonNode.Parse(await File.ReadAllTextAsync(target, token))!["components"]!["schemas"]!["Library"]!;
+            await Resolve<IOpenApiFixer>(true).Fix(source, target, options, cancellationToken);
+            JsonNode library = JsonNode.Parse(await File.ReadAllTextAsync(target, cancellationToken))!["components"]!["schemas"]!["Library"]!;
             JsonNode properties = library["properties"]!;
             JsonNode score = properties["trustScore"]!;
             await Assert.That(score["type"]!.GetValue<string>()).IsEqualTo(enabled ? "number" : "integer");
@@ -51,11 +51,11 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
                 await Assert.That(properties["a/b~c"]!["type"]!.GetValue<string>()).IsEqualTo("number");
                 await Assert.That(properties["a/b~c"]!["format"]).IsNull();
             }
-        }, token);
+        }, cancellationToken);
     }
 
     [Test]
-    public async ValueTask Fix_overrides_inline_array_branch_and_preserves_31_nullability(CancellationToken token)
+    public async ValueTask Fix_overrides_inline_array_branch_and_preserves_31_nullability(CancellationToken cancellationToken)
     {
         const string sourceSpec = """
             {"openapi":"3.1.0","info":{"title":"Inline","version":"1"},"paths":{"/search":{"get":{
@@ -70,9 +70,9 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
             JsonNode document = JsonNode.Parse(sourceSpec)!;
             document["paths"]!["/search"]!["get"]!["responses"]!["200"]!["content"]!["application/json"]!["schema"]!["items"]!["allOf"]![0]!["type"] =
                 new JsonArray("integer", "null");
-            await File.WriteAllTextAsync(source, document.ToJsonString(), token);
-            await Resolve<IOpenApiFixer>(true).Fix(source, target, options, token);
-            string result = await File.ReadAllTextAsync(target, token);
+            await File.WriteAllTextAsync(source, document.ToJsonString(), cancellationToken);
+            await Resolve<IOpenApiFixer>(true).Fix(source, target, options, cancellationToken);
+            string result = await File.ReadAllTextAsync(target, cancellationToken);
             // Normalization may inline the composition or extract it to a component. The corrected
             // nullable type must survive either representation all the way to the serialized output.
             bool corrected = false;
@@ -91,7 +91,7 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
             }
             Visit(JsonNode.Parse(result));
             await Assert.That(corrected).IsTrue();
-        }, token);
+        }, cancellationToken);
     }
 
     [Test]
@@ -101,25 +101,25 @@ public sealed class OpenApiSchemaTypeOverrideTests(Host host) : HostedUnitTest(h
     [Arguments("/components/schemas/Library/properties/a~2b", "number")]
     [Arguments("components/schemas/Library", "number")]
     [Arguments("/components/schemas/Library/properties/trustScore", "invalid")]
-    public async ValueTask Fix_rejects_invalid_overrides_without_replacing_output(string pointer, string type, CancellationToken token)
+    public async ValueTask Fix_rejects_invalid_overrides_without_replacing_output(string pointer, string type, CancellationToken cancellationToken)
     {
         var options = new OpenApiFixerOptions();
         options.SchemaTypeOverrides.Add(pointer, new() { Type = type });
         await WithFiles(async (source, target) =>
         {
-            await File.WriteAllTextAsync(target, "existing output", token);
+            await File.WriteAllTextAsync(target, "existing output", cancellationToken);
             ArgumentException? failure = null;
             try
             {
-                await Resolve<IOpenApiFixer>(true).Fix(source, target, options, token);
+                await Resolve<IOpenApiFixer>(true).Fix(source, target, options, cancellationToken);
             }
             catch (ArgumentException exception)
             {
                 failure = exception;
             }
             await Assert.That(failure).IsNotNull();
-            await Assert.That(await File.ReadAllTextAsync(target, token)).IsEqualTo("existing output");
-        }, token);
+            await Assert.That(await File.ReadAllTextAsync(target, cancellationToken)).IsEqualTo("existing output");
+        }, cancellationToken);
     }
 
     private static async Task WithFiles(Func<string, string, Task> action, CancellationToken token)

@@ -102,7 +102,7 @@ public sealed class OpenApiLoggingTests
     }
 
     [Test]
-    public async ValueTask Standalone_preprocessing_honors_verbosity_and_restores_defaults()
+    public async ValueTask Standalone_preprocessing_honors_verbosity_and_restores_defaults(CancellationToken cancellationToken)
     {
         var logs = new RecordingProvider();
         await using ServiceProvider services = CreateServices(logs);

@@ -28,7 +28,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_recovers_json_examples_and_widens_nested_referenced_integer_schemas()
+    public async ValueTask Preprocessing_recovers_json_examples_and_widens_nested_referenced_integer_schemas(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.0.3","info":{"title":"Examples","version":"1"},"paths":{"/items":{"get":{"responses":{
@@ -71,7 +71,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_infers_31_null_unions_and_handles_recursive_example_schemas()
+    public async ValueTask Preprocessing_infers_31_null_unions_and_handles_recursive_example_schemas(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.1.0","info":{"title":"Examples","version":"1"},"paths":{},"components":{
@@ -147,7 +147,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_repairs_media_types_without_changing_payloads_or_canonical_entries()
+    public async ValueTask Preprocessing_repairs_media_types_without_changing_payloads_or_canonical_entries(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.1.0","paths":{},"components":{
@@ -204,7 +204,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_preserves_31_numeric_exclusive_bounds()
+    public async ValueTask Preprocessing_preserves_31_numeric_exclusive_bounds(CancellationToken cancellationToken)
     {
         JsonNode result = PreprocessSchema("""{"type":"number","minimum":-5,"maximum":10,"exclusiveMinimum":0,"exclusiveMaximum":1}""");
         await Assert.That(result["exclusiveMinimum"]!.GetValue<int>()).IsEqualTo(0);
@@ -225,7 +225,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     [Test]
     [Arguments("3.0.4")]
     [Arguments("3.1.0")]
-    public async ValueTask Preprocessing_interprets_exclusive_flags_in_the_source_dialect(string version)
+    public async ValueTask Preprocessing_interprets_exclusive_flags_in_the_source_dialect(string version, CancellationToken cancellationToken)
     {
         JsonNode result = PreprocessSchema("""{"type":"number","minimum":2,"maximum":10,"exclusiveMinimum":"true","exclusiveMaximum":"false"}""", version);
         if (version.StartsWith("3.0", StringComparison.Ordinal))
@@ -250,7 +250,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     [Arguments("type")]
     [Arguments("nullable")]
     [Arguments("properties")]
-    public async ValueTask Preprocessing_repairs_schema_properties_named_like_keywords(string name)
+    public async ValueTask Preprocessing_repairs_schema_properties_named_like_keywords(string name, CancellationToken cancellationToken)
     {
         var schema = new JsonObject
         {
@@ -273,7 +273,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     [Arguments("if", false)]
     [Arguments("then", false)]
     [Arguments("else", false)]
-    public async ValueTask Preprocessing_repairs_nested_json_schema_keywords(string keyword, bool map)
+    public async ValueTask Preprocessing_repairs_nested_json_schema_keywords(string keyword, bool map, CancellationToken cancellationToken)
     {
         var child = new JsonObject { ["type"] = "string", ["nullable"] = "true" };
         var schema = new JsonObject { [keyword] = map ? new JsonObject { ["example"] = child } : child };
@@ -284,7 +284,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Json_passes_preserve_payloads_and_extensions()
+    public async ValueTask Json_passes_preserve_payloads_and_extensions(CancellationToken cancellationToken)
     {
         const string payload = """{"schema":{"type":["string","number"],"nullable":"true","enum":["a-b","+"]},"schemas":{"properties":{"nullable":"true"}}}""";
         var schema = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
@@ -301,7 +301,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Json_passes_process_keyword_named_schema_properties()
+    public async ValueTask Json_passes_process_keyword_named_schema_properties(CancellationToken cancellationToken)
     {
         string spec = Spec("""{"type":"object","properties":{"example":{"type":["string","number"]},"x-mode":{"type":"string","enum":["a-b"]}}}""");
         string result = InvokeJsonPass("NormalizeKiotaIncompatibleMultiTypes", spec);
@@ -312,7 +312,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_recovers_collection_shapes_and_quoted_constraints()
+    public async ValueTask Preprocessing_recovers_collection_shapes_and_quoted_constraints(CancellationToken cancellationToken)
     {
         JsonNode result = PreprocessSchema("""{"type":"object","required":"id","allOf":{"type":"object"},"properties":{"id":{"type":"string","minLength":"2","enum":"a-b"},"count":{"type":"number","minimum":"-1.25","exclusiveMaximum":"1e2"}}}""");
         await Assert.That(result["required"]![0]!.GetValue<string>()).IsEqualTo("id");
@@ -345,7 +345,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_handles_callbacks_without_treating_expressions_as_path_templates()
+    public async ValueTask Preprocessing_handles_callbacks_without_treating_expressions_as_path_templates(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.1.0","info":{"title":"Callbacks","version":"1"},"paths":{
@@ -363,7 +363,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_is_idempotent_for_recovered_input()
+    public async ValueTask Preprocessing_is_idempotent_for_recovered_input(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":3.1,"info":{"title":"Recovery","version":1},"paths":{
@@ -414,7 +414,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_preserves_literal_text_and_unrelated_duplicate_payload_values()
+    public async ValueTask Preprocessing_preserves_literal_text_and_unrelated_duplicate_payload_values(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.1.0", /* a quote: " */ "info":{"title":"True, False, None and \\","version":"1"},
@@ -429,7 +429,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_handles_swagger_definitions_and_path_parameters()
+    public async ValueTask Preprocessing_handles_swagger_definitions_and_path_parameters(CancellationToken cancellationToken)
     {
         const string spec = """
             {"swagger":2.0,"info":{"title":"Legacy","version":1},"paths":{
@@ -463,7 +463,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_leaves_callback_extensions_untouched()
+    public async ValueTask Preprocessing_leaves_callback_extensions_untouched(CancellationToken cancellationToken)
     {
         const string spec = """
             {"openapi":"3.1.0","paths":{},"components":{"callbacks":{"Event":{
@@ -476,7 +476,7 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_preserves_numeric_constraint_precision()
+    public async ValueTask Preprocessing_preserves_numeric_constraint_precision(CancellationToken cancellationToken)
     {
         JsonNode result = PreprocessSchema("""{"type":"number","minimum":"1e-100","maximum":"123456789012345678901234567890.123456789"}""");
         await Assert.That(result["minimum"]!.ToJsonString()).IsEqualTo("1e-100");

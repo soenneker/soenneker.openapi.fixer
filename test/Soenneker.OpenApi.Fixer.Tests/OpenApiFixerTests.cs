@@ -60,7 +60,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         {
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode property = root["components"]!["schemas"]!["QueryStatus"]!["properties"]!["query_async"]!;
             await Assert.That(property["type"]!.GetValue<string>()).IsEqualTo("boolean");
             await Assert.That(property["default"]!.GetValue<bool>()).IsEqualTo(value);
@@ -95,7 +95,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         {
             await _fileUtil.Write(path, spec, cancellationToken: cancellationToken);
             await _util.Fix(path, path, cancellationToken);
-            JsonNode root = await ReadJsonNode(path);
+            JsonNode root = await ReadJsonNode(path, cancellationToken: cancellationToken);
             JsonNode schema = root["components"]!["schemas"]!["Fields"]!;
             JsonNode forbidden = schema["properties"]!["additionalProperties"]!;
             if (forbidden["$ref"] is JsonValue reference)
@@ -111,7 +111,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_should_normalize_boolean_schemas_only_in_schema_positions()
+    public async ValueTask Preprocessing_should_normalize_boolean_schemas_only_in_schema_positions(CancellationToken cancellationToken)
     {
         const string spec = """
             {
@@ -168,7 +168,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.0");
             await Assert.That(root["info"]?["title"]?.GetValue<string>()).IsEqualTo("Trailing commas");
         }
@@ -191,7 +191,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             await Assert.That(root["info"]?["title"]?.GetValue<string>()).IsEqualTo("Before\u000BAfter");
         }
         finally
@@ -202,7 +202,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Error_array_with_message_items_should_get_root_message()
+    public async ValueTask Error_array_with_message_items_should_get_root_message(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -268,7 +268,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Long_enum_values_should_use_bounded_generated_names()
+    public async ValueTask Long_enum_values_should_use_bounded_generated_names(CancellationToken cancellationToken)
     {
         string certificate = $"-----BEGIN CERTIFICATE-----{new string('A', 500)}-----END CERTIFICATE-----";
         string name = InvokePrivateMethod<string>(_util, "BuildSafeEnumMemberName", certificate);
@@ -321,7 +321,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode animal = root["components"]!["schemas"]!["Animal"]!;
             JsonNode emptyResponses = root["paths"]!["/empty"]!["get"]!["responses"]!;
             JsonNode response = root["paths"]!["/missing-description"]!["post"]!["responses"]!["200"]!;
@@ -339,7 +339,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_should_normalize_digitalocean_kafka_integer_values()
+    public async ValueTask Preprocessing_should_normalize_digitalocean_kafka_integer_values(CancellationToken cancellationToken)
     {
         const string spec = """
                             {
@@ -406,7 +406,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_should_redact_credential_like_content_only_when_enabled()
+    public async ValueTask Preprocessing_should_redact_credential_like_content_only_when_enabled(CancellationToken cancellationToken)
     {
         const string spec = """
                             {
@@ -456,7 +456,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Preprocessing_should_require_all_path_parameters()
+    public async ValueTask Preprocessing_should_require_all_path_parameters(CancellationToken cancellationToken)
     {
         const string spec = """
                             {
@@ -506,7 +506,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -540,7 +540,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonArray? parameters = root["paths"]?["/compute/script/{id}/publish"]?["post"]?["parameters"]?.AsArray();
             JsonArray? specificParameters = root["paths"]?["/compute/script/{id}/publish/{uuid}"]?["post"]?["parameters"]?.AsArray();
 
@@ -564,7 +564,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -574,10 +574,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath))!;
+            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath, cancellationToken: cancellationToken))!;
             await Assert.That(root["info"]?["version"]?.GetValue<string>()).IsEqualTo("1.0.0");
         }
         finally
@@ -595,7 +595,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -625,10 +625,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            string fixedJson = await _fileUtil.Read(targetPath);
+            string fixedJson = await _fileUtil.Read(targetPath, cancellationToken: cancellationToken);
             JsonNode root = JsonNode.Parse(fixedJson)!;
 
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.1");
@@ -678,7 +678,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -688,10 +688,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { OutputSpecVersion = OpenApiSpecVersion.OpenApi3_0 }, cancellationToken: cancellationToken);
 
-            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath))!;
+            JsonNode root = JsonNode.Parse(await _fileUtil.Read(targetPath, cancellationToken: cancellationToken))!;
             await Assert.That(root["openapi"]?.GetValue<string>()).StartsWith("3.0");
         }
         finally
@@ -709,7 +709,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -816,7 +816,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -891,7 +891,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -931,7 +931,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? to = root["components"]?["schemas"]?["SendEmailRequest"]?["properties"]?["to"];
             JsonNode? toSchema = root["components"]?["schemas"]?["SendEmailRequestTo"];
 
@@ -957,7 +957,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -1008,7 +1008,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? itemSchema = root["components"]?["schemas"]?["OrderRequestPurchaseUnitsItem"];
 
             await Assert.That(itemSchema).IsNotNull();
@@ -1026,7 +1026,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_use_contextual_wrapper_names_for_inline_branches()
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_use_contextual_wrapper_names_for_inline_branches(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1108,7 +1108,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -1151,7 +1151,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(root["components"]?["schemas"]?["RecursiveA"]).IsNotNull();
             await Assert.That(root["components"]?["schemas"]?["RecursiveB"]).IsNotNull();
@@ -1171,7 +1171,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -1198,10 +1198,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode mixedValue = root["components"]!["schemas"]!["MixedValue"]!;
             JsonNode flexibleValue = root["components"]!["schemas"]!["FlexibleMap"]!["additionalProperties"]!;
             JsonArray nullableTypes = root["components"]!["schemas"]!["NullableText"]!["type"]!.AsArray();
@@ -1222,7 +1222,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask InlineMapOnlySchemaReferences_should_inline_nullable_map_used_by_allof()
+    public async ValueTask InlineMapOnlySchemaReferences_should_inline_nullable_map_used_by_allof(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1257,7 +1257,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union()
+    public async ValueTask RemoveDiscriminatorsFromNonObjectSchemas_should_remove_synthetic_discriminator_from_primitive_union(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1303,7 +1303,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_wrap_primitive_branches_after_inlining()
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_wrap_primitive_branches_after_inlining(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1348,7 +1348,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_treat_nullable_object_branches_as_object_like()
+    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_treat_nullable_object_branches_as_object_like(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1380,7 +1380,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExposeComposedObjectPropertiesForGenerators_should_propagate_properties_through_nested_unions()
+    public async ValueTask ExposeComposedObjectPropertiesForGenerators_should_propagate_properties_through_nested_unions(CancellationToken cancellationToken)
     {
         static OpenApiSchema Leaf() => new()
         {
@@ -1427,7 +1427,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeKiotaIncompatibleMultiTypes_should_emit_object_branch_for_mixed_union_reference_in_object_allof()
+    public async ValueTask NormalizeKiotaIncompatibleMultiTypes_should_emit_object_branch_for_mixed_union_reference_in_object_allof(CancellationToken cancellationToken)
     {
         const string serializedSpec = """
                                 {
@@ -1467,7 +1467,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask CollapseNonDiscriminatedInlineObjectUnions_should_merge_inline_object_branches()
+    public async ValueTask CollapseNonDiscriminatedInlineObjectUnions_should_merge_inline_object_branches(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1530,7 +1530,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask FixEnumAllOfObjectPropertyMismatch_should_replace_object_allof_enum_property_with_enum_ref()
+    public async ValueTask FixEnumAllOfObjectPropertyMismatch_should_replace_object_allof_enum_property_with_enum_ref(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1572,7 +1572,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null()
+    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_primitive_null(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1612,7 +1612,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_array_null_and_preserve_array_constraints()
+    public async ValueTask NormalizeNullablePrimitiveCompositions_should_collapse_anyof_array_null_and_preserve_array_constraints(CancellationToken cancellationToken)
     {
         var itemReference = new OpenApiSchemaReference("BetaIncludeEnum");
         var document = new OpenApiDocument
@@ -1661,7 +1661,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask FixSchemaDefaults_should_recover_convertible_defaults_and_remove_irrecoverable_values()
+    public async ValueTask FixSchemaDefaults_should_recover_convertible_defaults_and_remove_irrecoverable_values(CancellationToken cancellationToken)
     {
         var invalidEnumDefault = new OpenApiSchema
         {
@@ -1722,7 +1722,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask FixInvalidDefaults_should_move_array_shaped_item_defaults_to_parent_arrays()
+    public async ValueTask FixInvalidDefaults_should_move_array_shaped_item_defaults_to_parent_arrays(CancellationToken cancellationToken)
     {
         var itemSchema = new OpenApiSchema
         {
@@ -1787,7 +1787,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -1813,10 +1813,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken: cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? modalities = root["components"]?["schemas"]?["RealtimeSessionCreateRequest"]?["properties"]?["modalities"];
 
             await Assert.That(modalities).IsNotNull();
@@ -1831,7 +1831,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameInvalidComponentSchemas_should_pascalize_separator_based_schema_names_and_update_refs()
+    public async ValueTask RenameInvalidComponentSchemas_should_pascalize_separator_based_schema_names_and_update_refs(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1889,7 +1889,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameInvalidComponentSchemas_should_update_discriminator_mapping_refs()
+    public async ValueTask RenameInvalidComponentSchemas_should_update_discriminator_mapping_refs(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1932,7 +1932,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameInvalidComponentSchemas_should_not_suffix_when_only_conflict_is_same_key_different_case()
+    public async ValueTask RenameInvalidComponentSchemas_should_not_suffix_when_only_conflict_is_same_key_different_case(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -1965,7 +1965,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask Naming_should_create_dotnet_safe_component_and_operation_names()
+    public async ValueTask Naming_should_create_dotnet_safe_component_and_operation_names(CancellationToken cancellationToken)
     {
         await Assert.That(_namingFixer.ValidateComponentName("api.dns-record[id]")).IsEqualTo("ApiDnsRecordId");
         await Assert.That(_namingFixer.ValidateComponentName("123-response")).IsEqualTo("Value123Response");
@@ -1975,7 +1975,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask EnsureUniqueOperationIds_should_generate_route_derived_pascal_case_ids_and_stable_suffixes()
+    public async ValueTask EnsureUniqueOperationIds_should_generate_route_derived_pascal_case_ids_and_stable_suffixes(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -2023,7 +2023,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameInvalidComponentSchemas_should_resolve_normalized_collisions_stably()
+    public async ValueTask RenameInvalidComponentSchemas_should_resolve_normalized_collisions_stably(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -2049,7 +2049,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameConflictingPaths_should_remove_empty_path_segments_from_trailing_slashes()
+    public async ValueTask RenameConflictingPaths_should_remove_empty_path_segments_from_trailing_slashes(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -2094,7 +2094,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2155,7 +2155,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2223,7 +2223,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             const string normalizedPath = "/zones/{zoneId}/dns_records";
 
@@ -2253,7 +2253,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2320,7 +2320,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonObject schemas = root["components"]!["schemas"]!.AsObject();
 
             await Assert.That(schemas.ContainsKey("StartCallPlayback200Response")).IsTrue();
@@ -2348,7 +2348,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2397,7 +2397,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonObject paths = root["paths"]!.AsObject();
             const string normalizedPath = "/zones/{zoneIdentifier}/dns_records/{recordId}";
 
@@ -2423,7 +2423,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2480,7 +2480,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? schemas = root["components"]?["schemas"];
 
             await Assert.That(schemas?["WidgetStatusType"]).IsNotNull();
@@ -2505,7 +2505,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2536,7 +2536,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonArray values = root["components"]?["schemas"]?["Status"]?["x-ms-enum"]?["values"]?.AsArray() ?? [];
 
             await Assert.That(GetEnumInjectedName(values, "1")).IsEqualTo("Value1");
@@ -2560,7 +2560,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2591,7 +2591,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonArray values = root["components"]?["schemas"]?["AuditField"]?["x-ms-enum"]?["values"]?.AsArray() ?? [];
 
             await Assert.That(GetEnumInjectedName(values, "created_at")).IsEqualTo("CreatedAt");
@@ -2615,7 +2615,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2660,7 +2660,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? schemas = root["components"]?["schemas"];
 
             await Assert.That(schemas?["GrossWeightUnit"]?["default"]).IsNull();
@@ -2682,7 +2682,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2722,7 +2722,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? grantTypeSchema = root["components"]?["schemas"]?["AuthenticateRequest"]?["properties"]?["grant_type"];
             JsonNode? objectSchema = root["components"]?["schemas"]?["ConnectionDomainsItem"]?["properties"]?["object"];
             JsonNode? grantTypeEnum = root["components"]?["schemas"]?["AuthorizationCodeGrantType"];
@@ -2749,16 +2749,16 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     [Test]
     public async ValueTask Fix_should_process_cloudflare_unfixed_fixture(CancellationToken cancellationToken)
     {
-        string sourcePath = await FindFixtureFile("cloudflare_unfixed.json");
+        string sourcePath = await FindFixtureFile("cloudflare_unfixed.json", cancellationToken: cancellationToken);
         string targetPath = Path.GetTempFileName();
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(root["openapi"]).IsNotNull();
             await Assert.That(root["paths"]?.AsObject().Count > 0).IsTrue();
@@ -2779,7 +2779,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2854,7 +2854,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(GetComponentPropertyFormat(root, "Widget", "id")).IsEqualTo("int32");
             await Assert.That(GetComponentPropertyFormat(root, "Widget", "organizationId")).IsEqualTo("int32");
@@ -2877,7 +2877,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -2948,14 +2948,14 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec, cancellationToken: System.Threading.CancellationToken.None);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
             {
                 Int32IdTransform = true
             }, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(GetComponentPropertyFormat(root, "Widget", "id")).IsEqualTo("int64");
             await Assert.That(GetComponentPropertyFormat(root, "Widget", "organizationId")).IsEqualTo("int64");
@@ -2978,7 +2978,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -3021,14 +3021,14 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 }
                                 """;
 
-            await _fileUtil.Write(sourcePath, spec, cancellationToken: System.Threading.CancellationToken.None);
+            await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
             await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions
             {
                 StripDateSuffixesFromGeneratedNames = true
             }, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
             await Assert.That(root["paths"]?["/assistant_control/assistants"]).IsNotNull();
             await Assert.That(root["paths"]?["/assistant_control_2026-04/assistants"]).IsNull();
@@ -3191,7 +3191,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineObjectPropertySchemas_should_not_promote_composed_collection_properties()
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_not_promote_composed_collection_properties(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3244,7 +3244,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composed_properties()
+    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composed_properties(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3291,7 +3291,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composition_branches_with_contextual_titles()
+    public async ValueTask ExtractInlineComposedSchemas_should_promote_inline_composition_branches_with_contextual_titles(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3333,7 +3333,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineComponentContentSchemas_should_promote_component_response_content_schemas()
+    public async ValueTask ExtractInlineComponentContentSchemas_should_promote_component_response_content_schemas(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3379,7 +3379,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_inline_array_item_objects()
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_inline_array_item_objects(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3426,7 +3426,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_top_level_component_array_item_objects()
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_top_level_component_array_item_objects(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3465,7 +3465,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_explicit_empty_object_properties()
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_explicit_empty_object_properties(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3500,7 +3500,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_schemas_with_object_members_even_when_type_is_wrong()
+    public async ValueTask ExtractInlineObjectPropertySchemas_should_promote_schemas_with_object_members_even_when_type_is_wrong(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3544,7 +3544,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask InlinePrimitivePropertyRefs_should_inline_array_component_property_refs()
+    public async ValueTask InlinePrimitivePropertyRefs_should_inline_array_component_property_refs(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3583,7 +3583,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask FlattenObjectAllOfCompositions_should_merge_plain_object_refs()
+    public async ValueTask FlattenObjectAllOfCompositions_should_merge_plain_object_refs(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3631,7 +3631,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs()
+    public async ValueTask FixContentTypeWrapperCollisions_should_rename_normalized_component_keys_and_update_request_refs(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3692,7 +3692,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeAllOfWrappers_should_not_wrap_existing_wrapper_value_into_itself()
+    public async ValueTask NormalizeAllOfWrappers_should_not_wrap_existing_wrapper_value_into_itself(CancellationToken cancellationToken)
     {
         var wrapper = new OpenApiSchema
         {
@@ -3746,7 +3746,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeNonObjectAllOfCompositions_should_collapse_cloudflare_style_value_wrappers()
+    public async ValueTask NormalizeNonObjectAllOfCompositions_should_collapse_cloudflare_style_value_wrappers(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3875,7 +3875,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RemoveDeprecatedOperationsAndSchemas_should_preserve_referenced_deprecated_schemas()
+    public async ValueTask RemoveDeprecatedOperationsAndSchemas_should_preserve_referenced_deprecated_schemas(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3913,7 +3913,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask ExtractInlineComposedSchemas_should_not_create_self_reference_when_context_name_matches_ref()
+    public async ValueTask ExtractInlineComposedSchemas_should_not_create_self_reference_when_context_name_matches_ref(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -3975,9 +3975,9 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         return (T)method.Invoke(method.IsStatic ? null : target, args)!;
     }
 
-    private async ValueTask<JsonNode> ReadJsonNode(string path)
+    private async ValueTask<JsonNode> ReadJsonNode(string path, CancellationToken cancellationToken = default)
     {
-        string contents = await _fileUtil.Read(path);
+        string contents = await _fileUtil.Read(path, cancellationToken: cancellationToken);
         return JsonNode.Parse(contents)!;
     }
 
@@ -4007,7 +4007,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         return valueObject?["name"]?.GetValue<string>();
     }
 
-    private async Task<string> FindFixtureFile(string fileName)
+    private async Task<string> FindFixtureFile(string fileName, CancellationToken cancellationToken = default)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
 
@@ -4015,7 +4015,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         {
             string candidate = Path.Combine(directory.FullName, fileName);
 
-            if (await _fileUtil.Exists(candidate))
+            if (await _fileUtil.Exists(candidate, cancellationToken: cancellationToken))
                 return candidate;
 
             directory = directory.Parent;
@@ -4032,7 +4032,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
             const string spec = """
                                 {
@@ -4079,7 +4079,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode operation = root["paths"]!["/values"]!["post"]!;
             JsonNode schemas = root["components"]!["schemas"]!;
 
@@ -4131,7 +4131,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         try
         {
-            await _fileUtil.Delete(targetPath);
+            await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
             const string spec = """
                                 {
                                   "openapi": "3.1.0",
@@ -4143,7 +4143,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
             await _util.Fix(sourcePath, targetPath, cancellationToken);
 
-            JsonNode root = await ReadJsonNode(targetPath);
+            JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             await Assert.That(root["components"]?["schemas"]?.AsObject().Count ?? 0).IsGreaterThan(0);
             await Assert.That(root["paths"]?.AsObject().Count ?? 0).IsEqualTo(0);
         }
@@ -4161,7 +4161,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     {
         const string sourcePath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\merged.json";
         const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\fixed.json";
-        await _fileUtil.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath, cancellationToken: cancellationToken);
 
         await _util.Fix(sourcePath, fixedPath, cancellationToken);
 
@@ -4177,7 +4177,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessCoinbase(CancellationToken cancellationToken)
     {
         const string fixedPath = @"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\spec3fixed.json";
-        await _fileUtil.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath, cancellationToken: cancellationToken);
 
         await _util.Fix(@"C:\git\Soenneker\OpenApi\soenneker.openapi.fixer\coinbase.json", fixedPath, cancellationToken);
 
@@ -4193,7 +4193,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessTelnyx(CancellationToken cancellationToken)
     {
         const string fixedPath = @"c:\telnyx\spec3fixed.json";
-        await _fileUtil.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath, cancellationToken: cancellationToken);
 
         await _util.Fix(@"c:\telnyx\spec3.json", fixedPath, cancellationToken);
 
@@ -4209,7 +4209,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     public async ValueTask ProcessCloudflare(CancellationToken cancellationToken)
     {
         const string fixedPath = @"c:\cloudflare\spec3fixed.json";
-        await _fileUtil.Delete(fixedPath);
+        await _fileUtil.Delete(fixedPath, cancellationToken: cancellationToken);
 
         await _util.Fix(@"c:\cloudflare\spec3.json", fixedPath, cancellationToken);
 

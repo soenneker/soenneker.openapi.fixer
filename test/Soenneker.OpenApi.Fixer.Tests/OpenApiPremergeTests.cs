@@ -14,7 +14,7 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
 {
     [Test]
-    public async ValueTask Fix_preserves_renamed_primitive_references_in_callbacks_and_headers(CancellationToken token)
+    public async ValueTask Fix_preserves_renamed_primitive_references_in_callbacks_and_headers(CancellationToken cancellationToken)
     {
         const string source = """
             {"openapi":"3.0.3","info":{"title":"Callbacks","version":"1"},"paths":{},"components":{
@@ -28,9 +28,9 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
         try
         {
             string path = Path.Combine(directory, "api.json");
-            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: token);
-            await Resolve<IOpenApiFixer>(true).Fix(path, path, token);
-            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: token))!;
+            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: cancellationToken);
+            await Resolve<IOpenApiFixer>(true).Fix(path, path, cancellationToken);
+            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: cancellationToken))!;
             JsonNode operation = root["components"]!["callbacks"]!["event"]!["{$request.body#/url}"]!["post"]!;
             foreach (JsonNode schema in new[] {
                          operation["requestBody"]!["content"]!["application/json"]!["schema"]!["properties"]!["created"]!,
@@ -45,7 +45,7 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
     }
 
     [Test]
-    public async ValueTask Fix_bundles_only_referenced_local_schemas_and_preserves_cycles_and_examples(CancellationToken token)
+    public async ValueTask Fix_bundles_only_referenced_local_schemas_and_preserves_cycles_and_examples(CancellationToken cancellationToken)
     {
         const string dependency = """
             {"components":{"schemas":{
@@ -65,10 +65,10 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
         {
             string path = Path.Combine(directory, "api.json");
             string dependencyPath = Path.Combine(directory, "external.yml");
-            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: token);
-            await Resolve<IFileUtil>(true).Write(dependencyPath, dependency, cancellationToken: token);
-            await Resolve<IOpenApiFixer>(true).Fix(path, path, token);
-            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: token))!;
+            await Resolve<IFileUtil>(true).Write(path, source, cancellationToken: cancellationToken);
+            await Resolve<IFileUtil>(true).Write(dependencyPath, dependency, cancellationToken: cancellationToken);
+            await Resolve<IOpenApiFixer>(true).Fix(path, path, cancellationToken);
+            JsonNode root = JsonNode.Parse(await Resolve<IFileUtil>(true).Read(path, cancellationToken: cancellationToken))!;
             JsonObject schemas = root["components"]!["schemas"]!.AsObject();
             string reference = schemas["Container"]!["properties"]!["node"]!["$ref"]!.GetValue<string>();
             await Assert.That(reference.StartsWith("#/components/schemas/", StringComparison.Ordinal)).IsTrue();
@@ -78,13 +78,13 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
             await Assert.That(imported["properties"]!["next"]!["$ref"]!.GetValue<string>()).IsEqualTo(reference);
             await Assert.That(schemas.Any(entry => entry.Key.Contains("Unused", StringComparison.Ordinal))).IsFalse();
             await Assert.That(schemas["Container"]!["example"]!["$ref"]!.GetValue<string>()).IsEqualTo("literal-payload");
-            await Assert.That(await Resolve<IFileUtil>(true).Read(dependencyPath, cancellationToken: token)).IsEqualTo(dependency);
+            await Assert.That(await Resolve<IFileUtil>(true).Read(dependencyPath, cancellationToken: cancellationToken)).IsEqualTo(dependency);
         }
         finally { Directory.Delete(directory, true); }
     }
 
     [Test]
-    public async ValueTask Fix_rejects_missing_dependency_schema_without_replacing_output(CancellationToken token)
+    public async ValueTask Fix_rejects_missing_dependency_schema_without_replacing_output(CancellationToken cancellationToken)
     {
         string directory = Path.Combine(Path.GetTempPath(), "fix-premerge-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -95,14 +95,14 @@ public sealed class OpenApiPremergeTests(Host host) : HostedUnitTest(host)
             await Resolve<IFileUtil>(true).Write(source, """
                 {"openapi":"3.0.3","info":{"title":"Missing","version":"1"},"paths":{},
                  "components":{"schemas":{"Container":{"$ref":"external.json#/components/schemas/Missing"}}}}
-                """, cancellationToken: token);
-            await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "external.json"), """{"components":{"schemas":{}}}""", cancellationToken: token);
-            await Resolve<IFileUtil>(true).Write(target, "existing output", cancellationToken: token);
+                """, cancellationToken: cancellationToken);
+            await Resolve<IFileUtil>(true).Write(Path.Combine(directory, "external.json"), """{"components":{"schemas":{}}}""", cancellationToken: cancellationToken);
+            await Resolve<IFileUtil>(true).Write(target, "existing output", cancellationToken: cancellationToken);
             bool rejected = false;
-            try { await Resolve<IOpenApiFixer>(true).Fix(source, target, token); }
+            try { await Resolve<IOpenApiFixer>(true).Fix(source, target, cancellationToken); }
             catch (InvalidOperationException exception) { rejected = exception.Message.Contains("Unresolved schema reference", StringComparison.Ordinal); }
             await Assert.That(rejected).IsTrue();
-            await Assert.That(await Resolve<IFileUtil>(true).Read(target, cancellationToken: token)).IsEqualTo("existing output");
+            await Assert.That(await Resolve<IFileUtil>(true).Read(target, cancellationToken: cancellationToken)).IsEqualTo("existing output");
         }
         finally { Directory.Delete(directory, true); }
     }
