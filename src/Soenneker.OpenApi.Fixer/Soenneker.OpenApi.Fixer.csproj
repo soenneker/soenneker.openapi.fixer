@@ -46,10 +46,10 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.OpenApi" Version="3.10.2" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2292" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2299" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.951" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.125" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.126" />
     </ItemGroup>
 </Project>
