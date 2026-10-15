@@ -265,6 +265,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 newPath = originalPath.Replace("/item", "/item_by_id");
             }
 
+            newPath = OpenApiRepeatedPathParameterNormalizer.Normalize(newPath, kvp.Value);
             newPath = NormalizePathSegments(newPath);
             string parameterNormalizedPath = NormalizePathParameterNames(newPath, out Dictionary<string, string> parameterRenameMap);
 
@@ -416,7 +417,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         return normalized;
     }
 
-    private static string NormalizePathSignature(string path) => Regex.Replace(path, @"\{[^/]+\}", "{}", RegexOptions.CultureInvariant);
+    private static string NormalizePathSignature(string path) => Regex.Replace(path, @"\{[^/{}]+\}", "{}", RegexOptions.CultureInvariant);
 
     private void RenamePathParametersToCanonicalNames(IOpenApiPathItem pathItem, string incomingPath, string canonicalPath)
     {
@@ -458,7 +459,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         }
     }
 
-    private static string[] GetPathParameterNames(string path) => Regex.Matches(path, @"\{([^/]+)\}", RegexOptions.CultureInvariant)
+    private static string[] GetPathParameterNames(string path) => Regex.Matches(path, @"\{([^/{}]+)\}", RegexOptions.CultureInvariant)
                                                                      .Select(match => match.Groups[1].Value)
                                                                      .ToArray();
 
