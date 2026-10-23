@@ -228,6 +228,8 @@ public sealed partial class OpenApiFixer
         if (!await _directoryUtil.Exists(generatedRoot, cancellationToken))
             return;
 
+        await RepairGeneratedFormSerialization(generatedRoot, cancellationToken);
+
         var generatedFiles = new Dictionary<string, string>(StringComparer.Ordinal);
         var enumDefaults = new Dictionary<string, string>(StringComparer.Ordinal);
         var generatedClasses = new Dictionary<string, string>(StringComparer.Ordinal);

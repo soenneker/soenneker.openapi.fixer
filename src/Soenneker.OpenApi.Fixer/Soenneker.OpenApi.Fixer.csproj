@@ -52,4 +52,5 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.133" />
     </ItemGroup>
+    <ItemGroup><EmbeddedResource Include="Resources/OpenApiFormSerializer.cs.txt" WithCulture="false" /></ItemGroup>
 </Project>

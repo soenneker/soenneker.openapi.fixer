@@ -24,7 +24,7 @@ public interface IOpenApiFixer
     /// <summary>
     /// Reads an OpenAPI JSON file, applies the default normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
-    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Only referenced component schemas are imported; recursive references and example payloads are preserved.</remarks>
+    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Only referenced component schemas are imported; recursive references and example payloads are preserved. Explicit deepObject form encodings with closed, fixed scalar fields are flattened to bracketed wire names before generation. Dynamic or open objects, nested objects, arrays, unions, and unsupported constraints are left unchanged.</remarks>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -43,8 +43,9 @@ public interface IOpenApiFixer
     ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs.
+    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs. Wires form request builders to a generated serializer using the local specification's operation-specific encoding rules.
     /// </summary>
+    /// <remarks>Form repairs preserve empty strings and support form/explode and deepObject encodings. Nested deepObject values use recursive brackets and numeric array indices as an explicit convention beyond OpenAPI's defined shallow-object behavior. Encodings with custom content types or headers and non-JSON source specifications are not rewritten.</remarks>
     /// <param name="generatedRoot">The root directory containing generated C# files. A missing directory is ignored.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the operation.</returns>

@@ -264,6 +264,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
             json = NormalizeKiotaIncompatibleMultiTypes(json);
             json = PreserveGeneratorUnionBranches(json);
+            json = FlattenFixedDeepObjectForms(json);
 
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
