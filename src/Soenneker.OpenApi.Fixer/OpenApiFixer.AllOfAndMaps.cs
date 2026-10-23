@@ -8,106 +8,6 @@ namespace Soenneker.OpenApi.Fixer;
 
 public sealed partial class OpenApiFixer
 {
-    private static void NormalizeAllOfWrappers(OpenApiDocument doc)
-    {
-        if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
-            return;
-
-        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
-
-        foreach (KeyValuePair<string, IOpenApiSchema> schemaEntry in comps.ToList())
-        {
-            if (schemaEntry.Value is not OpenApiSchema container || container.Properties == null || container.Properties.Count == 0)
-                continue;
-
-            foreach ((string propName, IOpenApiSchema propSchemaIface) in container.Properties.ToList())
-            {
-                if (propSchemaIface is not OpenApiSchema propSchema)
-                    continue;
-                if (propSchema.AllOf is not { Count: > 1 })
-                    continue;
-
-                // Skip if already wrapped
-                if (propSchema.AllOf.Any(branch => GetSchemaRefId(branch) is string id && id.EndsWith("Wrapper", StringComparison.Ordinal)))
-                    continue;
-
-                string? baseRefId = propSchema.AllOf.Select(GetSchemaRefId)
-                                              .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id) && comps.ContainsKey(id!));
-
-                if (string.IsNullOrWhiteSpace(baseRefId))
-                    continue;
-
-                if (comps.TryGetValue(baseRefId, out IOpenApiSchema? baseSchema) && baseSchema is OpenApiSchema baseOs)
-                {
-                    if (baseOs.Type == JsonSchemaType.Object || (baseOs.Properties?.Count ?? 0) > 0)
-                        continue; // already object-like; no need to wrap
-                }
-
-                string legacyWrapperName = $"{baseRefId}_Wrapper";
-                string wrapperName = legacyWrapperName;
-                if (!comps.ContainsKey(wrapperName))
-                    wrapperName = ReserveUniqueSchemaName(comps, baseRefId, "Wrapper");
-
-                if (string.Equals(wrapperName, schemaEntry.Key, StringComparison.Ordinal) ||
-                    (comps.TryGetValue(wrapperName, out IOpenApiSchema? existingWrapper) && ReferenceEquals(existingWrapper, container)))
-                {
-                    continue;
-                }
-
-                var valueAllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference(baseRefId) };
-                foreach (IOpenApiSchema branch in propSchema.AllOf)
-                {
-                    string? branchId = GetSchemaRefId(branch);
-                    if (branchId != null && string.Equals(branchId, baseRefId, StringComparison.Ordinal))
-                        continue;
-
-                    valueAllOf.Add(branch);
-                }
-
-                IOpenApiSchema valueSchema;
-                if (valueAllOf.Count == 1)
-                {
-                    valueSchema = valueAllOf[0];
-                }
-                else
-                {
-                    valueSchema = new OpenApiSchema { AllOf = valueAllOf };
-                }
-
-                OpenApiSchema wrapperSchema;
-                if (comps.TryGetValue(wrapperName, out IOpenApiSchema? wrapperCandidate) && wrapperCandidate is OpenApiSchema wrapperOpenApiSchema)
-                {
-                    wrapperSchema = wrapperOpenApiSchema;
-                }
-                else
-                {
-                    wrapperSchema = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        Properties = new Dictionary<string, IOpenApiSchema>(),
-                        Required = new HashSet<string> { "value" }
-                    };
-                    comps[wrapperName] = wrapperSchema;
-                }
-
-                wrapperSchema.Properties ??= new Dictionary<string, IOpenApiSchema>();
-                wrapperSchema.Properties["value"] = valueSchema;
-                wrapperSchema.Required ??= new HashSet<string>();
-                wrapperSchema.Required.Add("value");
-
-                var replacement = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Object,
-                    AllOf = new List<IOpenApiSchema> { new OpenApiSchemaReference(wrapperName) }
-                };
-
-                CopySchemaMetadata(propSchema, replacement);
-
-                container.Properties[propName] = replacement;
-            }
-        }
-    }
-
     private static void FlattenObjectAllOfCompositions(OpenApiDocument doc)
     {
         if (doc.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
@@ -118,8 +18,10 @@ public sealed partial class OpenApiFixer
 
         OpenApiSchema? Resolve(IOpenApiSchema? schema)
         {
-            while (schema is OpenApiSchemaReference schemaRef &&
+            var references = new HashSet<string>(StringComparer.Ordinal);
+            while (schema is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) &&
                    !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
+                   references.Add(schemaRef.Reference.Id) &&
                    comps.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? target))
             {
                 schema = target;
@@ -133,7 +35,18 @@ public sealed partial class OpenApiFixer
             schema.Type == JsonSchemaType.Object &&
             schema.Properties is { Count: > 0 } &&
             (schema.AnyOf?.Count ?? 0) == 0 &&
-            (schema.OneOf?.Count ?? 0) == 0;
+            (schema.OneOf?.Count ?? 0) == 0 &&
+            OpenApiSchemaConstraints.HasOnly(schema, "type", "properties", "required");
+
+        IOpenApiSchema IntersectProperties(IOpenApiSchema existing, IOpenApiSchema incoming)
+        {
+            if (ReferenceEquals(existing, incoming) ||
+                (GetSchemaRefId(existing) is string id && id == GetSchemaRefId(incoming)))
+                return existing;
+
+            // allOf is an intersection: neither branch may silently replace the other's constraints.
+            return new OpenApiSchema { AllOf = [existing, incoming] };
+        }
 
         void MergeObjectBranch(OpenApiSchema target, OpenApiSchema source)
         {
@@ -142,7 +55,9 @@ public sealed partial class OpenApiFixer
 
             foreach ((string propertyName, IOpenApiSchema propertySchema) in source.Properties ?? new Dictionary<string, IOpenApiSchema>())
             {
-                if (!target.Properties.ContainsKey(propertyName))
+                if (target.Properties.TryGetValue(propertyName, out IOpenApiSchema? existing))
+                    target.Properties[propertyName] = IntersectProperties(existing, propertySchema);
+                else
                     target.Properties[propertyName] = propertySchema;
             }
 
@@ -178,7 +93,8 @@ public sealed partial class OpenApiFixer
                     Visit(branch);
                     OpenApiSchema? resolvedBranch = Resolve(branch);
 
-                    if (resolvedBranch != null && IsPlainObjectBranch(resolvedBranch))
+                    if (resolvedBranch != null && IsPlainObjectBranch(resolvedBranch) &&
+                        concrete.AdditionalPropertiesAllowed && concrete.AdditionalProperties == null)
                     {
                         MergeObjectBranch(concrete, resolvedBranch);
                         continue;
@@ -317,7 +233,7 @@ public sealed partial class OpenApiFixer
 
     private static bool IsMetadataOnlyAllOfBranch(OpenApiSchema schema)
     {
-        if (HasExplicitNonObjectType(schema))
+        if (HasExplicitNonObjectType(schema) || !OpenApiSchemaConstraints.HasOnly(schema, "type", "required"))
             return false;
 
         return schema.Properties is not { Count: > 0 } &&
@@ -361,203 +277,6 @@ public sealed partial class OpenApiFixer
             target.Extensions.TryAdd(key, extension);
     }
 
-    /// <summary>
-    /// Flattens "allOf" compositions where one branch is a pure map schema
-    /// (object + additionalProperties) and the remaining branches are plain
-    /// object overlays. This prevents Kiota from treating the map reference as
-    /// an empty model type in composed contexts.
-    /// </summary>
-    private static void FlattenMapAllOfCompositions(OpenApiDocument doc)
-    {
-        if (doc?.Components?.Schemas == null || doc.Components.Schemas.Count == 0)
-            return;
-
-        IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
-
-        void Visit(IOpenApiSchema? schema)
-        {
-            if (schema is not OpenApiSchema os)
-                return;
-
-            TryFlattenMapAllOf(os, comps);
-
-            if (os.Properties != null)
-            {
-                foreach (IOpenApiSchema child in os.Properties.Values)
-                    Visit(child);
-            }
-
-            if (os.Items != null)
-                Visit(os.Items);
-
-            if (os.AdditionalProperties != null)
-                Visit(os.AdditionalProperties);
-
-            if (os.AllOf != null)
-            {
-                foreach (IOpenApiSchema child in os.AllOf)
-                    Visit(child);
-            }
-
-            if (os.AnyOf != null)
-            {
-                foreach (IOpenApiSchema child in os.AnyOf)
-                    Visit(child);
-            }
-
-            if (os.OneOf != null)
-            {
-                foreach (IOpenApiSchema child in os.OneOf)
-                    Visit(child);
-            }
-        }
-
-        foreach (IOpenApiSchema root in comps.Values)
-            Visit(root);
-
-        if (doc.Paths != null)
-        {
-            foreach (IOpenApiPathItem path in doc.Paths.Values)
-            {
-                if (path?.Parameters != null)
-                {
-                    foreach (IOpenApiParameter parameter in path.Parameters)
-                        Visit(parameter?.Schema);
-                }
-
-                if (path?.Operations == null)
-                    continue;
-
-                foreach (OpenApiOperation operation in path.Operations.Values)
-                {
-                    if (operation?.Parameters != null)
-                    {
-                        foreach (IOpenApiParameter parameter in operation.Parameters)
-                            Visit(parameter?.Schema);
-                    }
-
-                    if (operation?.RequestBody is OpenApiRequestBody body && body.Content != null)
-                    {
-                        foreach (IOpenApiMediaType mediaType in body.Content.Values)
-                            Visit(mediaType?.Schema);
-                    }
-
-                    if (operation?.Responses == null)
-                        continue;
-
-                    foreach (IOpenApiResponse response in operation.Responses.Values)
-                    {
-                        if (response?.Content != null)
-                        {
-                            foreach (IOpenApiMediaType mediaType in response.Content.Values)
-                                Visit(mediaType?.Schema);
-                        }
-
-                        if (response?.Headers != null)
-                        {
-                            foreach (IOpenApiHeader header in response.Headers.Values)
-                                Visit(header?.Schema);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static void TryFlattenMapAllOf(OpenApiSchema target, IDictionary<string, IOpenApiSchema> comps)
-    {
-        if (target.AllOf is not { Count: > 1 })
-            return;
-
-        int mapBranchIndex = -1;
-        OpenApiSchema? mapBranchSchema = null;
-
-        for (var i = 0; i < target.AllOf.Count; i++)
-        {
-            IOpenApiSchema branch = target.AllOf[i];
-            if (!TryResolveToConcreteSchema(branch, comps, out OpenApiSchema? resolved) || resolved == null)
-                continue;
-
-            if (IsPureMapSchema(resolved))
-            {
-                mapBranchIndex = i;
-                mapBranchSchema = resolved;
-                break;
-            }
-        }
-
-        if (mapBranchIndex < 0 || mapBranchSchema == null)
-            return;
-
-        var mergedProperties = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
-        var mergedRequired = new HashSet<string>(StringComparer.Ordinal);
-
-        for (var i = 0; i < target.AllOf.Count; i++)
-        {
-            if (i == mapBranchIndex)
-                continue;
-
-            IOpenApiSchema branch = target.AllOf[i];
-            if (!TryResolveToConcreteSchema(branch, comps, out OpenApiSchema? resolved) || resolved == null)
-                return;
-
-            if (!IsFlattenableOverlayObject(resolved))
-                return;
-
-            if (resolved.Properties != null)
-            {
-                foreach ((string name, IOpenApiSchema propertySchema) in resolved.Properties)
-                    mergedProperties[name] = propertySchema;
-            }
-
-            if (resolved.Required != null)
-            {
-                foreach (string requiredProp in resolved.Required)
-                    mergedRequired.Add(requiredProp);
-            }
-        }
-
-        target.Type = JsonSchemaType.Object;
-        target.AllOf = null;
-
-        target.Properties ??= new Dictionary<string, IOpenApiSchema>();
-        foreach ((string name, IOpenApiSchema propertySchema) in mergedProperties)
-            target.Properties[name] = propertySchema;
-
-        if (target.AdditionalProperties == null && !target.AdditionalPropertiesAllowed)
-        {
-            target.AdditionalProperties = mapBranchSchema.AdditionalProperties;
-            target.AdditionalPropertiesAllowed = mapBranchSchema.AdditionalPropertiesAllowed;
-        }
-
-        if (mergedRequired.Count > 0)
-        {
-            target.Required ??= new HashSet<string>();
-            foreach (string requiredProp in mergedRequired)
-                target.Required.Add(requiredProp);
-        }
-    }
-
-    private static bool TryResolveToConcreteSchema(IOpenApiSchema schema, IDictionary<string, IOpenApiSchema> comps, out OpenApiSchema? resolved)
-    {
-        resolved = null;
-
-        if (schema is OpenApiSchema os)
-        {
-            resolved = os;
-            return true;
-        }
-
-        if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id && comps.TryGetValue(id, out IOpenApiSchema? target) &&
-            target is OpenApiSchema targetSchema)
-        {
-            resolved = targetSchema;
-            return true;
-        }
-
-        return false;
-    }
-
     private static bool IsPureMapSchema(OpenApiSchema schema)
     {
         bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
@@ -567,16 +286,6 @@ public sealed partial class OpenApiFixer
         bool hasMapSemantics = schema.AdditionalProperties != null || schema.AdditionalPropertiesAllowed;
 
         return hasNoCompositions && hasNoNamedProperties && hasNoItems && isObjectOrUnset && hasMapSemantics;
-    }
-
-    private static bool IsFlattenableOverlayObject(OpenApiSchema schema)
-    {
-        bool hasNoCompositions = (schema.AllOf?.Count ?? 0) == 0 && (schema.AnyOf?.Count ?? 0) == 0 && (schema.OneOf?.Count ?? 0) == 0;
-        bool hasNoMapShape = schema.AdditionalProperties == null && !schema.AdditionalPropertiesAllowed;
-        bool hasNoItems = schema.Items == null;
-        bool isObjectOrUnset = IsObjectOrNullableObject(schema);
-
-        return hasNoCompositions && hasNoMapShape && hasNoItems && isObjectOrUnset;
     }
 
     private static bool IsObjectOrNullableObject(OpenApiSchema schema)
@@ -601,18 +310,37 @@ public sealed partial class OpenApiFixer
 
         IDictionary<string, IOpenApiSchema> comps = doc.Components.Schemas;
 
+        var inlinedMaps = new Dictionary<string, OpenApiSchema>(StringComparer.Ordinal);
+        var visitedMaps = new HashSet<IOpenApiSchema>();
+
+        bool ReferencesMap(IOpenApiSchema? schema, string id, HashSet<IOpenApiSchema> seen)
+        {
+            if (schema == null || !seen.Add(schema)) return false;
+            if (schema is OpenApiSchemaReference reference)
+            {
+                if (!string.IsNullOrEmpty(reference.Reference.ExternalResource)) return false;
+                if (reference.Reference.Id == id) return true;
+                return reference.Reference.Id is string key && comps.TryGetValue(key, out IOpenApiSchema? target) && ReferencesMap(target, id, seen);
+            }
+            return (schema.Properties?.Values.Any(child => ReferencesMap(child, id, seen)) == true) ||
+                ReferencesMap(schema.Items, id, seen) || ReferencesMap(schema.AdditionalProperties, id, seen) ||
+                (schema.AllOf?.Any(child => ReferencesMap(child, id, seen)) == true) ||
+                (schema.AnyOf?.Any(child => ReferencesMap(child, id, seen)) == true) ||
+                (schema.OneOf?.Any(child => ReferencesMap(child, id, seen)) == true);
+        }
+
         IOpenApiSchema Rewrite(IOpenApiSchema schema)
         {
-            if (schema is OpenApiSchemaReference sr && sr.Reference?.Id is { Length: > 0 } id && comps.TryGetValue(id, out IOpenApiSchema? target) &&
+            if (schema is OpenApiSchemaReference sr && string.IsNullOrEmpty(sr.Reference.ExternalResource) && sr.Reference?.Id is { Length: > 0 } id && comps.TryGetValue(id, out IOpenApiSchema? target) &&
                 target is OpenApiSchema targetSchema && IsPureMapSchema(targetSchema))
             {
-                return new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Object,
-                    AdditionalProperties = targetSchema.AdditionalProperties,
-                    AdditionalPropertiesAllowed = targetSchema.AdditionalPropertiesAllowed,
-                    Description = targetSchema.Description
-                };
+                // Recursive map references must remain references: expanding them creates an
+                // infinite inline schema.
+                if (ReferencesMap(targetSchema.AdditionalProperties, id, []))
+                    return schema;
+                if (!inlinedMaps.TryGetValue(id, out OpenApiSchema? copy))
+                    inlinedMaps[id] = copy = (OpenApiSchema)targetSchema.CreateShallowCopy();
+                return copy;
             }
 
             return schema;
@@ -620,7 +348,7 @@ public sealed partial class OpenApiFixer
 
         void Visit(IOpenApiSchema? schema)
         {
-            if (schema is not OpenApiSchema os)
+            if (schema is not OpenApiSchema os || !visitedMaps.Add(os))
                 return;
 
             if (os.Properties != null)
@@ -771,141 +499,6 @@ public sealed partial class OpenApiFixer
         target.ExternalDocs = source.ExternalDocs;
     }
 
-    /// <summary>
-    /// Recursively fixes malformed enum values in a schema and all its nested schemas.
-    /// </summary>
-    private static void FixMalformedEnumValuesRecursive(OpenApiSchema schema, HashSet<OpenApiSchema> visited, IDictionary<string, IOpenApiSchema> comps)
-    {
-        if (schema == null || !visited.Add(schema))
-            return;
-
-        // Fix enum values in this schema
-        if (schema.Enum != null && schema.Enum.Count > 0)
-        {
-            bool hasMalformedValues = false;
-            var cleanedEnum = new List<JsonNode>();
-            bool removedStructuredStringEnum = false;
-            bool hadStringEnums = false;
-
-            foreach (JsonNode enumValue in schema.Enum)
-            {
-                if (enumValue is JsonValue jsonValue && jsonValue.TryGetValue(out string? stringValue))
-                {
-                    hadStringEnums = true;
-                    string trimmed = TrimQuotes(stringValue);
-                    if (LooksLikeMalformedStructuredEnumValue(trimmed))
-                    {
-                        hasMalformedValues = true;
-                        removedStructuredStringEnum = true;
-                        continue;
-                    }
-
-                    if (!string.Equals(trimmed, stringValue, StringComparison.Ordinal))
-                    {
-                        cleanedEnum.Add(JsonValue.Create(trimmed));
-                        hasMalformedValues = true;
-                    }
-                    else
-                    {
-                        cleanedEnum.Add(enumValue);
-                    }
-                }
-                else
-                {
-                    // Non-string enum value, keep it as is
-                    cleanedEnum.Add(enumValue);
-                }
-            }
-
-            if (hasMalformedValues)
-            {
-                schema.Enum = cleanedEnum.Count > 0 ? cleanedEnum : null;
-
-                if (removedStructuredStringEnum && schema.Type == null && hadStringEnums)
-                    schema.Type = JsonSchemaType.String;
-            }
-        }
-
-        // Fix default if it is a quoted string
-        if (schema.Default is JsonValue defVal && defVal.TryGetValue(out string? defStr))
-        {
-            string trimmedDefault = TrimQuotes(defStr);
-            if (!string.Equals(trimmedDefault, defStr, StringComparison.Ordinal))
-                schema.Default = JsonValue.Create(trimmedDefault);
-        }
-
-        // Fix example if it is a quoted string
-        if (schema.Example is JsonValue exVal && exVal.TryGetValue(out string? exStr))
-        {
-            string trimmedExample = TrimQuotes(exStr);
-            if (!string.Equals(trimmedExample, exStr, StringComparison.Ordinal))
-                schema.Example = JsonValue.Create(trimmedExample);
-        }
-
-        // Recursively fix properties
-        if (schema.Properties != null)
-        {
-            foreach (IOpenApiSchema property in schema.Properties.Values)
-            {
-                if (property is OpenApiSchema propertySchema)
-                {
-                    FixMalformedEnumValuesRecursive(propertySchema, visited, comps);
-                }
-            }
-        }
-
-        // Recursively fix items
-        if (schema.Items is OpenApiSchema itemsSchema)
-        {
-            FixMalformedEnumValuesRecursive(itemsSchema, visited, comps);
-        }
-
-        // Recursively fix additional properties
-        if (schema.AdditionalProperties is OpenApiSchema additionalPropsSchema)
-        {
-            FixMalformedEnumValuesRecursive(additionalPropsSchema, visited, comps);
-        }
-
-        // Recursively fix composition schemas
-        if (schema.AllOf != null)
-        {
-            foreach (IOpenApiSchema allOfSchema in schema.AllOf)
-            {
-                if (allOfSchema is OpenApiSchema allOfConcreteSchema)
-                {
-                    FixMalformedEnumValuesRecursive(allOfConcreteSchema, visited, comps);
-                }
-            }
-        }
-
-        if (schema.OneOf != null)
-        {
-            foreach (IOpenApiSchema oneOfSchema in schema.OneOf)
-            {
-                if (oneOfSchema is OpenApiSchema oneOfConcreteSchema)
-                {
-                    FixMalformedEnumValuesRecursive(oneOfConcreteSchema, visited, comps);
-                }
-            }
-        }
-
-        if (schema.AnyOf != null)
-        {
-            foreach (IOpenApiSchema anyOfSchema in schema.AnyOf)
-            {
-                if (anyOfSchema is OpenApiSchema anyOfConcreteSchema)
-                {
-                    FixMalformedEnumValuesRecursive(anyOfConcreteSchema, visited, comps);
-                }
-            }
-        }
-
-        if (schema.Not is OpenApiSchema notSchema)
-        {
-            FixMalformedEnumValuesRecursive(notSchema, visited, comps);
-        }
-    }
-
     private static void FixErrorMessageArrayCollision(OpenApiDocument doc)
     {
         if (doc?.Paths is null || doc.Components?.Schemas is null)
@@ -961,28 +554,6 @@ public sealed partial class OpenApiFixer
             if (container is null)
                 return;
 
-            // Depth-first, but very narrow: touch only the 'message' property at this level.
-            if (container.Properties is { } props && props.TryGetValue("message", out IOpenApiSchema? msg) && msg is OpenApiSchema m &&
-                string.Equals(m.Type?.ToString(), "array", StringComparison.OrdinalIgnoreCase) && m.Items is OpenApiSchema mi &&
-                string.Equals(mi.Type?.ToString(), "string", StringComparison.OrdinalIgnoreCase))
-            {
-                var replacement = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.String,
-                    Description = m.Description,
-                    Example = m.Example
-                };
-                if (m.Extensions is { Count: > 0 })
-                {
-                    replacement.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-
-                    foreach (KeyValuePair<string, IOpenApiExtension> kv in m.Extensions)
-                        replacement.Extensions[kv.Key] = kv.Value;
-                }
-
-                container.Properties["message"] = replacement;
-            }
-
             // Kiota can generate a broken ApiException.Message override for an error wrapper whose
             // only useful message is inside an array item. It dereferences the collection itself as
             // though it were an item (for example, Errors?.MessageEscaped). A root-level string
@@ -1011,7 +582,8 @@ public sealed partial class OpenApiFixer
                 !string.IsNullOrWhiteSpace(schemaRef.Reference.Id) &&
                 doc.Components.Schemas.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? referencedSchema))
             {
-                return TryGetArrayItemSchema(referencedSchema, out itemSchema);
+                return referencedSchema is OpenApiSchema concreteReference &&
+                       TryGetArrayItemSchema(concreteReference, out itemSchema);
             }
 
             if (schema is not OpenApiSchema concrete || concrete.Type != JsonSchemaType.Array || concrete.Items == null)

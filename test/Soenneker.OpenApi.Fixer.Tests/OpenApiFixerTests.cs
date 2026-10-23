@@ -1026,49 +1026,6 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_use_contextual_wrapper_names_for_inline_branches(CancellationToken cancellationToken)
-    {
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["Widget"] = new OpenApiSchema
-                    {
-                        OneOf = new List<IOpenApiSchema>
-                        {
-                            new OpenApiSchema
-                            {
-                                Type = JsonSchemaType.Object,
-                                Properties = new Dictionary<string, IOpenApiSchema>
-                                {
-                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String }
-                                }
-                            },
-                            new OpenApiSchema
-                            {
-                                Type = JsonSchemaType.String
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
-
-        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
-        await Assert.That(document.Components.Schemas.ContainsKey("WidgetBranch2")).IsTrue();
-
-        var widget = document.Components.Schemas["Widget"] as OpenApiSchema;
-        var wrapperReference = widget!.OneOf![1] as OpenApiSchemaReference;
-
-        await Assert.That(wrapperReference).IsNotNull();
-        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("WidgetBranch2");
-    }
-
-    [Test]
     public async ValueTask ApplySchemaNormalizations_should_not_add_discriminator_to_primitive_only_union(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
@@ -1251,7 +1208,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         var inlinedMap = assetContext.AllOf![0] as OpenApiSchema;
 
         await Assert.That(inlinedMap).IsNotNull();
-        await Assert.That(inlinedMap!.Type).IsEqualTo(JsonSchemaType.Object);
+        await Assert.That(inlinedMap!.Type).IsEqualTo(JsonSchemaType.Object | JsonSchemaType.Null);
         await Assert.That(inlinedMap.AdditionalProperties).IsNotNull();
         await Assert.That(inlinedMap.AdditionalProperties!.Type).IsEqualTo(JsonSchemaType.String);
     }
@@ -1303,130 +1260,6 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_wrap_primitive_branches_after_inlining(CancellationToken cancellationToken)
-    {
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["PrimitiveValue"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                    ["ObjectBranch"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        Properties = new Dictionary<string, IOpenApiSchema>
-                        {
-                            ["id"] = new OpenApiSchema { Type = JsonSchemaType.String }
-                        }
-                    },
-                    ["Parent"] = new OpenApiSchema
-                    {
-                        OneOf = new List<IOpenApiSchema>
-                        {
-                            new OpenApiSchemaReference("ObjectBranch"),
-                            new OpenApiSchemaReference("PrimitiveValue")
-                        }
-                    }
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "InlinePrimitivePropertyRefs", document);
-
-        var parent = document.Components.Schemas["Parent"] as OpenApiSchema;
-        await Assert.That(parent!.OneOf![1] is OpenApiSchema).IsTrue();
-
-        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
-
-        var wrapperReference = parent.OneOf[1] as OpenApiSchemaReference;
-
-        await Assert.That(wrapperReference).IsNotNull();
-        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("ParentBranch2");
-        await Assert.That(document.Components.Schemas.ContainsKey("ParentBranch2")).IsTrue();
-        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
-    }
-
-    [Test]
-    public async ValueTask WrapNonObjectUnionBranchesEverywhere_should_treat_nullable_object_branches_as_object_like(CancellationToken cancellationToken)
-    {
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["Parent"] = new OpenApiSchema
-                    {
-                        AnyOf = new List<IOpenApiSchema>
-                        {
-                            new OpenApiSchema { Type = JsonSchemaType.String },
-                            new OpenApiSchema { Type = JsonSchemaType.Object | JsonSchemaType.Null }
-                        }
-                    }
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "WrapNonObjectUnionBranchesEverywhere", document);
-
-        var parent = document.Components.Schemas["Parent"] as OpenApiSchema;
-        var wrapperReference = parent!.AnyOf![0] as OpenApiSchemaReference;
-
-        await Assert.That(wrapperReference).IsNotNull();
-        await Assert.That(wrapperReference!.Reference.Id).IsEqualTo("ParentBranch1");
-        await Assert.That(document.Components.Schemas.ContainsKey("ParentBranch1")).IsTrue();
-        await Assert.That(document.Components.Schemas.ContainsKey("UnionBranch")).IsFalse();
-    }
-
-    [Test]
-    public async ValueTask ExposeComposedObjectPropertiesForGenerators_should_propagate_properties_through_nested_unions(CancellationToken cancellationToken)
-    {
-        static OpenApiSchema Leaf() => new()
-        {
-            Type = JsonSchemaType.Object,
-            Properties = new Dictionary<string, IOpenApiSchema>
-            {
-                ["name"] = new OpenApiSchema { Type = JsonSchemaType.String }
-            }
-        };
-
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["Parent"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        AnyOf = [new OpenApiSchemaReference("Left"), new OpenApiSchemaReference("Right")]
-                    },
-                    ["Left"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        OneOf = [new OpenApiSchemaReference("LeftLeaf1"), new OpenApiSchemaReference("LeftLeaf2")]
-                    },
-                    ["Right"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        OneOf = [new OpenApiSchemaReference("RightLeaf1"), new OpenApiSchemaReference("RightLeaf2")]
-                    },
-                    ["LeftLeaf1"] = Leaf(),
-                    ["LeftLeaf2"] = Leaf(),
-                    ["RightLeaf1"] = Leaf(),
-                    ["RightLeaf2"] = Leaf()
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "ExposeComposedObjectPropertiesForGenerators", document);
-
-        var parent = (OpenApiSchema)document.Components.Schemas["Parent"];
-        await Assert.That(parent.Properties?.ContainsKey("name")).IsTrue();
-    }
-
-    [Test]
     public async ValueTask NormalizeKiotaIncompatibleMultiTypes_should_emit_object_branch_for_mixed_union_reference_in_object_allof(CancellationToken cancellationToken)
     {
         const string serializedSpec = """
@@ -1464,69 +1297,6 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         await Assert.That(allOf.Count).IsEqualTo(1);
         await Assert.That(allOf[0]?["$ref"]).IsNull();
         await Assert.That(allOf[0]?["type"]?.GetValue<string>()).IsEqualTo("object");
-    }
-
-    [Test]
-    public async ValueTask CollapseNonDiscriminatedInlineObjectUnions_should_merge_inline_object_branches(CancellationToken cancellationToken)
-    {
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["DlpEntry"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        OneOf = new List<IOpenApiSchema>
-                        {
-                            new OpenApiSchema
-                            {
-                                Type = JsonSchemaType.Object,
-                                Required = new HashSet<string> { "id", "type", "pattern" },
-                                Properties = new Dictionary<string, IOpenApiSchema>
-                                {
-                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                                    ["pattern"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                                    ["type"] = new OpenApiSchema
-                                    {
-                                        Type = JsonSchemaType.String,
-                                        Enum = [JsonValue.Create("custom")!]
-                                    }
-                                }
-                            },
-                            new OpenApiSchema
-                            {
-                                Type = JsonSchemaType.Object,
-                                Required = new HashSet<string> { "id", "type", "confidence" },
-                                Properties = new Dictionary<string, IOpenApiSchema>
-                                {
-                                    ["id"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                                    ["confidence"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                                    ["type"] = new OpenApiSchema
-                                    {
-                                        Type = JsonSchemaType.String,
-                                        Enum = [JsonValue.Create("predefined")!]
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "CollapseNonDiscriminatedInlineObjectUnions", document);
-
-        var dlpEntry = document.Components.Schemas["DlpEntry"] as OpenApiSchema;
-        var typeProperty = dlpEntry!.Properties!["type"] as OpenApiSchema;
-
-        await Assert.That(dlpEntry.OneOf).IsNull();
-        await Assert.That(dlpEntry.Type).IsEqualTo(JsonSchemaType.Object);
-        await Assert.That(dlpEntry.Properties!.ContainsKey("pattern")).IsTrue();
-        await Assert.That(dlpEntry.Properties.ContainsKey("confidence")).IsTrue();
-        await Assert.That(dlpEntry.Required).IsEquivalentTo(["id", "type"]);
-        await Assert.That(typeProperty!.Enum!.Count).IsEqualTo(2);
     }
 
     [Test]
@@ -2049,7 +1819,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask RenameConflictingPaths_should_remove_empty_path_segments_from_trailing_slashes(CancellationToken cancellationToken)
+    public async ValueTask RenameConflictingPaths_should_preserve_literal_path_segments(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
         {
@@ -2080,10 +1850,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
         _namingFixer.RenameConflictingPaths(document);
 
-        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models")).IsTrue();
-        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models/{modelId}")).IsTrue();
-        await Assert.That(document.Paths.Keys.Any(path => path.Length > 1 && path.EndsWith("/", StringComparison.Ordinal))).IsFalse();
-        await Assert.That(document.Paths.Keys.Any(path => path.Contains("//", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(document.Paths.ContainsKey("/api/0/seer/models/")).IsTrue();
+        await Assert.That(document.Paths.ContainsKey("/api/0/seer//models/{modelId}/")).IsTrue();
+        await Assert.That(document.Paths.Keys.Any(path => path.Length > 1 && path.EndsWith("/", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(document.Paths.Keys.Any(path => path.Contains("//", StringComparison.Ordinal))).IsTrue();
     }
 
     [Test]
@@ -2763,7 +2533,10 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await Assert.That(root["openapi"]).IsNotNull();
             await Assert.That(root["paths"]?.AsObject().Count > 0).IsTrue();
             await Assert.That(root["components"]?["schemas"]?.AsObject().Count > 0).IsTrue();
-            await Assert.That(root["components"]?["schemas"]?["DnsRecordsDnsRecordPatch"]?["properties"]?["name"]).IsNotNull();
+            JsonNode schemas = root["components"]!["schemas"]!;
+            await Assert.That(schemas["DnsRecordsDnsRecordPatch"]?["oneOf"] ?? schemas["DnsRecordsDnsRecordPatch"]?["anyOf"]).IsNotNull();
+            await Assert.That(schemas["DnsRecordsDnsRecordPatch"]?["properties"]?["name"]).IsNull();
+            await Assert.That(schemas["DnsRecordsARecord"]?["properties"]?["name"]).IsNotNull();
         }
         finally
         {
@@ -3692,60 +3465,6 @@ public sealed class OpenApiFixerTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask NormalizeAllOfWrappers_should_not_wrap_existing_wrapper_value_into_itself(CancellationToken cancellationToken)
-    {
-        var wrapper = new OpenApiSchema
-        {
-            Type = JsonSchemaType.Object,
-            Required = new HashSet<string> { "value" },
-            Properties = new Dictionary<string, IOpenApiSchema>
-            {
-                ["value"] = new OpenApiSchema
-                {
-                    AllOf = new List<IOpenApiSchema>
-                    {
-                        new OpenApiSchemaReference("WorkersBindings"),
-                        new OpenApiSchema
-                        {
-                            Type = JsonSchemaType.Array,
-                            Items = new OpenApiSchemaReference("WorkersBindingItem")
-                        }
-                    }
-                }
-            }
-        };
-
-        var document = new OpenApiDocument
-        {
-            Components = new OpenApiComponents
-            {
-                Schemas = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["WorkersBindings"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Array,
-                        Items = new OpenApiSchemaReference("WorkersBindingItem")
-                    },
-                    ["WorkersBindingItem"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object
-                    },
-                    ["WorkersBindings_Wrapper"] = wrapper
-                }
-            }
-        };
-
-        InvokePrivateVoidMethod(_util, "NormalizeAllOfWrappers", document);
-
-        var valueSchema = wrapper.Properties!["value"] as OpenApiSchema;
-        bool selfWrapped = valueSchema?.AllOf?.OfType<OpenApiSchemaReference>()
-                                      .Any(reference => reference.Reference.Id == "WorkersBindings_Wrapper") == true;
-
-        await Assert.That(valueSchema).IsNotNull();
-        await Assert.That(selfWrapped).IsFalse();
-    }
-
-    [Test]
     public async ValueTask NormalizeNonObjectAllOfCompositions_should_collapse_cloudflare_style_value_wrappers(CancellationToken cancellationToken)
     {
         var document = new OpenApiDocument
@@ -4108,11 +3827,11 @@ public sealed class OpenApiFixerTests : HostedUnitTest
             await Assert.That(schemas["BooleanOnly"]?["enum"]?[0]?.GetValue<bool>()).IsTrue();
             await Assert.That(schemas["BooleanOnly"]?["default"]).IsNull();
             await Assert.That(schemas["StringValues"]?["enum"]?.AsArray().Any(value => value?.GetValue<string>() == string.Empty) ?? false).IsTrue();
-            JsonArray combinedAllOf = schemas["Combined"]!["allOf"]!.AsArray();
-            await Assert.That(combinedAllOf.Any(entry => entry?["oneOf"] is JsonArray)).IsTrue();
-            await Assert.That(combinedAllOf.Any(entry => entry?["anyOf"] is JsonArray)).IsTrue();
-            await Assert.That(schemas["Combined"]?["oneOf"]).IsNull();
-            await Assert.That(schemas["Combined"]?["anyOf"]).IsNull();
+            JsonArray alternatives = schemas["Combined"]!["oneOf"]!.AsArray();
+            await Assert.That(alternatives.Count).IsEqualTo(2);
+            foreach (JsonNode? alternative in alternatives)
+                await Assert.That(alternative?["properties"]?["a"]?["type"]?.GetValue<string>()).IsEqualTo("string");
+            await Assert.That(alternatives.Any(alternative => alternative?["properties"]?["b"] != null)).IsTrue();
             await Assert.That(schemas["Combined"]?["discriminator"]).IsNull();
             await Assert.That(schemas["Combined"]?["required"]?.AsArray().Any(value => value?.GetValue<string>() == "type") ?? false).IsFalse();
         }

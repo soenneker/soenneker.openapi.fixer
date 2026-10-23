@@ -43,7 +43,7 @@ public interface IOpenApiFixer
     ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Rewrites invalid member identifiers in Kiota-generated C# enum files while preserving their wire values.
+    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs.
     /// </summary>
     /// <param name="generatedRoot">The root directory containing generated C# files. A missing directory is ignored.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>

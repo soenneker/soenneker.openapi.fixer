@@ -119,35 +119,6 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
 
         SanitizeExample(schema);
 
-        if (schema.Default is JsonValue ds && ds.TryGetValue(out string? dsValue) && string.IsNullOrEmpty(dsValue))
-        {
-            schema.Default = null;
-        }
-
-        if (schema.Example is JsonValue es && es.TryGetValue(out string? esValue) && string.IsNullOrEmpty(esValue))
-        {
-            schema.Example = null;
-        }
-
-        if (schema.Enum != null && schema.Enum.Any())
-        {
-            List<JsonNode> cleanedEnum = schema.Enum.OfType<JsonValue>()
-                                               .Where(s =>
-                                               {
-                                                   // Accept any non-null enum value (string, number, boolean, etc.)
-                                                   return s.GetValueKind() != JsonValueKind.Null;
-                                               })
-                                               .Select(s =>
-                                               {
-                                                   // Preserve the original value type
-                                                   return s;
-                                               })
-                                               .Cast<JsonNode>()
-                                               .ToList();
-
-            schema.Enum = cleanedEnum.Any() ? cleanedEnum : null;
-        }
-
         if (schema.Properties != null)
         {
             foreach (IOpenApiSchema? p in schema.Properties.Values)
@@ -211,7 +182,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             if (stringValue != null)
                             {
                                 // Remove any control characters that could cause JSON serialization issues
-                                var cleanedString = RemoveInvalidControlCharacters(stringValue);
+                                var cleanedString = stringValue;
                                 cleanedEnum.Add(JsonValue.Create(cleanedString));
                             }
                         }
@@ -249,7 +220,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         if (stringValue != null)
                         {
                             // Remove any control characters that could cause JSON serialization issues
-                            var cleanedString = RemoveInvalidControlCharacters(stringValue);
+                            var cleanedString = stringValue;
                             schemaToModify.Default = JsonValue.Create(cleanedString);
                         }
                     }
@@ -277,7 +248,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                         if (stringValue != null)
                         {
                             // Remove any control characters that could cause JSON serialization issues
-                            var cleanedString = RemoveInvalidControlCharacters(stringValue);
+                            var cleanedString = stringValue;
                             schemaToModify.Example = JsonValue.Create(cleanedString);
                         }
                     }
@@ -522,11 +493,11 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     else if (jv.TryGetValue(out double d))
                         enumByText[d.ToString(System.Globalization.CultureInfo.InvariantCulture)] = e;
                     else
-                        enumByText[e.ToJsonString()] = e;
+                        enumByText[e?.ToJsonString() ?? "null"] = e;
                 }
                 else
                 {
-                    enumByText[e.ToJsonString()] = e;
+                    enumByText[e?.ToJsonString() ?? "null"] = e;
                 }
             }
 
@@ -625,9 +596,9 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     break;
 
                 case JsonSchemaType.String:
-                    if (schema.Format == "date-time" && schema.Default is JsonValue dateStr)
+                    if (schema.Format == "date-time")
                     {
-                        if (dateStr.GetValue<string>() is string dateValue && !DateTimeOffset.TryParse(dateValue,
+                        if (schema.Default is not JsonValue dateStr || !dateStr.TryGetValue(out string? dateValue) || !DateTimeOffset.TryParse(dateValue,
                                 System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out _))
                         {
                             concreteSchema.Default = null;
@@ -642,7 +613,8 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                     {
                         if (jv.GetValueKind() == JsonValueKind.Number)
                         {
-                            // ok
+                            if (!jv.TryGetValue(out decimal number) || decimal.Truncate(number) != number)
+                                concreteSchema.Default = null;
                         }
                         else if (jv.GetValueKind() == JsonValueKind.String && Int64.TryParse(jv.GetValue<string>(), System.Globalization.NumberStyles.Integer,
                                      System.Globalization.CultureInfo.InvariantCulture, out long parsed))
@@ -671,7 +643,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                             // ok
                         }
                         else if (jv.GetValueKind() == JsonValueKind.String && Double.TryParse(jv.GetValue<string>(), System.Globalization.NumberStyles.Float,
-                                     System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                                     System.Globalization.CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed))
                         {
                             concreteSchema.Default = JsonValue.Create(parsed);
                         }
@@ -826,12 +798,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             {
                 // Be conservative: only set object when this schema is object-like; otherwise leave null for primitives/enums
                 bool looksObjectLike = (concreteSchema.Properties?.Any() == true) || concreteSchema.AdditionalProperties != null ||
-                                       concreteSchema.AdditionalPropertiesAllowed ||
                                        (concreteSchema.AllOf?.Any(s =>
-                                           s is OpenApiSchema os && (os.Properties?.Any() == true || os.Type == JsonSchemaType.Object)) == true) ||
-                                       (concreteSchema.AnyOf?.Any(s =>
-                                           s is OpenApiSchema os && (os.Properties?.Any() == true || os.Type == JsonSchemaType.Object)) == true) ||
-                                       (concreteSchema.OneOf?.Any(s =>
                                            s is OpenApiSchema os && (os.Properties?.Any() == true || os.Type == JsonSchemaType.Object)) == true);
                 if (!(concreteSchema.Enum?.Any() == true) && looksObjectLike)
                     concreteSchema.Type = JsonSchemaType.Object;
@@ -877,7 +844,7 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
                 else
                     s.Example = null;
             }
-            else
+            else if (s.Type != JsonSchemaType.Array)
                 s.Example = null;
         }
 
@@ -1131,7 +1098,8 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
 
     private static void NormalizeComposition(IList<IOpenApiSchema>? branches, OpenApiSchema target, ref int normalized)
     {
-        if (branches is not { Count: 2 })
+        if (branches is not { Count: 2 } || !OpenApiSchemaConstraints.HasOnly(target,
+                "type", ReferenceEquals(target.AnyOf, branches) ? "anyOf" : "oneOf"))
             return;
 
         OpenApiSchema? valueBranch = null;
@@ -1159,7 +1127,11 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
             return;
         }
 
-        if (!hasNullBranch || valueBranch == null)
+        if (!hasNullBranch || valueBranch == null ||
+            (ReferenceEquals(target.OneOf, branches) && valueBranch.Type?.HasFlag(JsonSchemaType.Null) == true) ||
+            !OpenApiSchemaConstraints.HasOnly(valueBranch, "type", "format", "pattern", "minLength", "maxLength", "minimum", "maximum",
+                "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "enum", "properties", "required", "items", "minItems", "maxItems",
+                "uniqueItems", "additionalProperties", "allOf", "anyOf", "oneOf", "minProperties", "maxProperties"))
             return;
 
         target.Type = (valueBranch.Type ?? JsonSchemaType.Object) | JsonSchemaType.Null;
@@ -1172,13 +1144,17 @@ public sealed class OpenApiSchemaFixer : IOpenApiSchemaFixer
         target.ExclusiveMinimum = valueBranch.ExclusiveMinimum;
         target.ExclusiveMaximum = valueBranch.ExclusiveMaximum;
         target.MultipleOf = valueBranch.MultipleOf;
-        target.Enum = valueBranch.Enum;
+        target.Enum = valueBranch.Enum?.ToList();
+        if (target.Enum is { Count: > 0 } && !target.Enum.Any(value => value is null || value.GetValueKind() == JsonValueKind.Null))
+            target.Enum.Add(null!);
         target.Properties = valueBranch.Properties;
         target.Required = valueBranch.Required;
         target.Items = valueBranch.Items;
         target.MinItems = valueBranch.MinItems;
         target.MaxItems = valueBranch.MaxItems;
         target.UniqueItems = valueBranch.UniqueItems;
+        target.MinProperties = valueBranch.MinProperties;
+        target.MaxProperties = valueBranch.MaxProperties;
         target.AdditionalProperties = valueBranch.AdditionalProperties;
         target.AdditionalPropertiesAllowed = valueBranch.AdditionalPropertiesAllowed;
         target.AllOf = valueBranch.AllOf;

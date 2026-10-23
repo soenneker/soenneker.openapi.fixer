@@ -228,6 +228,11 @@ public sealed partial class OpenApiFixer
         if (!await _directoryUtil.Exists(generatedRoot, cancellationToken))
             return;
 
+        var generatedFiles = new Dictionary<string, string>(StringComparer.Ordinal);
+        var enumDefaults = new Dictionary<string, string>(StringComparer.Ordinal);
+        var generatedClasses = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, Dictionary<string, int>> routeAliases = await ReadGeneratedRouteAliases(generatedRoot, cancellationToken);
+        HashSet<string> factorySchemas = await ReadGeneratedFactorySchemas(generatedRoot, cancellationToken);
         foreach (string filePath in await _directoryUtil.GetFilesByExtension(generatedRoot, ".cs", recursive: true, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -241,10 +246,26 @@ public sealed partial class OpenApiFixer
             }
 
             string sanitized = SanitizeGeneratedEnumMembersForContent(original);
+            sanitized = SanitizeGeneratedErrorMessageForContent(sanitized);
+            sanitized = SanitizeGeneratedIndexerNames(sanitized);
+            sanitized = RepairGeneratedMissingFactories(sanitized, factorySchemas);
+            sanitized = RepairGeneratedRouteAliases(sanitized, routeAliases);
+            CollectGeneratedEnumDefaults(sanitized, enumDefaults);
+            CollectGeneratedClasses(sanitized, generatedClasses);
+            generatedFiles[filePath] = sanitized;
 
             if (!string.Equals(original, sanitized, StringComparison.Ordinal))
                 await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken)
                                .NoSync();
+        }
+
+        foreach ((string filePath, string contents) in generatedFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string sanitized = RepairGeneratedEnumDefaults(contents, enumDefaults);
+            sanitized = RepairGeneratedInheritedProperties(sanitized, generatedClasses);
+            if (!string.Equals(contents, sanitized, StringComparison.Ordinal))
+                await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
         }
     }
 

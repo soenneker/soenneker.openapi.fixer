@@ -196,25 +196,6 @@ public sealed partial class OpenApiFixer
 
                     string safeOpId = OpenApiNameNormalizer.NormalizeOperationId(operation.OperationId, opType, null);
 
-                    if (operation.Parameters != null)
-                    {
-                        foreach (IOpenApiParameter? param in operation.Parameters.ToList())
-                        {
-                            // Skip parameter references as they don't need inline schema extraction
-                            if (param is OpenApiParameterReference)
-                                continue;
-
-                            if (param is OpenApiParameter concreteParam && concreteParam.Content?.Any() == true)
-                            {
-                                IOpenApiMediaType? first = concreteParam.Content.Values.FirstOrDefault();
-                                if (first?.Schema != null)
-                                    concreteParam.Schema = first.Schema;
-
-                                concreteParam.Content = null;
-                            }
-                        }
-                    }
-
                     if (operation.RequestBody != null && operation.RequestBody is not OpenApiRequestBodyReference && operation.RequestBody.Content != null)
                     {
                         foreach ((string mediaType, IOpenApiMediaType mediaInterface) in operation.RequestBody.Content!.ToList())
@@ -928,7 +909,8 @@ public sealed partial class OpenApiFixer
     private static bool HaveEquivalentStringEnums(IOpenApiSchema left, OpenApiSchema right)
     {
         if (left is not OpenApiSchema leftSchema || leftSchema.Enum is not { Count: > 0 } || right.Enum is not { Count: > 0 } ||
-            leftSchema.Enum.Count != right.Enum.Count)
+            leftSchema.Enum.Count != right.Enum.Count ||
+            !OpenApiSchemaConstraints.HasOnly(leftSchema, "type", "enum") || !OpenApiSchemaConstraints.HasOnly(right, "type", "enum"))
             return false;
 
         for (var i = 0; i < leftSchema.Enum.Count; i++)

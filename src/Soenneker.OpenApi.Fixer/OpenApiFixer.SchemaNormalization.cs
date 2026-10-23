@@ -36,16 +36,7 @@ public sealed partial class OpenApiFixer
                 continue;
 
             // Build an inline copy of its constraints
-            var inlineSchema = new OpenApiSchema
-            {
-                Type = primitiveSchema.Type,
-                Format = primitiveSchema.Format,
-                Description = primitiveSchema.Description,
-                MaxLength = primitiveSchema.MaxLength,
-                Pattern = primitiveSchema.Pattern,
-                Minimum = primitiveSchema.Minimum,
-                Maximum = primitiveSchema.Maximum
-            };
+            var inlineSchema = (OpenApiSchema)primitiveSchema.CreateShallowCopy();
 
             var visited = new HashSet<IOpenApiSchema>();
 
@@ -64,7 +55,7 @@ public sealed partial class OpenApiFixer
                     ReplaceRefsInCollection(os.AnyOf);
 
                     // Handle Items
-                    if (os.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
+                    if (os.Items is OpenApiSchemaReference itemsRef && string.IsNullOrEmpty(itemsRef.Reference.ExternalResource) && itemsRef.Reference.Id == primKey)
                     {
                         os.Items = inlineSchema;
                         _logger.LogVerbose("Replaced Items reference to '{PrimKey}' with inline schema (nested)", primKey);
@@ -75,7 +66,7 @@ public sealed partial class OpenApiFixer
                     }
 
                     // Handle AdditionalProperties
-                    if (os.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
+                    if (os.AdditionalProperties is OpenApiSchemaReference additionalRef && string.IsNullOrEmpty(additionalRef.Reference.ExternalResource) && additionalRef.Reference.Id == primKey)
                     {
                         os.AdditionalProperties = inlineSchema;
                         _logger.LogVerbose("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema (nested)", primKey);
@@ -118,7 +109,7 @@ public sealed partial class OpenApiFixer
 
                 for (int i = 0; i < collection.Count; i++)
                 {
-                    if (collection[i] is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                    if (collection[i] is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                     {
                         // Replace the reference with the inline schema
                         // We need to cast through IOpenApiSchema since T is constrained to it
@@ -140,7 +131,7 @@ public sealed partial class OpenApiFixer
 
                 foreach (string key in dict.Keys.ToList())
                 {
-                    if (dict[key] is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                    if (dict[key] is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                     {
                         // Replace the reference with the inline schema
                         dict[key] = inlineSchema;
@@ -170,13 +161,13 @@ public sealed partial class OpenApiFixer
                     ReplaceRefsInCollection(concreteCs.OneOf);
                     ReplaceRefsInCollection(concreteCs.AnyOf);
                     ReplaceRefsInDictionary(concreteCs.Properties);
-                    if (concreteCs.Items is OpenApiSchemaReference itemsRef && itemsRef.Reference.Id == primKey)
+                    if (concreteCs.Items is OpenApiSchemaReference itemsRef && string.IsNullOrEmpty(itemsRef.Reference.ExternalResource) && itemsRef.Reference.Id == primKey)
                     {
                         concreteCs.Items = inlineSchema;
                         _logger.LogVerbose("Replaced Items reference to '{PrimKey}' with inline schema", primKey);
                     }
 
-                    if (concreteCs.AdditionalProperties is OpenApiSchemaReference additionalRef && additionalRef.Reference.Id == primKey)
+                    if (concreteCs.AdditionalProperties is OpenApiSchemaReference additionalRef && string.IsNullOrEmpty(additionalRef.Reference.ExternalResource) && additionalRef.Reference.Id == primKey)
                     {
                         concreteCs.AdditionalProperties = inlineSchema;
                         _logger.LogVerbose("Replaced AdditionalProperties reference to '{PrimKey}' with inline schema", primKey);
@@ -194,7 +185,7 @@ public sealed partial class OpenApiFixer
                             {
                                 ReplaceRef(concreteSchema);
                             }
-                            else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                            else if (mt?.Schema is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
                                 _logger.LogVerbose("Replaced Component RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
@@ -212,7 +203,7 @@ public sealed partial class OpenApiFixer
                             {
                                 ReplaceRef(concreteSchema);
                             }
-                            else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                            else if (mt?.Schema is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                             {
                                 mt.Schema = inlineSchema;
                                 _logger.LogVerbose("Replaced Component Response schema reference to '{PrimKey}' with inline schema", primKey);
@@ -260,7 +251,7 @@ public sealed partial class OpenApiFixer
                                 {
                                     ReplaceRef(concreteSchema);
                                 }
-                                else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                                else if (mt?.Schema is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                                 {
                                     mt.Schema = inlineSchema;
                                     _logger.LogVerbose("Replaced RequestBody schema reference to '{PrimKey}' with inline schema", primKey);
@@ -277,7 +268,7 @@ public sealed partial class OpenApiFixer
                                         {
                                             ReplaceRef(concreteSchema);
                                         }
-                                        else if (mt?.Schema is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id == primKey)
+                                        else if (mt?.Schema is OpenApiSchemaReference schemaRef && string.IsNullOrEmpty(schemaRef.Reference.ExternalResource) && schemaRef.Reference.Id == primKey)
                                         {
                                             mt.Schema = inlineSchema;
                                             _logger.LogVerbose("Replaced Response schema reference to '{PrimKey}' with inline schema", primKey);
@@ -317,165 +308,15 @@ public sealed partial class OpenApiFixer
             if (inline?.Enum == null || inline.Enum.Count == 0)
                 continue;
 
-            var enumKey = $"{key}_value";
-            if (!comps.ContainsKey(enumKey))
-            {
-                comps[enumKey] = new OpenApiSchema
-                {
-                    Type = inline.Type,
-                    Title = enumKey,
-                    Enum = inline.Enum.ToList()
-                };
-            }
+            if (inline is not OpenApiSchema concreteInline)
+                continue;
+            string enumKey = ReserveUniqueSchemaName(comps, key, "Value");
+            comps[enumKey] = concreteInline.CreateShallowCopy();
 
             if (wrapperSegment?.Properties != null)
                 wrapperSegment.Properties["value"] = new OpenApiSchemaReference(enumKey);
         }
-    }
-
-    private void PromoteEnumBranchesUnderDiscriminator(OpenApiDocument doc)
-    {
-        if (doc.Components?.Schemas is not { } comps)
-            return;
-
-        foreach ((string parentName, IOpenApiSchema parent) in comps.ToList())
-        {
-            if (parent is not OpenApiSchema ps)
-                continue;
-            if (ps.Discriminator == null)
-                continue; // only wrap when polymorphic discriminator is present
-            IList<IOpenApiSchema>? branches = ps.OneOf ?? ps.AnyOf;
-            if (branches is not { Count: > 0 } || ps.Discriminator is null)
-                continue;
-
-            string disc = ps.Discriminator.PropertyName ?? "type";
-            IDictionary<string, OpenApiSchemaReference> mapping = ps.Discriminator.Mapping ??= new Dictionary<string, OpenApiSchemaReference>();
-            bool changed = false;
-
-            for (int i = 0; i < branches.Count; i++)
-            {
-                IOpenApiSchema b = branches[i];
-
-                // Resolve schema and component id if it's a ref
-                string? refId = (b as OpenApiSchemaReference)?.Reference.Id;
-                IOpenApiSchema resolved = b;
-                if (refId != null && comps.TryGetValue(refId, out IOpenApiSchema? compSchema))
-                    resolved = compSchema;
-
-                // If branch is (or resolves to) an enum-only schema, wrap it
-                if (resolved is OpenApiSchema rs && rs.Enum is { Count: > 0 } &&
-                    (rs.Type == null || (!HasSchemaType(rs, JsonSchemaType.Object) && (rs.Properties == null || rs.Properties.Count == 0))))
-                {
-                    // Create wrapper component
-                    string wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
-                    var wrapper = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object,
-                        Properties = new Dictionary<string, IOpenApiSchema>
-                        {
-                            ["value"] = refId is not null ? new OpenApiSchemaReference(refId) : rs // inline fallback (rare; most are refs)
-                        },
-                        Required = new HashSet<string> { "value" }
-                    };
-
-                    // Allow discriminator field on the child
-                    wrapper.Properties[disc] = new OpenApiSchema { Type = JsonSchemaType.String };
-
-                    comps[wrapperName] = wrapper;
-
-                    // Replace branch with ref to wrapper
-                    branches[i] = new OpenApiSchemaReference(wrapperName);
-                    changed = true;
-
-                    // Retarget mapping if it was pointing to the enum
-                    if (refId != null)
-                    {
-                        // mapping keys should be discriminator VALUES; if you used ids, keep consistent
-                        // but make sure the mapping VALUE now points to wrapperName
-                        foreach (string k in mapping.Keys.ToList())
-                        {
-                            if (mapping[k].Reference.Id == refId)
-                                mapping[k] = new OpenApiSchemaReference(wrapperName);
-                        }
-                    }
-                }
-            }
-
-            if (changed)
-            {
-                // Ensure parent has disc property & required (you already do this elsewhere,
-                // but harmless to double-check)
-                ps.Properties ??= new Dictionary<string, IOpenApiSchema>();
-                if (!ps.Properties.ContainsKey(disc))
-                    ps.Properties[disc] = new OpenApiSchema { Type = JsonSchemaType.String };
-                ps.Required ??= new HashSet<string>();
-                ps.Required.Add(disc);
-            }
-        }
-    }
-
-    private void WrapEnumBranchesInCompositions(OpenApiDocument doc)
-    {
-        if (doc.Components?.Schemas is not { } comps)
-            return;
-
-        foreach ((string parentName, IOpenApiSchema parent) in comps.ToList())
-        {
-            if (parent is not OpenApiSchema ps)
-                continue;
-
-            void ProcessBranchList(IList<IOpenApiSchema>? branches)
-            {
-                if (branches is not { Count: > 0 })
-                    return;
-                if (!IsObjectLikeSchema(ps) && !HasObjectLikeBranch(branches, comps))
-                    return;
-
-                for (int i = 0; i < branches.Count; i++)
-                {
-                    IOpenApiSchema b = branches[i];
-
-                    string? refId = (b as OpenApiSchemaReference)?.Reference.Id;
-                    IOpenApiSchema resolved = b;
-                    if (refId != null && comps.TryGetValue(refId, out IOpenApiSchema? compSchema))
-                        resolved = compSchema;
-
-                    if (resolved is OpenApiSchema rs && rs.Enum is { Count: > 0 } &&
-                        (rs.Type == null || (!HasSchemaType(rs, JsonSchemaType.Object) && (rs.Properties == null || rs.Properties.Count == 0))))
-                    {
-                        string wrapperName = ReserveUniqueSchemaName(comps, $"{refId ?? parentName}", "Wrapper");
-                        var wrapper = new OpenApiSchema
-                        {
-                            Type = JsonSchemaType.Object,
-                            Properties = new Dictionary<string, IOpenApiSchema>
-                            {
-                                ["value"] = refId is not null ? new OpenApiSchemaReference(refId) : rs
-                            },
-                            Required = new HashSet<string> { "value" }
-                        };
-
-                        comps[wrapperName] = wrapper;
-                        branches[i] = new OpenApiSchemaReference(wrapperName);
-
-                        if (ps.Discriminator?.Mapping is { } mapping && refId != null)
-                        {
-                            foreach (string k in mapping.Keys.ToList())
-                            {
-                                if (mapping[k].Reference.Id == refId)
-                                    mapping[k] = new OpenApiSchemaReference(wrapperName);
-                            }
-                        }
-                    }
-                }
-            }
-
-            ProcessBranchList(ps.OneOf);
-            ProcessBranchList(ps.AnyOf);
-            ProcessBranchList(ps.AllOf);
-        }
-    }
-
-    private static string KeyForDiscriminator(IOpenApiSchema branch, string discProp, string fallback)
+    }    private static string KeyForDiscriminator(IOpenApiSchema branch, string discProp, string fallback)
     {
         if (branch is OpenApiSchema bs && bs.Properties != null && bs.Properties.TryGetValue(discProp, out IOpenApiSchema? dp) && dp is OpenApiSchema dps &&
             dps.Enum is { Count: > 0 } && dps.Enum.First() is JsonValue jv && jv.TryGetValue(out string? val) && !string.IsNullOrWhiteSpace(val))
@@ -505,6 +346,7 @@ public sealed partial class OpenApiFixer
         {
             if (s is OpenApiSchemaReference sr)
             {
+                if (!string.IsNullOrEmpty(sr.Reference.ExternalResource)) return false;
                 string? refId = sr.Reference.Id;
                 if (refId == null || !comps.TryGetValue(refId, out IOpenApiSchema? resolved))
                     return false;
@@ -588,7 +430,7 @@ public sealed partial class OpenApiFixer
                 if (concreteSchema.Type == null && hasComposition)
                 {
                     // Only force object when at least one branch is object-like
-                    if (IsObjectLike(concreteSchema))
+                    if (concreteSchema.AllOf?.Any(IsObjectLike) == true)
                         concreteSchema.Type = JsonSchemaType.Object;
                 }
             }
@@ -605,12 +447,12 @@ public sealed partial class OpenApiFixer
                 foreach (IOpenApiSchema branch in compositionList)
                 {
                     if (branch is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id != null &&
-                        !schema.Discriminator.Mapping.ContainsKey(schemaRef.Reference.Id))
+                        !schema.Discriminator.Mapping.Values.Any(mapping => mapping.Reference.Id == schemaRef.Reference.Id))
                     {
                         string? mappingKey = GetMappingKeyFromRef(schemaRef.Reference.Id);
                         if (!string.IsNullOrEmpty(mappingKey))
                         {
-                            schema.Discriminator.Mapping[mappingKey] = new OpenApiSchemaReference(schemaRef.Reference.Id);
+                            schema.Discriminator.Mapping.TryAdd(mappingKey, new OpenApiSchemaReference(schemaRef.Reference.Id));
                         }
                     }
                 }
@@ -626,7 +468,7 @@ public sealed partial class OpenApiFixer
         {
             if (schema == null)
                 continue;
-            bool hasProps = (schema.Properties?.Any() == true) || schema.AdditionalProperties != null || schema.AdditionalPropertiesAllowed;
+            bool hasProps = (schema.Properties?.Any() == true) || schema.AdditionalProperties != null;
             if (hasProps && schema.Type == null && !(schema.Enum?.Any() == true))
             {
                 if (schema is OpenApiSchema concreteSchema)
@@ -684,76 +526,18 @@ public sealed partial class OpenApiFixer
 
             if (schema is OpenApiSchema concreteSchema)
             {
-                bool onlyHasRequired = concreteSchema.Type == JsonSchemaType.Object &&
-                                       (concreteSchema.Properties == null || !concreteSchema.Properties.Any()) && concreteSchema.Items == null &&
-                                       (concreteSchema.AllOf?.Any() != true) && (concreteSchema.AnyOf?.Any() != true) &&
-                                       (concreteSchema.OneOf?.Any() != true) && concreteSchema.AdditionalProperties == null &&
-                                       (concreteSchema.Required?.Any() == true);
-
-                if (onlyHasRequired)
-                {
-                    List<string> reqs = concreteSchema.Required?.Where(r => !string.IsNullOrWhiteSpace(r))
-                                                      .Select(r => r)
-                                                      .ToList() ?? new List<string>();
-                    if (reqs.Any())
-                    {
-                        concreteSchema.Properties = reqs.ToDictionary(name => name, _ => (IOpenApiSchema)new OpenApiSchema { Type = JsonSchemaType.Object });
-                    }
-
-                    // For empty objects, avoid information-less shapes by allowing free-form object maps
-                    concreteSchema.AdditionalProperties = null;
-                    concreteSchema.AdditionalPropertiesAllowed = true;
-                    concreteSchema.Required = new HashSet<string>();
-                }
-
                 bool isTrulyEmpty = concreteSchema.Type == JsonSchemaType.Object && (concreteSchema.Properties == null || !concreteSchema.Properties.Any()) &&
                                     concreteSchema.Items == null && (concreteSchema.AllOf?.Any() != true) && (concreteSchema.AnyOf?.Any() != true) &&
                                     (concreteSchema.OneOf?.Any() != true) && concreteSchema.AdditionalProperties == null;
 
-                if (isTrulyEmpty)
+                if (isTrulyEmpty && concreteSchema.AdditionalPropertiesAllowed &&
+                    OpenApiSchemaConstraints.HasOnly(concreteSchema, "type"))
                 {
                     // Prefer free-form additionalProperties over a rigid empty object
                     concreteSchema.Properties = new Dictionary<string, IOpenApiSchema>();
                     concreteSchema.AdditionalProperties = null;
                     concreteSchema.AdditionalPropertiesAllowed = true;
                     concreteSchema.Required = new HashSet<string>();
-                }
-            }
-        }
-
-        foreach (var schema in comps.Values)
-        {
-            if (schema?.Enum == null || !schema.Enum.Any())
-                continue;
-            if (schema.Enum.All(x => x is JsonValue))
-            {
-                if (schema is OpenApiSchema concreteSchema && concreteSchema.Type == null)
-                {
-                    // Only set type if it's not already set, and determine the appropriate type based on enum values
-                    var firstEnumValue = concreteSchema.Enum!.First() as JsonValue;
-                    if (firstEnumValue != null)
-                    {
-                        switch (firstEnumValue.GetValueKind())
-                        {
-                            case JsonValueKind.Number:
-                                concreteSchema.Type = JsonSchemaType.Number;
-                                break;
-                            case JsonValueKind.String:
-                                concreteSchema.Type = JsonSchemaType.String;
-                                break;
-                            case JsonValueKind.True:
-                            case JsonValueKind.False:
-                                concreteSchema.Type = JsonSchemaType.Boolean;
-                                break;
-                            default:
-                                concreteSchema.Type = JsonSchemaType.String;
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        concreteSchema.Type = JsonSchemaType.String;
-                    }
                 }
             }
         }
@@ -861,7 +645,7 @@ public sealed partial class OpenApiFixer
         IOpenApiSchema ResolveComponent(IOpenApiSchema s)
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            while (s is OpenApiSchemaReference r && !string.IsNullOrWhiteSpace(r.Reference.Id) && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? target))
+            while (s is OpenApiSchemaReference r && string.IsNullOrEmpty(r.Reference.ExternalResource) && !string.IsNullOrWhiteSpace(r.Reference.Id) && comps.TryGetValue(r.Reference.Id, out IOpenApiSchema? target))
             {
                 if (!seen.Add(r.Reference.Id))
                     return s;
@@ -929,6 +713,9 @@ public sealed partial class OpenApiFixer
 
         IOpenApiSchema InlineTarget(OpenApiSchemaReference r)
         {
+            if (!string.IsNullOrEmpty(r.Reference.ExternalResource))
+                return r;
+
             // When missing, fall back to a string (your example is an ID)
             if (IsMissing(r))
             {
@@ -941,34 +728,11 @@ public sealed partial class OpenApiFixer
             if (IsPurePrimitive(target))
             {
                 var os = (OpenApiSchema)target;
-                // Copy relevant primitive constraints
-                return new OpenApiSchema
-                {
-                    Type = os.Type,
-                    Format = os.Format,
-                    Description = os.Description,
-                    MaxLength = os.MaxLength,
-                    MinLength = os.MinLength,
-                    Pattern = os.Pattern,
-                    Minimum = os.Minimum,
-                    Maximum = os.Maximum
-                };
+                return os.CreateShallowCopy();
             }
 
             if (IsPureArray(target))
-            {
-                var os = (OpenApiSchema)target;
-
-                return new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Array,
-                    Items = os.Items,
-                    Description = os.Description,
-                    MinItems = os.MinItems,
-                    MaxItems = os.MaxItems,
-                    UniqueItems = os.UniqueItems
-                };
-            }
+                return ((OpenApiSchema)target).CreateShallowCopy();
 
             // Non-primitive: leave it as a ref
             return r;
@@ -1187,9 +951,6 @@ public sealed partial class OpenApiFixer
         {
             return new OpenApiSchema
             {
-                Type = JsonSchemaType.Object,
-                AdditionalPropertiesAllowed = true,
-                Properties = new Dictionary<string, IOpenApiSchema>(),
                 Description = description
             };
         }
@@ -1274,13 +1035,14 @@ public sealed partial class OpenApiFixer
             if (parameter is not OpenApiParameter concreteParameter)
                 return;
 
-            if (concreteParameter.Schema == null)
+            if (concreteParameter.Schema == null && concreteParameter.Content is not { Count: > 0 })
             {
                 _logger.LogWarning("Injecting fallback schema for null parameter schema at {Context}", context);
                 concreteParameter.Schema = CreateFallbackSchema("Fallback parameter schema");
             }
 
             VisitSchema(concreteParameter.Schema, []);
+            EnsureContentSchemas(concreteParameter.Content, context);
         }
 
         void EnsureHeaderSchema(IOpenApiHeader? header, string context)
@@ -1288,13 +1050,14 @@ public sealed partial class OpenApiFixer
             if (header is not OpenApiHeader concreteHeader)
                 return;
 
-            if (concreteHeader.Schema == null)
+            if (concreteHeader.Schema == null && concreteHeader.Content is not { Count: > 0 })
             {
                 _logger.LogWarning("Injecting fallback schema for null header schema at {Context}", context);
                 concreteHeader.Schema = CreateFallbackSchema("Fallback header schema");
             }
 
             VisitSchema(concreteHeader.Schema, []);
+            EnsureContentSchemas(concreteHeader.Content, context);
         }
 
         if (document.Components?.Schemas != null)

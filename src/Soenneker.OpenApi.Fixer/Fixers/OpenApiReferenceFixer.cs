@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Text.Json.Nodes;
 using Soenneker.OpenApi.Fixer.Fixers.Abstract;
 
 namespace Soenneker.OpenApi.Fixer.Fixers;
@@ -114,6 +115,54 @@ public sealed class OpenApiReferenceFixer : IOpenApiReferenceFixer
                     PatchSchema(concreteSchema.Items);
                 }
             }
+
+            if (concreteSchema.UnrecognizedKeywords is { Count: > 0 } keywords)
+            {
+                var schemaJson = new JsonObject();
+                foreach (var entry in keywords)
+                    schemaJson[entry.Key] = entry.Value?.DeepClone();
+                var documentJson = new JsonObject { ["components"] = new JsonObject { ["schemas"] = new JsonObject { ["Root"] = schemaJson } } };
+                OpenApiJsonSchemaWalker.Visit(documentJson, (child, _) =>
+                {
+                    if (child["$ref"] is not JsonValue value || !value.TryGetValue(out string? reference) ||
+                        reference == null || !reference.StartsWith("#/components/schemas/", StringComparison.Ordinal)) return false;
+                    string id = reference["#/components/schemas/".Length..].Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+                    if (!mapping.TryGetValue(id, out string? renamed)) return false;
+                    child["$ref"] = "#/components/schemas/" + renamed.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
+                    replacementCount++;
+                    return true;
+                });
+                foreach (var entry in schemaJson)
+                    keywords[entry.Key] = entry.Value?.DeepClone();
+            }
+
+            IOpenApiSchema? PatchChild(IOpenApiSchema? child)
+            {
+                if (TryCreateReplacement(child, out IOpenApiSchema replacement))
+                {
+                    replacementCount++;
+                    return replacement;
+                }
+                PatchSchema(child);
+                return child;
+            }
+            void PatchMap(IDictionary<string, IOpenApiSchema>? children)
+            {
+                if (children == null) return;
+                foreach (string key in children.Keys.ToList())
+                    children[key] = PatchChild(children[key])!;
+            }
+            concreteSchema.Not = PatchChild(concreteSchema.Not);
+            concreteSchema.Contains = PatchChild(concreteSchema.Contains);
+            concreteSchema.PropertyNames = PatchChild(concreteSchema.PropertyNames);
+            concreteSchema.UnevaluatedPropertiesSchema = PatchChild(concreteSchema.UnevaluatedPropertiesSchema);
+            concreteSchema.If = PatchChild(concreteSchema.If);
+            concreteSchema.Then = PatchChild(concreteSchema.Then);
+            concreteSchema.Else = PatchChild(concreteSchema.Else);
+            concreteSchema.ContentSchema = PatchChild(concreteSchema.ContentSchema);
+            PatchMap(concreteSchema.PatternProperties);
+            PatchMap(concreteSchema.DependentSchemas);
+            PatchMap(concreteSchema.Definitions);
 
             if (concreteSchema.AllOf != null)
                 PatchSchemaList(concreteSchema.AllOf);

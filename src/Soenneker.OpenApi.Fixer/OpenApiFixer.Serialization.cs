@@ -17,6 +17,22 @@ namespace Soenneker.OpenApi.Fixer;
 
 public sealed partial class OpenApiFixer
 {
+    private static string RestoreUnrecognizedSchemaKeywords(string json)
+    {
+        JsonNode root = JsonNode.Parse(json)!;
+        bool changed = OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
+        {
+            // OpenAPI.NET retains unsupported JSON Schema keywords but serializes its
+            // storage dictionary as a keyword. Put those original keywords back in place.
+            if (schema["unrecognizedKeywords"] is not JsonObject keywords) return false;
+            schema.Remove("unrecognizedKeywords");
+            foreach (var entry in keywords)
+                schema[entry.Key] = entry.Value?.DeepClone();
+            return true;
+        });
+        return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+    }
+
     private static string NormalizeMediaType(string mediaType)
     {
         if (string.IsNullOrWhiteSpace(mediaType))
@@ -346,13 +362,16 @@ public sealed partial class OpenApiFixer
                     continue;
 
                 JsonArray? unionBranches = referencedSchema["oneOf"] as JsonArray ?? referencedSchema["anyOf"] as JsonArray;
-                if (unionBranches is not { Count: > 1 })
+                if (unionBranches is not { Count: > 1 } || referenceBranch.Count != 1 ||
+                    referencedSchema.Any(entry => entry.Key is not ("oneOf" or "anyOf" or "description" or "title")))
                     continue;
 
                 List<JsonObject> objectBranches = unionBranches.OfType<JsonObject>()
                                                                     .Where(branch => IsObjectCompatible(branch, components, []))
                                                                     .ToList();
-                if (objectBranches.Count != 1 || objectBranches.Count == unionBranches.Count)
+                if (objectBranches.Count != 1 || objectBranches.Count == unionBranches.Count ||
+                    unionBranches.OfType<JsonObject>().Any(branch => !ReferenceEquals(branch, objectBranches[0]) &&
+                        (branch["type"] is not JsonValue value || !value.TryGetValue(out string? type) || type is not ("string" or "number" or "integer" or "array" or "boolean" or "null"))))
                     continue;
 
                 bool surroundingAllOfRequiresObject = IsObjectCompatible(schema, components, []) ||
@@ -371,12 +390,6 @@ public sealed partial class OpenApiFixer
     private static bool IsObjectCompatible(JsonObject schema, JsonObject components, HashSet<string> activeReferences)
     {
         if (schema["type"] is JsonValue typeValue && typeValue.TryGetValue(out string? type) && type == "object")
-            return true;
-
-        if (schema["type"] is JsonArray types && types.OfType<JsonValue>().Any(value => value.TryGetValue(out string? type) && type == "object"))
-            return true;
-
-        if (schema["properties"] is JsonObject || schema["additionalProperties"] is JsonObject)
             return true;
 
         if (!TryResolveComponentReference(schema, components, out JsonObject? referencedSchema, out string? referenceId) ||

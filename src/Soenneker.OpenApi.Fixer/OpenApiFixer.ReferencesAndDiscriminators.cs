@@ -100,7 +100,7 @@ public sealed partial class OpenApiFixer
 
         switch (schema)
         {
-            case OpenApiSchemaReference sr when sr.Reference.Id is { Length: > 0 }:
+            case OpenApiSchemaReference sr when string.IsNullOrEmpty(sr.Reference.ExternalResource) && sr.Reference.Id is { Length: > 0 }:
                 id = sr.Reference.Id;
                 return true;
 
@@ -286,143 +286,6 @@ public sealed partial class OpenApiFixer
         return HasSchemaType(schema, JsonSchemaType.Array) || HasSchemaType(schema, JsonSchemaType.String) || HasSchemaType(schema, JsonSchemaType.Integer) ||
                HasSchemaType(schema, JsonSchemaType.Number) || HasSchemaType(schema, JsonSchemaType.Boolean);
     }
-
-    private static void CollapseNonDiscriminatedInlineObjectUnions(OpenApiDocument doc)
-    {
-        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
-        if (comps is null || comps.Count == 0)
-            return;
-
-        var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
-
-        static IList<IOpenApiSchema>? GetUnionBranches(OpenApiSchema schema)
-        {
-            if (schema.OneOf is { Count: > 0 })
-                return schema.OneOf;
-            if (schema.AnyOf is { Count: > 0 })
-                return schema.AnyOf;
-            return null;
-        }
-
-        static bool IsInlinePlainObjectBranch(IOpenApiSchema branch)
-        {
-            return branch is OpenApiSchema schema && schema.Discriminator is null && schema.Properties is { Count: > 0 } &&
-                   (schema.Type is null || schema.Type.Value.HasFlag(JsonSchemaType.Object));
-        }
-
-        static HashSet<string> RequiredSet(OpenApiSchema schema)
-        {
-            return schema.Required is { Count: > 0 } ? new HashSet<string>(schema.Required, StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
-        }
-
-        static void MergeEnumProperty(OpenApiSchema existing, OpenApiSchema incoming)
-        {
-            if (incoming.Enum is not { Count: > 0 })
-                return;
-
-            existing.Enum ??= [];
-
-            foreach (JsonNode? value in incoming.Enum)
-            {
-                if (value is null)
-                    continue;
-
-                string valueText = value.ToJsonString();
-                bool exists = existing.Enum.Any(existingValue => existingValue?.ToJsonString() == valueText);
-                if (!exists)
-                    existing.Enum.Add(value.DeepClone());
-            }
-
-            if (existing.Type is null && incoming.Type is not null)
-                existing.Type = incoming.Type;
-        }
-
-        static void MergeProperty(IDictionary<string, IOpenApiSchema> mergedProperties, string propertyName, IOpenApiSchema property)
-        {
-            if (!mergedProperties.TryGetValue(propertyName, out IOpenApiSchema? existingProperty))
-            {
-                mergedProperties[propertyName] = property;
-                return;
-            }
-
-            if (existingProperty is OpenApiSchema existingSchema && property is OpenApiSchema incomingSchema &&
-                existingSchema.Enum is { Count: > 0 } && incomingSchema.Enum is { Count: > 0 })
-            {
-                MergeEnumProperty(existingSchema, incomingSchema);
-            }
-        }
-
-        static void Collapse(OpenApiSchema schema, IList<IOpenApiSchema> branches)
-        {
-            var mergedProperties = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
-            HashSet<string>? required = null;
-
-            foreach (IOpenApiSchema branch in branches)
-            {
-                var branchSchema = (OpenApiSchema)branch;
-
-                foreach ((string propertyName, IOpenApiSchema property) in branchSchema.Properties!)
-                    MergeProperty(mergedProperties, propertyName, property);
-
-                HashSet<string> branchRequired = RequiredSet(branchSchema);
-                if (required is null)
-                    required = branchRequired;
-                else
-                    required.IntersectWith(branchRequired);
-            }
-
-            schema.Type = JsonSchemaType.Object;
-            schema.Properties = mergedProperties;
-            schema.Required = required is { Count: > 0 } ? required : null;
-
-            if (ReferenceEquals(schema.OneOf, branches))
-                schema.OneOf = null;
-            if (ReferenceEquals(schema.AnyOf, branches))
-                schema.AnyOf = null;
-        }
-
-        void Visit(IOpenApiSchema? schema)
-        {
-            if (schema is null || !visited.Add(schema))
-                return;
-
-            if (schema is not OpenApiSchema concrete)
-                return;
-
-            if (concrete.Discriminator is null && concrete.Properties is not { Count: > 0 })
-            {
-                IList<IOpenApiSchema>? branches = GetUnionBranches(concrete);
-                if (branches is { Count: > 1 } && branches.All(IsInlinePlainObjectBranch))
-                    Collapse(concrete, branches);
-            }
-
-            if (concrete.Properties != null)
-                foreach (IOpenApiSchema child in concrete.Properties.Values)
-                    Visit(child);
-
-            if (concrete.Items != null)
-                Visit(concrete.Items);
-
-            if (concrete.AdditionalProperties != null)
-                Visit(concrete.AdditionalProperties);
-
-            if (concrete.AllOf != null)
-                foreach (IOpenApiSchema child in concrete.AllOf)
-                    Visit(child);
-
-            if (concrete.AnyOf != null)
-                foreach (IOpenApiSchema child in concrete.AnyOf)
-                    Visit(child);
-
-            if (concrete.OneOf != null)
-                foreach (IOpenApiSchema child in concrete.OneOf)
-                    Visit(child);
-        }
-
-        foreach (IOpenApiSchema schema in comps.Values)
-            Visit(schema);
-    }
-
     private static void PromoteNestedDiscriminatorUnions(OpenApiDocument doc)
     {
         if (doc.Components?.Schemas is not { Count: > 0 } components)
@@ -451,121 +314,6 @@ public sealed partial class OpenApiFixer
         }
     }
 
-    private static void ExposeComposedObjectPropertiesForGenerators(OpenApiDocument doc)
-    {
-        IDictionary<string, IOpenApiSchema>? components = doc.Components?.Schemas;
-        if (components is null || components.Count == 0)
-            return;
-
-        static bool AreCompatible(IOpenApiSchema left, IOpenApiSchema right)
-        {
-            string? leftRef = GetSchemaRefId(left);
-            string? rightRef = GetSchemaRefId(right);
-
-            if (leftRef is not null || rightRef is not null)
-                return string.Equals(leftRef, rightRef, StringComparison.Ordinal);
-
-            if (left is not OpenApiSchema leftSchema || right is not OpenApiSchema rightSchema)
-                return false;
-
-            if (leftSchema.Enum is { Count: > 0 } || rightSchema.Enum is { Count: > 0 } || leftSchema.Const is not null || rightSchema.Const is not null)
-                return false;
-
-            return leftSchema.Type == rightSchema.Type && string.Equals(leftSchema.Format, rightSchema.Format, StringComparison.Ordinal);
-        }
-
-        OpenApiSchema? Resolve(IOpenApiSchema schema)
-        {
-            string? id = GetSchemaRefId(schema);
-            if (id is not null && components.TryGetValue(id, out IOpenApiSchema? resolved))
-                return resolved as OpenApiSchema;
-
-            return schema as OpenApiSchema;
-        }
-
-        Dictionary<string, List<IOpenApiSchema>> CollectProperties(IOpenApiSchema branch)
-        {
-            var result = new Dictionary<string, List<IOpenApiSchema>>(StringComparer.Ordinal);
-            var visited = new HashSet<IOpenApiSchema>(ReferenceEqualityComparer<IOpenApiSchema>.Instance);
-
-            void Visit(IOpenApiSchema? current)
-            {
-                if (current is null || !visited.Add(current))
-                    return;
-
-                OpenApiSchema? concrete = Resolve(current);
-                if (concrete is null)
-                    return;
-
-                if (concrete.Properties is { Count: > 0 })
-                {
-                    foreach ((string name, IOpenApiSchema property) in concrete.Properties)
-                    {
-                        if (!result.TryGetValue(name, out List<IOpenApiSchema>? candidates))
-                        {
-                            candidates = [];
-                            result[name] = candidates;
-                        }
-
-                        candidates.Add(property);
-                    }
-                }
-
-                if (concrete.AllOf is { Count: > 0 })
-                    foreach (IOpenApiSchema child in concrete.AllOf)
-                        Visit(child);
-            }
-
-            Visit(branch);
-            return result;
-        }
-
-        // Component order is not guaranteed to put nested unions before the unions that reference them.
-        // Repeat this monotonic pass so properties exposed on an inner union become visible to its parents.
-        bool addedProperties;
-
-        do
-        {
-            addedProperties = false;
-
-            foreach (IOpenApiSchema component in components.Values.ToList())
-            {
-                if (component is not OpenApiSchema parent)
-                    continue;
-
-                IList<IOpenApiSchema>? branches = parent.OneOf is { Count: > 0 } ? parent.OneOf : parent.AnyOf;
-                if (branches is not { Count: > 0 })
-                    continue;
-
-                var candidatesByName = new Dictionary<string, List<IOpenApiSchema>>(StringComparer.Ordinal);
-
-                foreach (IOpenApiSchema branch in branches)
-                {
-                    foreach ((string name, List<IOpenApiSchema> candidates) in CollectProperties(branch))
-                    {
-                        if (!candidatesByName.TryGetValue(name, out List<IOpenApiSchema>? allCandidates))
-                        {
-                            allCandidates = [];
-                            candidatesByName[name] = allCandidates;
-                        }
-
-                        allCandidates.AddRange(candidates);
-                    }
-                }
-
-                foreach ((string name, List<IOpenApiSchema> candidates) in candidatesByName)
-                {
-                    if (candidates.Count == 0 || candidates.Skip(1).Any(candidate => !AreCompatible(candidates[0], candidate)))
-                        continue;
-
-                    parent.Properties ??= new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
-                    addedProperties |= parent.Properties.TryAdd(name, candidates[0]);
-                }
-            }
-        }
-        while (addedProperties);
-    }
-
     private static void RemoveDiscriminatorsFromNonObjectSchemas(OpenApiDocument doc)
     {
         IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
@@ -583,7 +331,11 @@ public sealed partial class OpenApiFixer
                 return true;
 
             IList<IOpenApiSchema>? branches = schema.OneOf ?? schema.AnyOf;
-            return branches is { Count: > 0 } && !HasObjectLikeBranch(branches, comps);
+            return branches is { Count: > 0 } && (!HasObjectLikeBranch(branches, comps) || branches.Any(branch =>
+            {
+                if (GetSchemaRefId(branch) is string id && comps.TryGetValue(id, out IOpenApiSchema? target)) branch = target;
+                return branch is OpenApiSchema value && HasExplicitNonObjectType(value);
+            }));
         }
 
         static bool IsSyntheticDiscriminatorProperty(IOpenApiSchema property, string discriminatorPropertyName)
@@ -736,107 +488,5 @@ public sealed partial class OpenApiFixer
     /// If a target is an enum, we create an object wrapper and retarget both the branch and the mapping.
     /// This prevents Kiota CodeEnum→CodeClass cast crashes.
     /// </summary>
-    private static void FixDiscriminatorMappingsForEnums(OpenApiDocument doc)
-    {
-        IDictionary<string, IOpenApiSchema>? comps = doc.Components?.Schemas;
-        if (comps is null || comps.Count == 0)
-            return;
-
-        // Resolver to get a concrete schema for a possibly-ref branch
-        IOpenApiSchema Resolve(IOpenApiSchema s)
-        {
-            if (IsSchemaRef(s) && GetSchemaRefId(s) is string id && comps.TryGetValue(id, out IOpenApiSchema? target))
-                return target;
-            return s;
-        }
-
-        foreach (KeyValuePair<string, IOpenApiSchema> kvp in comps.ToList())
-        {
-            string parentName = kvp.Key;
-            IOpenApiSchema? parent = kvp.Value;
-            if (parent?.Discriminator is null)
-                continue;
-
-            // Handle both oneOf and anyOf (mutate in place)
-            IList<IOpenApiSchema>? branches = parent.OneOf ?? parent.AnyOf ?? parent.AllOf;
-            if (branches is null || branches.Count == 0)
-                continue;
-
-            // Discriminator.mapping is string->OpenApiSchemaReference in v2.3
-            parent.Discriminator.Mapping ??= new Dictionary<string, OpenApiSchemaReference>();
-
-            for (int i = 0; i < branches.Count; i++)
-            {
-                IOpenApiSchema branch = branches[i];
-                string? branchRefId = GetSchemaRefId(branch);
-                IOpenApiSchema resolved = Resolve(branch);
-
-                if (IsNonObjectLike(resolved))
-                {
-                    string baseName = branchRefId ?? $"{parentName}_Branch{i + 1}";
-                    string wrapperName = ReserveUniqueSchemaName(comps, baseName, "Wrapper");
-
-                    if (!comps.ContainsKey(wrapperName))
-                    {
-                        IOpenApiSchema valueSchema = branchRefId is not null ? MakeSchemaRef(branchRefId) : resolved;
-                        comps[wrapperName] = new OpenApiSchema
-                        {
-                            Type = JsonSchemaType.Object,
-                            Properties = new Dictionary<string, IOpenApiSchema>
-                            {
-                                ["value"] = valueSchema
-                            },
-                            Required = new HashSet<string> { "value" },
-                        };
-                    }
-
-                    // replace the branch with the wrapper ref
-                    branches[i] = MakeSchemaRef(wrapperName);
-                    // --- NEW: fix mappings in all cases (ref OR inline) ---
-                    // 1) if mapping targets a missing "ParentName_{i+1}" (your EnsureDiscriminatorForOneOf default)
-                    string fallbackInlineId = $"{parentName}_{i + 1}";
-                    foreach (string mapKey in parent.Discriminator.Mapping.Keys.ToList())
-                    {
-                        OpenApiSchemaReference val = parent.Discriminator.Mapping[mapKey];
-                        string? valId = val.Reference.Id;
-
-                        // retarget when the mapping pointed to the inline fallback OR the original branch ref id
-                        if (string.Equals(valId, fallbackInlineId, StringComparison.Ordinal) ||
-                            (branchRefId is not null && string.Equals(valId, branchRefId, StringComparison.Ordinal)))
-                        {
-                            parent.Discriminator.Mapping[mapKey] = new OpenApiSchemaReference(wrapperName);
-                        }
-                    }
-                }
-            }
-
-            // No reassignment needed; branches were mutated in place
-
-            // Also normalize mapping values so they ALWAYS reference components via JSON Pointer
-            foreach (string k in parent.Discriminator.Mapping.Keys.ToList())
-            {
-                OpenApiSchemaReference v = parent.Discriminator.Mapping[k];
-                string? id = v.Reference.Id;
-                if (id is not null && comps.ContainsKey(id))
-                    parent.Discriminator.Mapping[k] = new OpenApiSchemaReference(id);
-                // If mapping points to an enum-like schema directly (not part of branches), wrap it too
-                if (id is not null && comps.TryGetValue(id, out IOpenApiSchema? target) && IsNonObjectLike(target))
-                {
-                    string wrapperName = ReserveUniqueSchemaName(comps, id, "Wrapper");
-                    if (!comps.ContainsKey(wrapperName))
-                    {
-                        comps[wrapperName] = new OpenApiSchema
-                        {
-                            Type = JsonSchemaType.Object,
-                            Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = new OpenApiSchemaReference(id) },
-                            Required = new HashSet<string> { "value" }
-                        };
-                    }
-
-                    parent.Discriminator.Mapping[k] = new OpenApiSchemaReference(wrapperName);
-                }
-            }
-        }
-    }
 
 }

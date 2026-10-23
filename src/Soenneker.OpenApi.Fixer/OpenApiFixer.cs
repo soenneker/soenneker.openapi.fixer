@@ -134,10 +134,6 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             ExtractInlineObjectPropertySchemas(document!);
             ExtractInlineSchemas(document!, cancellationToken);
 
-            _logger.LogVerbose("Removing shadowed untyped properties…");
-            RemoveShadowingUntypedProperties(document!);
-            RemoveRedundantDerivedValue(document!);
-
             _logger.LogVerbose("Re-scrubbing references after extraction...");
             _referenceFixer.ScrubComponentRefs(document!, cancellationToken);
 
@@ -162,8 +158,6 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
                 }
             }
 
-            FixMalformedEnumValues(document);
-
             StripEmptyEnumBranches(document);
 
             _schemaFixer.FixInvalidDefaults(document);
@@ -171,11 +165,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             FixAllInlineValueEnums(document);
 
-            PromoteEnumBranchesUnderDiscriminator(document);
-
-            WrapEnumBranchesInCompositions(document);
-
-            // Re-scrub references after creating new wrapper components
+            // Re-scrub references after extracting enum components
             _referenceFixer.ScrubComponentRefs(document, cancellationToken);
 
             // STAGE 5: FINAL CLEANUP
@@ -189,35 +179,27 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // Repair enum schema types while retaining extension payloads and inference provenance.
             FixBadEnums(document);
 
-            // Fix discriminator mappings that reference non-existent or enum schemas
-            FixDiscriminatorMappingsForEnums(document);
+            // A discriminator cannot turn a scalar alternative into an object payload.
+            RemoveDiscriminatorsFromNonObjectSchemas(document);
 
             // Fix properties declared as object that actually allOf an enum schema
             FixEnumAllOfObjectPropertyMismatch(document);
 
-            // Discriminators are only valid for object polymorphism. Drop any carried by primitive convenience unions before enum wrapper passes.
+            // Discriminators are only valid for object polymorphism. Drop any carried by primitive convenience unions before further normalization.
             RemoveDiscriminatorsFromNonObjectSchemas(document);
-
-            // Blanket safety: wrap any enum-like or primitive branches in unions so Kiota always sees classes
-            ComprehensiveEnumWrapperFix(document);
 
             // Replace $refs that drill into #/paths/.../examples/... with component schema refs
             _referenceFixer.FixRefsPointingIntoPathsExamples(document);
 
-            // Final safety net: ensure no union branch is a non-object (enums, primitives, arrays)
-            WrapNonObjectUnionBranchesEverywhere(document);
+            // Simplify only compositions whose constraints can be preserved.
             NormalizeNonObjectAllOfCompositions(document);
-            FlattenMapAllOfCompositions(document);
             InlineMapOnlySchemaReferences(document);
-            NormalizeAllOfWrappers(document);
             FlattenObjectAllOfCompositions(document);
             RemoveMetadataOnlyAllOfBranches(document);
             FixEnumAllOfObjectPropertyMismatch(document);
 
             InlinePrimitivePropertyRefs(document);
             NormalizeNonObjectAllOfCompositions(document);
-            WrapNonObjectUnionBranchesEverywhere(document);
-            CollapseNonDiscriminatedInlineObjectUnions(document);
             EnsureInlineSchemaTypes(document!);
             ExtractInlineSchemasCore(document!, cancellationToken, false);
             ExtractInlineComponentContentSchemas(document!);
@@ -248,12 +230,8 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             PromoteNestedDiscriminatorUnions(document);
 
-            // Give generators concrete access to the real wire properties of composed object models without
-            // inventing discriminator fields or replacing the source oneOf/anyOf constraints.
-            ExposeComposedObjectPropertiesForGenerators(document);
-
-            // Composition exposure can make nested error messages visible only after the earlier
-            // error-response pass. Re-run it so Kiota never dereferences an array as an error item.
+            // Keep branch properties on their object models. Adding them to union wrappers makes
+            // Kiota serialize those properties as scalar alternatives instead of JSON object fields.
             FixErrorMessageArrayCollision(document);
 
             // Structural passes above can introduce new discriminators and operations after the earlier cleanup stages.
@@ -278,16 +256,20 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // The OpenAPI serializer can write decoded control characters back into string values.
             // Canonicalize once more before the JSON-based post-processing passes.
             json = _preprocessingFixer.Fix(json, options);
+            json = RestoreUnrecognizedSchemaKeywords(json);
+            json = CollapseAnnotationOnlyAllOfWrappers(json);
+            json = OpenApiJsonCompositionNormalizer.Normalize(json);
 
             // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
             json = NormalizeKiotaIncompatibleMultiTypes(json);
+            json = PreserveGeneratorUnionBranches(json);
 
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
 
             string fullTargetPath = Path.GetFullPath(targetFilePath);
-            string temporaryTargetPath = $"{fullTargetPath}.{Guid.NewGuid():N}.tmp";
+            string temporaryTargetPath = $"{fullTargetPath}.{Guid.NewGuid()}.tmp";
 
             try
             {

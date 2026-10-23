@@ -797,7 +797,7 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
         return false;
     }
 
-    private static string NormalizeLooseJsonSyntax(string json)
+    internal static string NormalizeLooseJsonSyntax(string json)
     {
         var builder = new StringBuilder(json.Length + 16);
         bool inString = false;

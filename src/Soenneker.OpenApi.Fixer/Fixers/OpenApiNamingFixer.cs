@@ -198,10 +198,36 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             return;
         }
 
+        void MaterializeParameters(IList<IOpenApiParameter>? parameters)
+        {
+            if (parameters == null || doc.Components?.Parameters == null) return;
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                IOpenApiParameter target = parameters[i];
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                while (target is OpenApiParameterReference reference && string.IsNullOrEmpty(reference.Reference.ExternalResource) &&
+                       reference.Reference.Id is string id && seen.Add(id) && doc.Components.Parameters.TryGetValue(id, out IOpenApiParameter? resolved))
+                    target = resolved;
+                if (!ReferenceEquals(target, parameters[i]) && target is OpenApiParameter concrete && concrete.In == ParameterLocation.Path)
+                    parameters[i] = concrete.CreateShallowCopy();
+            }
+        }
+
         var newPaths = new OpenApiPaths();
         var signatureToCanonicalPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        var prefixParameterNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        HashSet<string> trailingSlashAliases = doc.Paths.Keys.Where(path => path.Length > 1)
+            .GroupBy(path => NormalizePathSignature(path.TrimEnd('/')), StringComparer.Ordinal)
+            .Where(group => group.Any(path => path.EndsWith('/')) && group.Any(path => !path.EndsWith('/')))
+            .Where(group => !group.SelectMany(path => doc.Paths[path].Operations?.Keys ?? Enumerable.Empty<HttpMethod>()).GroupBy(method => method).Any(methods => methods.Count() > 1))
+            .Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
         foreach (KeyValuePair<string, IOpenApiPathItem> kvp in doc.Paths)
         {
+            MaterializeParameters(kvp.Value.Parameters);
+            if (kvp.Value.Operations != null)
+                foreach (OpenApiOperation operation in kvp.Value.Operations.Values)
+                    MaterializeParameters(operation.Parameters);
+
             string originalPath = kvp.Key;
             string newPath = originalPath;
 
@@ -256,17 +282,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                     }
                 }
             }
-            else if (originalPath.EndsWith("/item", StringComparison.OrdinalIgnoreCase))
-            {
-                newPath = originalPath.Replace("/item", "/item_static");
-            }
-            else if (originalPath.Contains("/item/{", StringComparison.OrdinalIgnoreCase))
-            {
-                newPath = originalPath.Replace("/item", "/item_by_id");
-            }
-
             newPath = OpenApiRepeatedPathParameterNormalizer.Normalize(newPath, kvp.Value);
-            newPath = NormalizePathSegments(newPath);
             string parameterNormalizedPath = NormalizePathParameterNames(newPath, out Dictionary<string, string> parameterRenameMap);
 
             if (parameterRenameMap.Count > 0)
@@ -275,9 +291,39 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
                 newPath = parameterNormalizedPath;
             }
 
+            var prefixRenames = new Dictionary<string, string>(StringComparer.Ordinal);
+            var usedPrefixNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string prefixInput = newPath;
+            newPath = Regex.Replace(prefixInput, @"\{([^/{}]+)\}", match =>
+            {
+                string originalName = match.Groups[1].Value;
+                string signature = NormalizePathSignature(prefixInput[..(match.Index + match.Length)]);
+                if (!prefixParameterNames.TryGetValue(signature, out string? canonicalName))
+                {
+                    canonicalName = originalName;
+                    int suffix = 2;
+                    while (usedPrefixNames.Contains(canonicalName)) canonicalName = originalName + suffix++;
+                    prefixParameterNames[signature] = canonicalName;
+                }
+                usedPrefixNames.Add(canonicalName);
+                if (originalName != canonicalName) prefixRenames[originalName] = canonicalName;
+                return "{" + canonicalName + "}";
+            }, RegexOptions.CultureInvariant);
+            RenamePathParameters(kvp.Value, prefixRenames);
+            if (newPath.EndsWith('/') && trailingSlashAliases.Contains(NormalizePathSignature(newPath.TrimEnd('/'))))
+            {
+                int trailingCount = newPath.Length - newPath.TrimEnd('/').Length;
+                foreach (OpenApiOperation operation in kvp.Value.Operations?.Values ?? Enumerable.Empty<OpenApiOperation>())
+                {
+                    operation.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                    operation.Extensions["x-original-trailing-slashes"] = new JsonNodeExtension(System.Text.Json.Nodes.JsonValue.Create(trailingCount)!);
+                }
+                newPath = newPath.TrimEnd('/');
+            }
+
             if (newPaths.TryGetValue(newPath, out IOpenApiPathItem? existingPathItem))
             {
-                MergePathItems(existingPathItem, kvp.Value, originalPath, newPath);
+                MergePathItems(existingPathItem, kvp.Value, originalPath, newPath, doc.Security, doc.Servers);
                 continue;
             }
 
@@ -286,7 +332,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
             if (signatureToCanonicalPath.TryGetValue(pathSignature, out string? canonicalPath) && newPaths.TryGetValue(canonicalPath, out IOpenApiPathItem? canonicalPathItem))
             {
                 RenamePathParametersToCanonicalNames(kvp.Value, newPath, canonicalPath);
-                MergePathItems(canonicalPathItem, kvp.Value, originalPath, canonicalPath);
+                MergePathItems(canonicalPathItem, kvp.Value, originalPath, canonicalPath, doc.Security, doc.Servers);
                 continue;
             }
 
@@ -436,27 +482,7 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
         _logger.LogVerbose("Merging same-signature path '{IncomingPath}' into canonical path '{CanonicalPath}'", incomingPath, canonicalPath);
 
-        if (pathItem.Parameters != null)
-        {
-            foreach (IOpenApiParameter parameter in pathItem.Parameters)
-            {
-                RenamePathParameter(parameter, renameMap);
-            }
-        }
-
-        if (pathItem.Operations == null)
-            return;
-
-        foreach (OpenApiOperation operation in pathItem.Operations.Values)
-        {
-            if (operation?.Parameters == null)
-                continue;
-
-            foreach (IOpenApiParameter parameter in operation.Parameters)
-            {
-                RenamePathParameter(parameter, renameMap);
-            }
-        }
+        RenamePathParameters(pathItem, renameMap);
     }
 
     private static string[] GetPathParameterNames(string path) => Regex.Matches(path, @"\{([^/{}]+)\}", RegexOptions.CultureInvariant)
@@ -514,44 +540,51 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
         if (renameMap.Count == 0)
             return;
 
-        if (pathItem.Parameters != null)
+        void Rename(IList<IOpenApiParameter>? parameters)
         {
-            foreach (IOpenApiParameter parameter in pathItem.Parameters)
-                RenamePathParameter(parameter, renameMap);
+            if (parameters == null) return;
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                IOpenApiParameter parameter = parameters[i];
+                if (parameter.In != ParameterLocation.Path || parameter.Name == null ||
+                    !renameMap.TryGetValue(parameter.Name, out string? name)) continue;
+                // Do not mutate a shared component or another route's declaration.
+                IOpenApiParameter? target = parameter is OpenApiParameterReference reference ? reference.Target : parameter;
+                if (target is not OpenApiParameter concrete) continue;
+                var copy = (OpenApiParameter)concrete.CreateShallowCopy();
+                copy.Name = name;
+                parameters[i] = copy;
+            }
         }
-
-        if (pathItem.Operations == null)
-            return;
-
-        foreach (OpenApiOperation operation in pathItem.Operations.Values)
-        {
-            if (operation?.Parameters == null)
-                continue;
-
-            foreach (IOpenApiParameter parameter in operation.Parameters)
-                RenamePathParameter(parameter, renameMap);
-        }
+        Rename(pathItem.Parameters);
+        if (pathItem.Operations != null)
+            foreach (OpenApiOperation operation in pathItem.Operations.Values)
+                Rename(operation.Parameters);
     }
 
-    private static void RenamePathParameter(IOpenApiParameter parameter, IReadOnlyDictionary<string, string> renameMap)
-    {
-        if (parameter is not OpenApiParameter concreteParameter || concreteParameter.In != ParameterLocation.Path || string.IsNullOrWhiteSpace(concreteParameter.Name))
-            return;
-
-        if (renameMap.TryGetValue(concreteParameter.Name, out string? canonicalName))
-        {
-            concreteParameter.Name = canonicalName;
-        }
-    }
-
-    private void MergePathItems(IOpenApiPathItem existingPathItem, IOpenApiPathItem incomingPathItem, string originalPath, string normalizedPath)
+    private void MergePathItems(IOpenApiPathItem existingPathItem, IOpenApiPathItem incomingPathItem, string originalPath, string normalizedPath,
+        IList<OpenApiSecurityRequirement>? inheritedSecurity, IList<OpenApiServer>? inheritedServers)
     {
         if (existingPathItem is not OpenApiPathItem existingConcrete || incomingPathItem is not OpenApiPathItem incomingConcrete)
         {
-            _logger.LogWarning("Unable to merge normalized path '{NormalizedPath}' from '{OriginalPath}' because one of the path items is not mutable.", normalizedPath,
-                originalPath);
-            return;
+            throw new InvalidOperationException($"Cannot merge unresolved path item {originalPath} into {normalizedPath}.");
         }
+
+        static void MaterializePathDefaults(OpenApiPathItem path, IList<OpenApiServer>? documentServers)
+        {
+            foreach (OpenApiOperation operation in path.Operations?.Values ?? Enumerable.Empty<OpenApiOperation>())
+            {
+                operation.Parameters = operation.Parameters?.ToList() ?? new List<IOpenApiParameter>();
+                foreach (IOpenApiParameter parameter in path.Parameters ?? new List<IOpenApiParameter>())
+                    if (!operation.Parameters.Any(existing => existing.Name == parameter.Name && existing.In == parameter.In))
+                        operation.Parameters.Add(parameter);
+                operation.Servers ??= path.Servers ?? documentServers;
+            }
+            path.Parameters = null;
+            path.Servers = null;
+        }
+        MaterializePathDefaults(existingConcrete, inheritedServers);
+        MaterializePathDefaults(incomingConcrete, inheritedServers);
 
         if (incomingConcrete.Operations != null)
         {
@@ -559,10 +592,9 @@ public sealed class OpenApiNamingFixer : IOpenApiNamingFixer
 
             foreach ((HttpMethod method, OpenApiOperation operation) in incomingConcrete.Operations)
             {
-                if (existingConcrete.Operations.ContainsKey(method))
+                if (existingConcrete.Operations.TryGetValue(method, out OpenApiOperation? existingOperation))
                 {
-                    _logger.LogVerbose("Dropping duplicate {Method} operation from aliased path '{OriginalPath}' after normalization to '{NormalizedPath}'", method,
-                        originalPath, normalizedPath);
+                    OpenApiOperationMerger.Merge(existingOperation, operation, inheritedSecurity);
                     continue;
                 }
 

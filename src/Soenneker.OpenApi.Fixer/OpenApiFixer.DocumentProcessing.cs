@@ -462,21 +462,6 @@ public sealed partial class OpenApiFixer
                             foreach (OpenApiMediaType media in rb.Content.Values.OfType<OpenApiMediaType>())
                                 if (media.Schema is OpenApiSchema mtSchema)
                                 {
-                                    // Optional hardening: wrap primitive/enum request bodies
-                                    bool isBareEnum = mtSchema.Enum is { Count: > 0 } && (mtSchema.Type == null || mtSchema.Type != JsonSchemaType.Object) &&
-                                                      (mtSchema.Properties == null || mtSchema.Properties.Count == 0);
-                                    bool isPrimitive = mtSchema.Type == JsonSchemaType.String || mtSchema.Type == JsonSchemaType.Integer ||
-                                                       mtSchema.Type == JsonSchemaType.Number || mtSchema.Type == JsonSchemaType.Boolean;
-                                    if (isBareEnum || isPrimitive)
-                                    {
-                                        media.Schema = new OpenApiSchema
-                                        {
-                                            Type = JsonSchemaType.Object,
-                                            Properties = new Dictionary<string, IOpenApiSchema> { ["value"] = mtSchema },
-                                            Required = new HashSet<string> { "value" }
-                                        };
-                                    }
-
                                     FixSchemaEnumWithoutType(mtSchema, new HashSet<OpenApiSchema>());
                                 }
                         }
@@ -552,24 +537,27 @@ public sealed partial class OpenApiFixer
 
         if (schema.Enum != null && schema.Enum.Count > 0)
         {
-            // Never object-ify enums. Prefer to keep primitive type; infer and override if currently object
-            bool allStrings = schema.Enum.All(e => e is JsonValue jv && jv.TryGetValue<string>(out _));
-            bool allNumbers = schema.Enum.All(e => e is JsonValue jv && (jv.GetValueKind() == JsonValueKind.Number));
-            bool allBools = schema.Enum.All(e => e is JsonValue jv && (jv.GetValueKind() == JsonValueKind.True || jv.GetValueKind() == JsonValueKind.False));
-
-            JsonSchemaType desired = JsonSchemaType.String;
-            if (allNumbers)
-                desired = JsonSchemaType.Number;
-            else if (allBools)
-                desired = JsonSchemaType.Boolean;
-
-            if (schema.Type == null || schema.Type == JsonSchemaType.Object || schema.Type == JsonSchemaType.Array)
-                schema.Type = desired;
-
-            // Ensure no accidental object facets remain on an enum schema
-            schema.Properties = null;
-            schema.AdditionalProperties = null;
-            schema.AdditionalPropertiesAllowed = false;
+            // Infer missing types from every JSON value, including null and structured values.
+            // Explicit types are part of the contract and must not be narrowed to the first member.
+            if (schema.Type == null)
+            {
+                JsonSchemaType inferred = 0;
+                foreach (JsonNode? value in schema.Enum)
+                    inferred |= value?.GetValueKind() switch
+                    {
+                        JsonValueKind.String => JsonSchemaType.String,
+                        JsonValueKind.Number => JsonSchemaType.Number,
+                        JsonValueKind.True or JsonValueKind.False => JsonSchemaType.Boolean,
+                        JsonValueKind.Array => JsonSchemaType.Array,
+                        JsonValueKind.Object => JsonSchemaType.Object,
+                        _ => JsonSchemaType.Null
+                    };
+                schema.Type = inferred;
+            }
+            // An enum containing no object values already excludes all objects. This
+            // redundant annotation lets Kiota recognize null-only nullable-object schemas.
+            if (schema.Type?.HasFlag(JsonSchemaType.Object) == true && schema.Enum.All(value => value is not JsonObject))
+                schema.AdditionalPropertiesAllowed = false;
         }
 
         if (schema.Properties != null)
@@ -597,107 +585,6 @@ public sealed partial class OpenApiFixer
 
         if (schema.AdditionalProperties != null && schema.AdditionalProperties is OpenApiSchema ap)
             FixSchemaEnumWithoutType(ap, visited);
-    }
-
-    /// <summary>
-    /// Final validation pass to ensure all schema names are valid according to OpenAPI specification.
-    /// </summary>
-    private void RemoveRedundantDerivedValue(OpenApiDocument doc)
-    {
-        if (doc.Components?.Schemas == null)
-            return;
-        IDictionary<string, IOpenApiSchema>? pool = doc.Components.Schemas;
-
-        // ------------- local helpers ------------------------------------------
-        static IOpenApiSchema Resolve(IOpenApiSchema s, IDictionary<string, IOpenApiSchema> p) =>
-            (s is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id != null && p.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? t)) ? t : s;
-
-        static bool IsWellDefined(IOpenApiSchema s) =>
-            s.Type != null || s is OpenApiSchemaReference || (s.Enum?.Count ?? 0) > 0 || (s.Items != null) || (s.AllOf?.Count ?? 0) > 0 ||
-            (s.OneOf?.Count ?? 0) > 0 || (s.AnyOf?.Count ?? 0) > 0;
-
-        // ------------- main pass ----------------------------------------------
-        foreach (IOpenApiSchema container in pool.Values)
-        {
-            if (container.AllOf is not { Count: > 1 })
-                continue;
-
-            // find the FIRST fragment (base or earlier override) that has a well-defined `value`
-            IOpenApiSchema? firstValueOwner = null;
-            foreach (IOpenApiSchema? frag in container.AllOf.Select(f => Resolve(f, pool)))
-            {
-                if (frag?.Properties != null && frag.Properties.TryGetValue("value", out IOpenApiSchema? prop) && IsWellDefined(prop))
-                {
-                    firstValueOwner = frag;
-                    break;
-                }
-            }
-
-            if (firstValueOwner == null)
-                continue; // nobody defines `value` in a useful way
-
-            // remove *every* later override of `value`
-            foreach (IOpenApiSchema? frag in container.AllOf.Select(f => Resolve(f, pool)))
-            {
-                if (frag == firstValueOwner)
-                    continue; // skip the first one
-
-                if (frag?.Properties?.ContainsKey("value") == true)
-                {
-                    frag.Properties.Remove("value");
-                    frag.Required?.Remove("value");
-                    _logger.LogVerbose("Removed redundant 'value' property override in schema fragment");
-                }
-            }
-        }
-    }
-
-    private void RemoveShadowingUntypedProperties(OpenApiDocument doc)
-    {
-        if (doc.Components?.Schemas == null)
-            return;
-        IDictionary<string, IOpenApiSchema>? pool = doc.Components.Schemas;
-
-        static IOpenApiSchema Resolve(IOpenApiSchema s, IDictionary<string, IOpenApiSchema> p) =>
-            (s is OpenApiSchemaReference schemaRef && schemaRef.Reference.Id != null && p.TryGetValue(schemaRef.Reference.Id, out IOpenApiSchema? t)) ? t : s;
-
-        static bool IsUntyped(IOpenApiSchema s) =>
-            s.Type == null && s is not OpenApiSchemaReference && (s.Enum?.Count ?? 0) == 0 && (s.Items == null) && (s.AllOf?.Count ?? 0) == 0 &&
-            (s.OneOf?.Count ?? 0) == 0 && (s.AnyOf?.Count ?? 0) == 0;
-
-        foreach (IOpenApiSchema container in pool.Values)
-        {
-            // Need: at least one $ref fragment  +  one inline fragment with properties
-            if (container.AllOf == null)
-                continue;
-
-            IOpenApiSchema? baseFrag = container.AllOf.FirstOrDefault(f => f is OpenApiSchemaReference);
-            IOpenApiSchema? overrideFrag = container.AllOf.FirstOrDefault(f => f.Properties?.Count > 0);
-
-            if (baseFrag == null || overrideFrag == null)
-                continue;
-
-            IOpenApiSchema? baseSchema = Resolve(baseFrag, pool);
-            if (baseSchema?.Properties == null)
-                continue;
-
-            foreach ((string propName, IOpenApiSchema childProp) in overrideFrag.Properties!)
-            {
-                if (!baseSchema.Properties.TryGetValue(propName, out IOpenApiSchema? baseProp))
-                    continue;
-
-                bool childConcrete = !IsUntyped(childProp);
-                bool baseIsBare = IsUntyped(baseProp);
-
-                if (baseIsBare)
-                {
-                    baseSchema.Properties.Remove(propName);
-                    baseSchema.Required?.Remove(propName);
-                    _logger.LogVerbose("Removed untyped shadowed property '{Prop}' from base schema '{Base}' (overridden in '{Child}')", propName,
-                        baseSchema.Title ?? "(unnamed)", container.Title ?? "(unnamed)");
-                }
-            }
-        }
     }
 
     private void DisambiguateMultiContentRequestSchemas(OpenApiDocument document)
@@ -790,46 +677,6 @@ public sealed partial class OpenApiFixer
             _logger.LogVerbose("Applying global reference updates for request body schema collisions...");
             _referenceFixer.UpdateAllReferences(document, renameMap);
         }
-    }
-
-    private static string TrimQuotes(string value)
-    {
-        if (value.Length >= 2 && ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'"))))
-        {
-            return value.Substring(1, value.Length - 2);
-        }
-
-        return value;
-    }
-
-    private static bool LooksLikeMalformedStructuredEnumValue(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-
-        string trimmed = value.Trim();
-
-        if ((trimmed.StartsWith('{') && trimmed.EndsWith('}')) || (trimmed.StartsWith('[') && trimmed.EndsWith(']')))
-        {
-            try
-            {
-                JsonNode? parsed = JsonNode.Parse(trimmed);
-
-                if (parsed is JsonObject or JsonArray)
-                    return true;
-            }
-            catch (JsonException)
-            {
-                // Not actually JSON, continue with heuristic checks below.
-            }
-        }
-
-        bool hasJsonDelimiters = trimmed.IndexOfAny(['{', '}', '[', ']']) >= 0;
-        bool hasQuotedPropertyPattern = trimmed.Contains("\":", StringComparison.Ordinal) || trimmed.Contains("\": ", StringComparison.Ordinal);
-        bool hasJsonFragmentMarkers = trimmed.Contains("{{", StringComparison.Ordinal) || trimmed.Contains("}}", StringComparison.Ordinal) ||
-                                      trimmed.Contains('\n') || trimmed.Contains('\r');
-
-        return hasQuotedPropertyPattern || (hasJsonDelimiters && hasJsonFragmentMarkers);
     }
 
     private void RemoveDeprecatedOperationsAndSchemas(OpenApiDocument document)
