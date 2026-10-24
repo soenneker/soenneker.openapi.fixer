@@ -8,6 +8,39 @@ namespace Soenneker.OpenApi.Fixer;
 
 public sealed partial class OpenApiFixer
 {
+    private static string HoistNegationOnlyAllOfBranches(string json)
+    {
+        JsonNode root = JsonNode.Parse(json)!;
+        bool changed = OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
+        {
+            if (schema["type"]?.ToString() != "object" || schema["allOf"] is not JsonArray branches)
+                return false;
+
+            bool hoisted = false;
+            foreach (JsonObject branch in branches.OfType<JsonObject>().ToList())
+            {
+                // Kiota interprets allOf entries as base models. A negation-only entry has
+                // no model shape; the same constraint can live directly on the object.
+                // Do not overwrite an existing constraint or discard branch annotations.
+                if (!branch.ContainsKey("not") || !branch.All(p => p.Key is "not" or "title" or "description" or
+                        "deprecated" or "readOnly" or "writeOnly" or "example" or "examples" or "default" or "xml" or "externalDocs" ||
+                        p.Key.StartsWith("x-", StringComparison.Ordinal)) ||
+                    branch.Any(p => schema.ContainsKey(p.Key) && !JsonNode.DeepEquals(schema[p.Key], p.Value)))
+                    continue;
+
+                foreach ((string key, JsonNode? value) in branch)
+                    schema[key] = value?.DeepClone();
+                branches.Remove(branch);
+                hoisted = true;
+            }
+
+            if (branches.Count == 0)
+                schema.Remove("allOf");
+            return hoisted;
+        });
+        return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+    }
+
     private static string CollapseAnnotationOnlyAllOfWrappers(string json)
     {
         JsonNode root = JsonNode.Parse(json)!;

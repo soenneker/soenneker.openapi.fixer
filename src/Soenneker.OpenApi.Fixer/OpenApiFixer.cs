@@ -259,6 +259,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             json = RestoreUnrecognizedSchemaKeywords(json);
             json = CollapseAnnotationOnlyAllOfWrappers(json);
             json = OpenApiJsonCompositionNormalizer.Normalize(json);
+            json = HoistNegationOnlyAllOfBranches(json);
 
             // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
