@@ -68,7 +68,62 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         await Assert.That(record["properties"]?["name"]).IsNull();
     }
 
-    private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken)
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async ValueTask Compatible_targeting_alternatives_have_one_client_model(bool project, CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {
+              "Target":{"anyOf":[{"type":"object","properties":{"segments":{"type":"array","items":{"type":"string"}}}},
+                {"type":"object","properties":{"players":{"type":"array","items":{"type":"string"}}}}]},
+              "Notification":{"allOf":[{"$ref":"#/components/schemas/Target"},
+                {"type":"object","required":["app_id"],"properties":{"app_id":{"type":"string"},"contents":{"type":"string"}}}]}
+            }
+            """, cancellationToken, new OpenApiFixerOptions { FlattenCompatibleObjectAlternatives = project });
+        JsonNode notification = schemas["Notification"]!;
+        if (project)
+        {
+            await Assert.That(notification["anyOf"]).IsNull();
+            foreach (string property in new[] { "app_id", "contents", "segments", "players" })
+                await Assert.That(notification["properties"]![property]).IsNotNull();
+            await Assert.That(notification["required"]!.ToJsonString()).IsEqualTo("[\"app_id\"]");
+            await Assert.That(notification["x-client-original-anyOf"]!.AsArray().Count).IsEqualTo(2);
+        }
+        else
+        {
+            await Assert.That(notification["anyOf"]).IsNotNull();
+            await Assert.That(notification["properties"]).IsNull();
+        }
+    }
+
+    [Test]
+    [Arguments("\"required\":[\"left\"],", "\"required\":[\"right\"],", "anyOf")]
+    [Arguments("\"additionalProperties\":false,", "", "anyOf")]
+    [Arguments("", "", "oneOf")]
+    [Arguments("\"minProperties\":1,", "", "anyOf")]
+    public async ValueTask Constrained_alternatives_keep_composition(string left, string right, string keyword, CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {"AlternativeContainer":{"KEYWORD":[
+              {"type":"object",LEFT"properties":{"left":{"type":"string"}}},
+              {"type":"object",RIGHT"properties":{"right":{"type":"string"}}}]}}
+            """.Replace("KEYWORD", keyword).Replace("LEFT", left).Replace("RIGHT", right), cancellationToken);
+        await Assert.That(schemas["AlternativeContainer"]![keyword]).IsNotNull();
+        await Assert.That(schemas["AlternativeContainer"]!["x-client-original-anyOf"]).IsNull();
+    }
+
+    [Test]
+    public async ValueTask Conflicting_optional_properties_keep_composition(CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {"AlternativeContainer":{"anyOf":[{"type":"object","properties":{"value":{"type":"string"}}},
+                {"type":"object","properties":{"value":{"type":"number"}}}]}}
+            """, cancellationToken);
+        await Assert.That(schemas["AlternativeContainer"]!["anyOf"]).IsNotNull();
+    }
+
+    private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken, OpenApiFixerOptions? options = null)
     {
         string source = Path.GetTempFileName();
         string target = Path.GetTempFileName();
@@ -82,7 +137,7 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
                 ["components"] = new JsonObject { ["schemas"] = JsonNode.Parse(schemas) }
             };
             await File.WriteAllTextAsync(source, document.ToJsonString(), cancellationToken);
-            await _fixer.Fix(source, target, cancellationToken);
+            await _fixer.Fix(source, target, options, cancellationToken);
             return JsonNode.Parse(await File.ReadAllTextAsync(target, cancellationToken))!["components"]!["schemas"]!.AsObject();
         }
         finally

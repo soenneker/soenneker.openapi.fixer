@@ -9,6 +9,14 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Projects open object anyOf branches with identical required fields and identical overlapping property schemas
+    /// into a single client model. Enabled by default. This is a client-generation projection, not a validation-equivalent
+    /// rewrite: optional fields become constrained across all alternatives. The original anyOf is retained in
+    /// x-client-original-anyOf. Disable to retain strict composition semantics and generated wrappers.
+    /// </summary>
+    public bool FlattenCompatibleObjectAlternatives { get; set; } = true;
+
+    /// <summary>
     /// Overrides schema types before parsing and normalization, keyed by an exact JSON Pointer into the
     /// preprocessed source document (for example, <c>/components/schemas/Library/properties/trustScore</c>).
     /// Escape <c>~</c> as <c>~0</c> and <c>/</c> as <c>~1</c> in pointer segments.

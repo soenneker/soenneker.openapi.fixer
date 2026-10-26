@@ -264,6 +264,8 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             // Microsoft.OpenApi 3.10 preserves JSON Schema multi-type arrays. Kiota recursively treats unions with
             // multiple non-null types as polymorphic models, so express the same constraint as an explicit anyOf.
             json = NormalizeKiotaIncompatibleMultiTypes(json);
+            if (options.FlattenCompatibleObjectAlternatives)
+                json = ProjectCompatibleObjectAlternatives(json);
             json = PreserveGeneratorUnionBranches(json);
             json = FlattenFixedDeepObjectForms(json);
 
