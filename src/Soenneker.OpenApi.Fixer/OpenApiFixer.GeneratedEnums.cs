@@ -251,6 +251,7 @@ public sealed partial class OpenApiFixer
             sanitized = SanitizeGeneratedErrorMessageForContent(sanitized);
             sanitized = SanitizeGeneratedIndexerNames(sanitized);
             sanitized = RepairGeneratedMissingFactories(sanitized, factorySchemas);
+            sanitized = RepairGeneratedUnionCollectionChecks(sanitized);
             sanitized = RepairGeneratedRouteAliases(sanitized, routeAliases);
             CollectGeneratedEnumDefaults(sanitized, enumDefaults);
             CollectGeneratedClasses(sanitized, generatedClasses);

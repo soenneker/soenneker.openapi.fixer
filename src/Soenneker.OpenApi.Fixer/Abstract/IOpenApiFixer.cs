@@ -43,7 +43,7 @@ public interface IOpenApiFixer
     ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs. Wires form request builders to a generated serializer using the local specification's operation-specific encoding rules.
+    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, union collection shape checks, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs. Wires form request builders to a generated serializer using the local specification's operation-specific encoding rules.
     /// </summary>
     /// <remarks>Form repairs preserve empty strings and support form/explode and deepObject encodings. Nested deepObject values use recursive brackets and numeric array indices as an explicit convention beyond OpenAPI's defined shallow-object behavior. Encodings with custom content types or headers and non-JSON source specifications are not rewritten.</remarks>
     /// <param name="generatedRoot">The root directory containing generated C# files. A missing directory is ignored.</param>

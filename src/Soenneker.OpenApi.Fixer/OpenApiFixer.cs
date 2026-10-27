@@ -266,6 +266,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             json = NormalizeKiotaIncompatibleMultiTypes(json);
             if (options.FlattenCompatibleObjectAlternatives)
                 json = ProjectCompatibleObjectAlternatives(json);
+            json = NormalizeDisjointObjectArrayUnions(json);
             json = PreserveGeneratorUnionBranches(json);
             json = FlattenFixedDeepObjectForms(json);
 

@@ -8,6 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <None Update="Fixtures/**/*.json" CopyToOutputDirectory="PreserveNewest" />
         <None Remove="appsettings.json" />
     </ItemGroup>
 

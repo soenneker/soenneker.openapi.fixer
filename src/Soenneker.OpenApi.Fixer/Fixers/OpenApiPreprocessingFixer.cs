@@ -319,6 +319,11 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
     {
         bool changed = NormalizeIntegerValues(obj);
 
+        // Some publishers repeat the primitive type as a format, including on array items.
+        // This is not a string format understood by Kiota; retain all actual format constraints.
+        if (obj["type"]?.ToJsonString() == "\"string\"" && obj["format"]?.ToJsonString() == "\"string\"")
+            changed |= obj.Remove("format");
+
         foreach (string key in new[] { "allOf", "anyOf", "oneOf" })
         {
             if (obj[key] is not JsonObject branch)
