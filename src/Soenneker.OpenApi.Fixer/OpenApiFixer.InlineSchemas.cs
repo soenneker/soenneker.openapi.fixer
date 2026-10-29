@@ -337,6 +337,9 @@ public sealed partial class OpenApiFixer
             if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema)
                 return false;
 
+            if (IsNullOnlyEnum(concreteSchema))
+                return false;
+
             bool hasOwnObjectMembers = HasOwnObjectMembers(concreteSchema);
             bool hasArrayType = HasSchemaType(concreteSchema, JsonSchemaType.Array);
             bool hasObjectType = HasSchemaType(concreteSchema, JsonSchemaType.Object);
@@ -745,7 +748,8 @@ public sealed partial class OpenApiFixer
         {
             replacement = schema ?? new OpenApiSchema();
 
-            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || concreteSchema.Enum is not { Count: > 0 })
+            if (schema is OpenApiSchemaReference || schema is not OpenApiSchema concreteSchema || concreteSchema.Enum is not { Count: > 0 } ||
+                IsNullOnlyEnum(concreteSchema))
                 return false;
 
             if (!promotedSchemas.TryGetValue(concreteSchema, out string? componentName))
@@ -895,6 +899,11 @@ public sealed partial class OpenApiFixer
             }
         }
     }
+
+    // Kiota can represent these inline, but a named enum with no non-null members has no generated type.
+    private static bool IsNullOnlyEnum(OpenApiSchema schema) =>
+        schema.Enum is { Count: > 0 } && schema.Enum.All(static value =>
+            value is null || JsonNullSentinel.IsJsonNullSentinel(value) || value.GetValueKind() == System.Text.Json.JsonValueKind.Null);
 
     private static string BuildInlineEnumComponentName(OpenApiSchema schema, string contextName, string? roleName)
     {

@@ -18,6 +18,29 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Cloudflare_null_only_result_stays_inline(CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {
+              "RulesetsFailureResponse":{"allOf":[
+                {"type":"object","properties":{"errors":{"type":"array","items":{"type":"string"}}}},
+                {"type":"object","properties":{
+                  "result":{"type":"object","nullable":true,"enum":[null]},
+                  "success":{"type":"boolean","enum":[false]}
+                }}
+              ]}
+            }
+            """, cancellationToken);
+
+        JsonNode response = Resolve(schemas, schemas["RulesetsFailureResponse"]!);
+        JsonNode result = response["properties"]!["result"]!;
+        await Assert.That(result["$ref"]).IsNull();
+        await Assert.That(result["type"]!.GetValue<string>()).IsEqualTo("object");
+        await Assert.That(result["nullable"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(result["enum"]!.ToJsonString()).IsEqualTo("[null]");
+    }
+
+    [Test]
     public async ValueTask AllOf_preserves_specialized_result_properties(CancellationToken cancellationToken)
     {
         JsonObject schemas = await Fix("""
