@@ -10,7 +10,7 @@ namespace Soenneker.OpenApi.Fixer;
 internal static class OpenApiJsonSchemaWalker
 {
     internal static bool Visit(JsonNode root, Func<JsonObject, string?, bool> visitor, Func<JsonObject, bool>? contentVisitor = null,
-        bool normalizeBooleanSchemas = false)
+        bool normalizeBooleanSchemas = false, Func<JsonObject, string?, bool>? responseVisitor = null)
     {
         if (root is not JsonObject document)
             return false;
@@ -21,7 +21,7 @@ internal static class OpenApiJsonSchemaWalker
 
         AddMap(document["definitions"], "schema");
         AddMap(document["parameters"], "parameter");
-        AddMap(document["responses"], "response");
+        AddMap(document["responses"], "componentResponse");
         AddMap(document["paths"], "path", skipExtensions: true);
         AddMap(document["webhooks"], "path");
 
@@ -30,7 +30,7 @@ internal static class OpenApiJsonSchemaWalker
             foreach ((string key, string kind) in new[]
                      {
                          ("schemas", "schema"), ("parameters", "parameter"), ("headers", "parameter"),
-                         ("responses", "response"), ("requestBodies", "body"), ("callbacks", "callback"),
+                         ("responses", "componentResponse"), ("requestBodies", "body"), ("callbacks", "callback"),
                          ("pathItems", "path"), ("mediaTypes", "media")
                      })
                 AddMap(components[key], kind);
@@ -74,6 +74,9 @@ internal static class OpenApiJsonSchemaWalker
                     AddContent(node["content"]);
                     break;
                 case "response":
+                case "componentResponse":
+                    if (kind == "response" && responseVisitor != null)
+                        changed |= responseVisitor(node, name);
                     Add(node["schema"], "schema", name);
                     AddMap(node["headers"], "parameter");
                     AddContent(node["content"]);

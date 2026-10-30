@@ -267,8 +267,14 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             if (options.FlattenCompatibleObjectAlternatives)
                 json = ProjectCompatibleObjectAlternatives(json);
             json = NormalizeDisjointObjectArrayUnions(json);
+            json = NormalizeGeneratorUnionIntersections(json);
+            json = NormalizeEquivalentArrayIntersections(json);
             json = PreserveGeneratorUnionBranches(json);
             json = FlattenFixedDeepObjectForms(json);
+            json = NormalizeKiotaQueryParameters(json);
+            json = NormalizeKiotaResponseCompatibility(json, options);
+            if (options.ProjectDivergentSuccessResponses)
+                json = ProjectDivergentSuccessResponses(json);
 
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);

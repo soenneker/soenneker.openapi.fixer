@@ -29,7 +29,8 @@ public sealed class OpenApiDeepObjectFormTests : HostedUnitTest
         await Assert.That(result["components"]!["schemas"]!["Contact"]!["properties"]!["address"]).IsNotNull();
         JsonNode json = result["paths"]!["/contacts"]!["post"]!["requestBody"]!["content"]!["application/json"]!;
         await Assert.That(json["schema"]!["$ref"]!.GetValue<string>()).IsEqualTo("#/components/schemas/Contact");
-        await Assert.That(result["paths"]!["/contacts"]!["get"]!["parameters"]![0]!["style"]!.GetValue<string>()).IsEqualTo("deepObject");
+        await Assert.That(result["paths"]!["/contacts"]!["get"]!["parameters"]![0]!["name"]!.GetValue<string>()).IsEqualTo("address[city]");
+        await Assert.That(result["paths"]!["/contacts"]!["get"]!["parameters"]![0]!["style"]!.GetValue<string>()).IsEqualTo("form");
     }
 
     [Test]

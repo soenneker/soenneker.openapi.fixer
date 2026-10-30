@@ -146,6 +146,59 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         await Assert.That(schemas["AlternativeContainer"]!["anyOf"]).IsNotNull();
     }
 
+    [Test]
+    public async ValueTask Tagged_union_keeps_required_discriminator_constraints(CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {"Avatar":{"oneOf":[{"$ref":"#/components/schemas/CustomAvatar"},{"$ref":"#/components/schemas/DefaultAvatar"}],
+              "discriminator":{"propertyName":"kind","mapping":{"custom":"#/components/schemas/CustomAvatar","default":"#/components/schemas/DefaultAvatar"}}},
+             "CustomAvatar":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["custom"]},"url":{"type":"string"}}},
+             "DefaultAvatar":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["default"]},"name":{"type":"string"}}}}
+            """, cancellationToken);
+        JsonNode avatar = schemas["Avatar"]!;
+        JsonNode Resolve(JsonNode field) => field["$ref"] is JsonValue reference ? schemas[reference.GetValue<string>().Split('/')[^1]]! : field;
+        await Assert.That(Resolve(schemas["CustomAvatar"]!["properties"]!["kind"]!)["enum"]![0]!.GetValue<string>()).IsEqualTo("custom");
+        await Assert.That(Resolve(schemas["DefaultAvatar"]!["properties"]!["kind"]!)["enum"]![0]!.GetValue<string>()).IsEqualTo("default");
+        await Assert.That(schemas["CustomAvatar"]!["required"]!.AsArray().Count).IsEqualTo(1);
+        await Assert.That(schemas["DefaultAvatar"]!["required"]!.AsArray().Count).IsEqualTo(1);
+        await Assert.That(avatar["oneOf"]!.AsArray().Count).IsEqualTo(2);
+        await Assert.That(avatar["x-client-original-discriminator"]!["mapping"]!["custom"]!.GetValue<string>()).IsEqualTo("#/components/schemas/CustomAvatar");
+    }
+
+    [Test]
+    [Arguments("anyOf")]
+    [Arguments("oneOf")]
+    public async ValueTask Error_union_projection_survives_the_full_pipeline(string keyword, CancellationToken cancellationToken)
+    {
+        string source = Path.GetTempFileName();
+        string target = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(source, """
+                {"openapi":"3.0.3","info":{"title":"Errors","version":"1"},
+                "paths":{"/test":{"get":{"operationId":"getTest","responses":{
+                  "422":{"description":"Invalid","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ValidationFailure"}}}}
+                }}}},"components":{"schemas":{"ValidationFailure":{"anyOf":[
+                  {"type":"object","required":["detail"],"properties":{"detail":{"type":"string"}}},
+                  {"type":"object","required":["errors"],"properties":{"errors":{"type":"array","items":{"type":"string"}}}}
+                ]}}}}
+                """.Replace("anyOf", keyword), cancellationToken);
+            await _fixer.Fix(source, target, cancellationToken);
+            JsonNode result = JsonNode.Parse(await File.ReadAllTextAsync(target, cancellationToken))!;
+            JsonNode response = result["paths"]!["/test"]!["get"]!["responses"]!["422"]!["content"]!["application/json"]!["schema"]!;
+            JsonNode model = Resolve(result["components"]!["schemas"]!.AsObject(), response);
+            await Assert.That(model["type"]!.GetValue<string>()).IsEqualTo("object");
+            await Assert.That(model["properties"]!["detail"]).IsNotNull();
+            await Assert.That(model["properties"]!["errors"]).IsNotNull();
+            await Assert.That(model["x-client-original-error-schema"]).IsNotNull();
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(target);
+        }
+    }
+
     private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken, OpenApiFixerOptions? options = null)
     {
         string source = Path.GetTempFileName();

@@ -235,6 +235,12 @@ public sealed partial class OpenApiFixer
         var generatedClasses = new Dictionary<string, string>(StringComparer.Ordinal);
         Dictionary<string, Dictionary<string, int>> routeAliases = await ReadGeneratedRouteAliases(generatedRoot, cancellationToken);
         HashSet<string> factorySchemas = await ReadGeneratedFactorySchemas(generatedRoot, cancellationToken);
+        JsonObject? unionSchemas = await ReadGeneratedUnionSchemas(generatedRoot, cancellationToken);
+        if (unionSchemas != null)
+        {
+            await WriteGeneratedUnionSupport(generatedRoot, cancellationToken);
+            await WriteGeneratedErrorSupport(generatedRoot, cancellationToken);
+        }
         foreach (string filePath in await _directoryUtil.GetFilesByExtension(generatedRoot, ".cs", recursive: true, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -251,7 +257,14 @@ public sealed partial class OpenApiFixer
             sanitized = SanitizeGeneratedErrorMessageForContent(sanitized);
             sanitized = SanitizeGeneratedIndexerNames(sanitized);
             sanitized = RepairGeneratedMissingFactories(sanitized, factorySchemas);
+            sanitized = RepairGeneratedUntypedCollections(sanitized);
+            sanitized = RepairGeneratedLossyUnionProperties(sanitized, unionSchemas);
+            sanitized = RepairGeneratedMultipartBodies(sanitized);
+            if (unionSchemas != null) sanitized = RepairGeneratedErrorFallbacks(sanitized);
+            sanitized = RepairGeneratedUnionFactories(sanitized, unionSchemas);
+            sanitized = RepairGeneratedAnonymousObjectCollections(sanitized, unionSchemas);
             sanitized = RepairGeneratedUnionCollectionChecks(sanitized);
+            sanitized = RepairGeneratedEmptyUnionSerialization(sanitized);
             sanitized = RepairGeneratedRouteAliases(sanitized, routeAliases);
             CollectGeneratedEnumDefaults(sanitized, enumDefaults);
             CollectGeneratedClasses(sanitized, generatedClasses);
@@ -267,6 +280,7 @@ public sealed partial class OpenApiFixer
             cancellationToken.ThrowIfCancellationRequested();
             string sanitized = RepairGeneratedEnumDefaults(contents, enumDefaults);
             sanitized = RepairGeneratedInheritedProperties(sanitized, generatedClasses);
+            if (unionSchemas != null) sanitized = RepairGeneratedExplicitNulls(sanitized, generatedClasses);
             if (!string.Equals(contents, sanitized, StringComparison.Ordinal))
                 await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
         }

@@ -65,7 +65,7 @@ public sealed partial class OpenApiFixer
                 schema.Remove("type");
                 updated = true;
             }
-            if (schema["discriminator"] == null)
+            if (schema["discriminator"] == null && schema["x-client-original-discriminator"] == null)
             {
                 JsonObject? Resolve(JsonNode? node)
                 {

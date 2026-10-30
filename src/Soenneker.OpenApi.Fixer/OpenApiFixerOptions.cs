@@ -9,6 +9,30 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Gives divergent successful JSON responses a shared union return type so Kiota does not discard
+    /// alternate statuses or representations. Mixed JSON and binary/text representations return a stream.
+    /// Enabled by default. This widens per-status validation; original media schemas are retained in
+    /// x-client-original-success-schema. Shared component responses remain unchanged.
+    /// </summary>
+    public bool ProjectDivergentSuccessResponses { get; set; } = true;
+
+    /// <summary>
+    /// Projects compatible object unions used by error responses into concrete error models so Kiota can
+    /// generate error mappings. Enabled by default. Shared request and success schemas remain unchanged.
+    /// This widens validation: required fields become the intersection of branch requirements and oneOf
+    /// exclusivity is lost. The original schema is retained in x-client-original-error-schema.
+    /// Conflicting property schemas, closed objects, and unsupported constraints are not projected.
+    /// </summary>
+    public bool ProjectCompatibleErrorResponses { get; set; } = true;
+
+    /// <summary>
+    /// Moves known string formats unsupported by Kiota (such as email and uri) to x-client-original-format.
+    /// Disabled by default because validators no longer enforce the moved format. Supported formats such
+    /// as uuid and date-time, unknown formats, and example payloads are preserved.
+    /// </summary>
+    public bool NormalizeUnsupportedStringFormats { get; set; }
+
+    /// <summary>
     /// Projects open object anyOf branches with identical required fields and identical overlapping property schemas
     /// into a single client model. Enabled by default. This is a client-generation projection, not a validation-equivalent
     /// rewrite: optional fields become constrained across all alternatives. The original anyOf is retained in

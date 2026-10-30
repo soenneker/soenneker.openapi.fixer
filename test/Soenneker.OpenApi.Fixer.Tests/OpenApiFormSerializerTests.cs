@@ -9,6 +9,18 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiFormSerializerTests
 {
     [Test]
+    public async Task Complex_array_elements_are_json_encoded_as_repeated_form_values()
+    {
+        var body = new FormSerializationTestBody();
+        body.Fields["CustomHeaders"] = new[] { new Dictionary<string, object> { ["name"] = "X-Test", ["value"] = "a&b" } };
+        string form = await Serialize(body, "{}");
+        await Assert.That(form.StartsWith("CustomHeaders=", System.StringComparison.Ordinal)).IsTrue();
+        var header = System.Text.Json.Nodes.JsonNode.Parse(System.Uri.UnescapeDataString(form["CustomHeaders=".Length..]))!;
+        await Assert.That(header["name"]!.GetValue<string>()).IsEqualTo("X-Test");
+        await Assert.That(header["value"]!.GetValue<string>()).IsEqualTo("a&b");
+    }
+
+    [Test]
     public async Task Deep_fields_and_indexed_arrays_preserve_empty_values()
     {
         var body = new FormSerializationTestBody();
