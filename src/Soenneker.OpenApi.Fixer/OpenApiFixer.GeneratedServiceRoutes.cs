@@ -73,7 +73,7 @@ public sealed partial class OpenApiFixer
         if (metadata.Routes.Count == 0 || source.Contains(helper, StringComparison.Ordinal)) return source;
         // Kiota leaves merged clients without a root URL even when operations declare servers.
         const string rootMarker = "// Preserve declared operation service roots.";
-        if (metadata.DefaultServer != null && source.Contains("RegisterDefaultSerializer", StringComparison.Ordinal) && !source.Contains(rootMarker, StringComparison.Ordinal))
+        if (metadata.DefaultServer != null && source.Contains("RegisterDefaultSerializer", StringComparison.Ordinal) && !source.Contains(rootMarker, StringComparison.Ordinal) && !source.Contains("RequestAdapter.BaseUrl =", StringComparison.Ordinal))
             source = Regex.Replace(source, @"(public \w+\(IRequestAdapter requestAdapter\)[^\r\n]*\r?\n\s*\{)",
                 "$1\n            " + rootMarker + "\n            if (string.IsNullOrEmpty(RequestAdapter.BaseUrl)) RequestAdapter.BaseUrl = " + JsonSerializer.Serialize(metadata.DefaultServer) + ";\n            PathParameters[\"baseurl\"] = RequestAdapter.BaseUrl;");
         Match template = Regex.Match(source, "base\\(requestAdapter, \"\\{\\+baseurl\\}(?<path>[^\"]*)\"");
@@ -97,9 +97,26 @@ public sealed partial class OpenApiFixer
             if (Regex.Matches(original, @"\{[^}]+\}").Count != parameters.Length)
                 throw new InvalidOperationException("Original route parameter count differs from the generated route: " + original);
             string wirePath = Regex.Replace(original, @"\{[^}]+\}", _ => parameters[index++]);
-            source = Regex.Replace(source, @"new RequestInformation\(Method\." + method + @", (?<template>[^\r\n]+?), PathParameters\)",
-                match => "new RequestInformation(Method." + method + ", " + helper + ".Resolve(" + match.Groups["template"].Value +
-                    ", RequestAdapter.BaseUrl, " + JsonSerializer.Serialize(server) + ", " + JsonSerializer.Serialize(wirePath) + ", PathParameters.ContainsKey(\"request-raw-url\")), PathParameters)");
+            bool useConfiguredBase = server.Length == 0 || string.Equals(server, metadata.DefaultServer, StringComparison.Ordinal);
+            if (useConfiguredBase && wirePath == route) continue;
+            source = Regex.Replace(source, @"new RequestInformation\(Method\." + method + @", (?<template>[^\r\n]+?), PathParameters\)", match =>
+            {
+                string expression = match.Groups["template"].Value;
+                if (useConfiguredBase)
+                {
+                    // Paths and query suffixes are known at generation time. Keep baseurl dynamic.
+                    string? existing = expression == "UrlTemplate" ? "{+baseurl}" + template.Groups["path"].Value
+                        : expression.StartsWith('"') && expression.EndsWith('"') ? JsonSerializer.Deserialize<string>(expression) : null;
+                    if (existing != null)
+                    {
+                        Match suffix = Regex.Match(existing, @"\{[?&]|\?");
+                        string corrected = "{+baseurl}" + wirePath + (suffix.Success ? existing[suffix.Index..] : "");
+                        return "new RequestInformation(Method." + method + ", " + JsonSerializer.Serialize(corrected) + ", PathParameters)";
+                    }
+                }
+                return "new RequestInformation(Method." + method + ", " + helper + ".Resolve(" + expression +
+                    ", RequestAdapter.BaseUrl, " + JsonSerializer.Serialize(server) + ", " + JsonSerializer.Serialize(wirePath) + ", PathParameters.ContainsKey(\"request-raw-url\")), PathParameters)";
+            });
         }
         return source;
     }
@@ -117,8 +134,10 @@ public sealed partial class OpenApiFixer
                 private static readonly global::System.Collections.Generic.HashSet<string> KnownServers = new(global::System.StringComparer.OrdinalIgnoreCase) { KNOWN_SERVERS };
                 internal static string Resolve(string template, string? configuredBaseUrl, string server, string path, bool rawUrl)
                 {
-                    var queryMatch = global::System.Text.RegularExpressions.Regex.Match(template, @"\{[?&]|\?");
-                    int query = queryMatch.Success ? queryMatch.Index : -1;
+                    int query = template.IndexOf('?');
+                    if (query > 0 && template[query - 1] == '{') query--;
+                    int continuation = template.IndexOf("{&", global::System.StringComparison.Ordinal);
+                    if (continuation >= 0 && (query < 0 || continuation < query)) query = continuation;
                     string suffix = query >= 0 ? template.Substring(query) : "";
                     bool useService = server.Length > 0 && (string.IsNullOrEmpty(configuredBaseUrl) || KnownServers.Contains(configuredBaseUrl.TrimEnd('/')));
                     if (useService && !rawUrl && server.Contains('{'))
