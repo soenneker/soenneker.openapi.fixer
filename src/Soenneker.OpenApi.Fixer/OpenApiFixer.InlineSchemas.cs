@@ -632,11 +632,29 @@ public sealed partial class OpenApiFixer
                 // OpenAPI.NET exposes Const as text, even for a JSON boolean. Turning it into
                 // a string enum creates invalid boolean defaults in Kiota-generated clients.
                 if (HasSchemaType(concreteSchema, JsonSchemaType.Boolean) && bool.TryParse(value, out bool booleanValue))
+                {
                     concreteSchema.Default ??= JsonValue.Create(booleanValue);
+                    concreteSchema.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                    concreteSchema.Extensions["x-client-original-const"] = new JsonNodeExtension(JsonValue.Create(booleanValue)!);
+                }
+                else if ((HasSchemaType(concreteSchema, JsonSchemaType.Number) || HasSchemaType(concreteSchema, JsonSchemaType.Integer)) &&
+                         decimal.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal number))
+                {
+                    concreteSchema.Default ??= JsonValue.Create(number);
+                    concreteSchema.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                    concreteSchema.Extensions["x-client-original-const"] = new JsonNodeExtension(JsonValue.Create(number)!);
+                }
                 else
+                {
                     concreteSchema.Enum = [JsonValue.Create(value)];
+                    concreteSchema.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                    concreteSchema.Extensions["x-client-original-const"] = new JsonNodeExtension(JsonValue.Create(value)!);
+                }
 
                 concreteSchema.Const = null;
+                // The Const setter retains a null entry in OpenAPI.NET's keyword dictionary.
+                // Remove the entry rather than emitting a contradictory const:null beside the enum.
+                concreteSchema.UnrecognizedKeywords?.Remove("const");
                 normalized++;
             }
 

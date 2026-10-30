@@ -30,7 +30,6 @@ public sealed class OpenApiResponseCompatibilityTests
 
     [Test]
     [Arguments("closed")]
-    [Arguments("conflict")]
     [Arguments("scalar")]
     [Arguments("disabled")]
     public async ValueTask Unsafe_or_disabled_projections_preserve_the_response(string reason)
@@ -38,7 +37,6 @@ public sealed class OpenApiResponseCompatibilityTests
         JsonNode input = Document("422");
         JsonNode branch = input["components"]!["schemas"]!["Failure"]!["anyOf"]![1]!;
         if (reason == "closed") branch["additionalProperties"] = false;
-        if (reason == "conflict") branch["properties"]!["detail"] = new JsonObject { ["type"] = "integer" };
         if (reason == "scalar") branch.ReplaceWith(new JsonObject { ["type"] = "string" });
         JsonNode result = Run(input, new OpenApiFixerOptions { ProjectCompatibleErrorResponses = reason != "disabled" });
         await Assert.That(JsonNode.DeepEquals(input, result)).IsTrue();
@@ -128,6 +126,45 @@ public sealed class OpenApiResponseCompatibilityTests
         JsonNode inner = JsonNode.Parse(result)!["components"]!["schemas"]!["Inner"]!;
         await Assert.That(inner["properties"]!["model"]!["type"]!.GetValue<string>()).IsEqualTo("string");
         await Assert.That(inner["required"]!.ToJsonString()).IsEqualTo("[\"model\"]");
+    }
+
+    [Test]
+    public async ValueTask Error_fields_merge_annotations_and_enums_but_preserve_incompatible_payloads()
+    {
+        JsonNode input = Document("422");
+        JsonNode failure = input["components"]!["schemas"]!["Failure"]!;
+        failure["discriminator"] = new JsonObject { ["propertyName"] = "code" };
+        failure["anyOf"] = JsonNode.Parse("""
+            [{"type":"object","properties":{"message":{"type":"string","description":"First"},"code":{"type":"string","enum":["a"]},"detail":{"type":"string"}}},
+             {"type":"object","properties":{"message":{"type":"string","description":"Second"},"code":{"type":"string","enum":["b"]},"detail":{"type":"object"}}}]
+            """);
+        JsonNode result = Run(input);
+        string reference = result["paths"]!["/test"]!["get"]!["responses"]!["422"]!["content"]!["application/json"]!["schema"]!["$ref"]!.GetValue<string>();
+        JsonNode model = result["components"]!["schemas"]![reference[21..]]!;
+        await Assert.That(model["properties"]!["message"]!["type"]!.GetValue<string>()).IsEqualTo("string");
+        await Assert.That(model["properties"]!["code"]!["enum"]!.ToJsonString()).IsEqualTo("[\"a\",\"b\"]");
+        await Assert.That(model["properties"]!["detail"]!["x-client-untyped-value"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(model["discriminator"]).IsNull();
+        await Assert.That(JsonNode.DeepEquals(failure, result["components"]!["schemas"]!["Failure"])).IsTrue();
+        await Assert.That(JsonNode.DeepEquals(result, Run(result))).IsTrue();
+    }
+
+    [Test]
+    public async ValueTask Nested_error_unions_project_without_modifying_shared_variants()
+    {
+        JsonNode input = Document("422");
+        JsonArray alternatives = input["components"]!["schemas"]!["Failure"]!["anyOf"]!.AsArray();
+        alternatives[1] = new JsonObject { ["oneOf"] = new JsonArray(alternatives[1]!.DeepClone(), new JsonObject
+        {
+            ["type"] = "object", ["properties"] = new JsonObject { ["reason"] = new JsonObject { ["type"] = "string" } }
+        }), ["discriminator"] = new JsonObject { ["propertyName"] = "reason" } };
+        JsonNode result = Run(input);
+        string reference = result["paths"]!["/test"]!["get"]!["responses"]!["422"]!["content"]!["application/json"]!["schema"]!["$ref"]!.GetValue<string>();
+        JsonNode fields = result["components"]!["schemas"]![reference[21..]]!["properties"]!;
+        await Assert.That(fields["detail"]).IsNotNull();
+        await Assert.That(fields["errors"]).IsNotNull();
+        await Assert.That(fields["reason"]).IsNotNull();
+        await Assert.That(JsonNode.DeepEquals(input["components"]!["schemas"]!["Failure"], result["components"]!["schemas"]!["Failure"])).IsTrue();
     }
 
     private static JsonNode Document(string status)

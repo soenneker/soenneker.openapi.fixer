@@ -13,7 +13,9 @@ public sealed class OpenApiFixerOptions
     /// examples when compatible defaults or property examples exist. Original examples are retained
     /// in x-client-original-example. Unconstrained object placeholders with scalar examples become
     /// object/scalar unions, widening validation; x-stainless-any values retain arbitrary JSON.
-    /// Enabled by default. Disable to retain the original example annotations and type placeholders.
+    /// Documented 24-hex identifiers incorrectly annotated as UUIDs retain string types; the original
+    /// format is retained in x-client-original-format. Enabled by default. Disable to retain the original
+    /// example annotations, identifier formats, and type placeholders.
     /// </summary>
     public bool ReconcileSchemaExamples { get; set; } = true;
 
@@ -30,7 +32,8 @@ public sealed class OpenApiFixerOptions
     /// generate error mappings. Enabled by default. Shared request and success schemas remain unchanged.
     /// This widens validation: required fields become the intersection of branch requirements and oneOf
     /// exclusivity is lost. The original schema is retained in x-client-original-error-schema.
-    /// Conflicting property schemas, closed objects, and unsupported constraints are not projected.
+    /// Compatible string enums are combined; conflicting fields retain arbitrary JSON while the exception
+    /// remains typed. Closed objects and unsupported branch constraints are not projected.
     /// </summary>
     public bool ProjectCompatibleErrorResponses { get; set; } = true;
 

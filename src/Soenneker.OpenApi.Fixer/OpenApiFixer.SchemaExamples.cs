@@ -58,6 +58,37 @@ public sealed partial class OpenApiFixer
             if (value is JsonArray entries && Resolve(schema["items"]) is JsonObject item && entries.Any(v => !Matches(item, v, depth + 1))) return false;
             return true;
         }
+        bool formatChanged = false;
+        void Observe(JsonObject schema, JsonNode? sample, int depth = 0)
+        {
+            if (depth > 32) return;
+            if (schema["$ref"] != null) { if (Resolve(schema) is JsonObject target) Observe(target, sample, depth + 1); return; }
+            // Some document stores label their 24-hex identifiers as UUIDs. Keeping Guid here
+            // silently turns the provider's own identifiers into null during deserialization.
+            if (schema["format"]?.ToJsonString() == "\"uuid\"" && sample is JsonValue scalar && scalar.TryGetValue<string>(out string? text) &&
+                text.Length == 24 && text.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F'))
+            {
+                schema["x-client-original-format"] = "uuid";
+                schema["x-client-format-repair"] = "documented-24-hex-identifier";
+                schema.Remove("format");
+                formatChanged = true;
+            }
+            if (sample is JsonObject data && schema["properties"] is JsonObject fields)
+                foreach ((string key, JsonNode? value) in data)
+                    if (Resolve(fields[key]) is JsonObject field) Observe(field, value, depth + 1);
+            if (sample is JsonArray array && Resolve(schema["items"]) is JsonObject item)
+                foreach (JsonNode? value in array) Observe(item, value, depth + 1);
+            foreach (string keyword in new[] { "allOf", "anyOf", "oneOf" })
+                if (schema[keyword] is JsonArray branches)
+                    foreach (JsonNode? branch in branches)
+                        if (Resolve(branch) is JsonObject target && Matches(target, sample)) Observe(target, sample, depth + 1);
+        }
+        OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
+        {
+            if (schema.TryGetPropertyValue("example", out JsonNode? sample)) Observe(schema, sample);
+            if (schema["examples"] is JsonArray samples) foreach (JsonNode? value in samples) Observe(schema, value);
+            return false;
+        });
         bool changed = OpenApiJsonSchemaWalker.Visit(root, (schema, schemaPath) =>
         {
             if (schema["x-stainless-any"]?.ToJsonString() == "true" && schema["type"]?.ToJsonString() == "\"object\"" &&
@@ -113,7 +144,7 @@ public sealed partial class OpenApiFixer
             schema["x-client-example-repair"] = repair;
             return true;
         });
-        return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
+        return changed || formatChanged ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
     }
 }
 

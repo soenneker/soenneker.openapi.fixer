@@ -214,7 +214,20 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         await Assert.That(original["Bucket"]!["example"]!.GetValue<string>()).IsEqualTo("{\"name\":\"bucket\"}");
     }
 
-    private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken, OpenApiFixerOptions? options = null)
+    [Test]
+    public async ValueTask Converted_constants_do_not_leave_a_null_constraint_and_preserve_scalar_types(CancellationToken cancellationToken)
+    {
+        JsonObject schemas = await Fix("""
+            {"Tag":{"type":"string","const":"organization"},"Enabled":{"type":"boolean","const":true},"Count":{"type":"integer","const":3}}
+            """, cancellationToken, specVersion: "3.1.0");
+        await Assert.That(schemas["Tag"]!.AsObject().ContainsKey("const")).IsFalse();
+        await Assert.That(schemas["Tag"]!["enum"]![0]!.GetValue<string>()).IsEqualTo("organization");
+        await Assert.That(schemas["Enabled"]!["x-client-original-const"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(schemas["Count"]!["x-client-original-const"]!.GetValue<int>()).IsEqualTo(3);
+        await Assert.That(schemas["Count"]!["enum"]).IsNull();
+    }
+
+    private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken, OpenApiFixerOptions? options = null, string specVersion = "3.0.3")
     {
         string source = Path.GetTempFileName();
         string target = Path.GetTempFileName();
@@ -222,7 +235,7 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         {
             var document = new JsonObject
             {
-                ["openapi"] = "3.0.3",
+                ["openapi"] = specVersion,
                 ["info"] = new JsonObject { ["title"] = "Composition regression", ["version"] = "1" },
                 ["paths"] = new JsonObject(),
                 ["components"] = new JsonObject { ["schemas"] = JsonNode.Parse(schemas) }

@@ -24,11 +24,17 @@ public sealed partial class OpenApiFixer
         {
             // OpenAPI.NET retains unsupported JSON Schema keywords but serializes its
             // storage dictionary as a keyword. Put those original keywords back in place.
-            if (schema["unrecognizedKeywords"] is not JsonObject keywords) return false;
-            schema.Remove("unrecognizedKeywords");
-            foreach (var entry in keywords)
-                schema[entry.Key] = entry.Value?.DeepClone();
-            return true;
+            bool changed = false;
+            if (schema["unrecognizedKeywords"] is JsonObject keywords)
+            {
+                schema.Remove("unrecognizedKeywords");
+                foreach (var entry in keywords)
+                    schema[entry.Key] = entry.Value?.DeepClone();
+                changed = true;
+            }
+            if (schema["x-client-original-const"] != null && schema.ContainsKey("const") && schema["const"] == null)
+                changed |= schema.Remove("const");
+            return changed;
         });
         return changed ? root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) : json;
     }

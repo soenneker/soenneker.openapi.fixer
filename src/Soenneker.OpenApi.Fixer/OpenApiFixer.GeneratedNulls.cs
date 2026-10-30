@@ -24,7 +24,7 @@ public sealed partial class OpenApiFixer
             baseSource.Contains("IParsable", StringComparison.Ordinal) && !Regex.Match(baseSource, @"public partial class \w+[^{]+\{").Value.Contains("IComposedTypeWrapper", StringComparison.Ordinal);
         if (!declaration.Value.Contains("IParsable", StringComparison.Ordinal) && !inherited) return source;
         var wireNames = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (Match match in Regex.Matches(source, "writer\\.Write\\w+(?:<[^>]+>)?\\(\"(?<wire>(?:[^\"\\\\]|\\\\.)*)\", (?<property>\\w+)\\);"))
+        foreach (Match match in Regex.Matches(source, "writer\\.Write\\w+(?:<[^>]+>)?\\(\"(?<wire>(?:[^\"\\\\]|\\\\.)*)\", (?<property>\\w+)(?: == null \\? null :[^\r\n]*)?\\);"))
             wireNames[match.Groups["property"].Value] = match.Groups["wire"].Value;
         var tracked = new Dictionary<string, string>(StringComparer.Ordinal);
         source = Regex.Replace(source, @"public (?<type>[\w:.<>?\[\]]+) (?<property>\w+) \{ get; set; \}", match =>
@@ -35,15 +35,16 @@ public sealed partial class OpenApiFixer
             if (type is "bool" or "int" or "long" or "float" or "double" or "decimal" or "Guid" or "DateTimeOffset" or "TimeSpan") return match.Value;
             tracked[property] = wire;
             string field = "_explicitNullValue" + property;
+            string clearUnknown = source.Contains("AdditionalData {", StringComparison.Ordinal) ? "AdditionalData?.Remove(\"" + wire + "\"); " : "";
             return "public " + type + " " + property +
-                " { get => " + field + "; set { " + field + " = value; if (value is null) (_explicitNullProperties ??= new global::System.Collections.Generic.HashSet<string>()).Add(\"" + wire +
+                " { get => " + field + "; set { " + field + " = value; " + clearUnknown + "if (value is null) (_explicitNullProperties ??= new global::System.Collections.Generic.HashSet<string>()).Add(\"" + wire +
                 "\"); else _explicitNullProperties?.Remove(\"" + wire + "\"); } }\n        private " + type + " " + field + " = default!;";
         });
         string capture = "\n        public " + (inherited ? "override" : "virtual") +
             " void CaptureExplicitNulls(global::Microsoft.Kiota.Abstractions.Serialization.IParseNode parseNode)\n        {\n";
         if (inherited) capture += "            base.CaptureExplicitNulls(parseNode);\n";
         foreach ((string property, string wire) in tracked)
-            capture += "            if (parseNode.GetChildNode(\"" + wire + "\") is { } nullNode" + property + " && nullNode" + property + ".GetObjectValue<global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode>(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode.CreateFromDiscriminatorValue) is null or global::Microsoft.Kiota.Abstractions.Serialization.UntypedNull) " + property + " = null;\n";
+            capture += "            if (parseNode.GetChildNode(\"" + wire + "\") is null) { _explicitNullValue" + property + " = default!; _explicitNullProperties?.Remove(\"" + wire + "\"); }\n            else if (parseNode.GetChildNode(\"" + wire + "\") is { } nullNode" + property + " && nullNode" + property + ".GetObjectValue<global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode>(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode.CreateFromDiscriminatorValue) is null or global::Microsoft.Kiota.Abstractions.Serialization.UntypedNull) " + property + " = null;\n";
         capture += "        }\n";
         string updatedDeclaration = inherited ? declaration.Value : declaration.Value.Insert(declaration.Value.LastIndexOf('{'),
             ", global::Soenneker.OpenApi.Generated.IOpenApiExplicitNulls ");

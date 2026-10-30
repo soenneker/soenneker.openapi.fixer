@@ -270,6 +270,7 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             json = NormalizeGeneratorUnionIntersections(json);
             json = NormalizeEquivalentArrayIntersections(json);
             json = PreserveGeneratorUnionBranches(json);
+            json = NormalizeExplicitFormMediaTypes(json);
             json = FlattenFixedDeepObjectForms(json);
             json = NormalizeKiotaQueryParameters(json);
             json = NormalizeKiotaResponseCompatibility(json, options);
@@ -280,7 +281,9 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
                 json = ReconcileSchemaExamples(json);
 
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
+            json = InlineScalarReferences(json);
             json = InjectKiotaEnumValueNames(json);
+            json = ShareEquivalentUnionReferences(json);
 
             string fullTargetPath = Path.GetFullPath(targetFilePath);
             string temporaryTargetPath = $"{fullTargetPath}.{Guid.NewGuid()}.tmp";

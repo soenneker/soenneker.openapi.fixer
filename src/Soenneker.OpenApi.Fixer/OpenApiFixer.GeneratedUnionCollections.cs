@@ -21,9 +21,18 @@ public sealed partial class OpenApiFixer
         return updated == source ? source : marker + "\n" + updated;
     }
 
-    private static string RepairGeneratedUntypedCollections(string source) => Regex.Replace(source,
-        @"GetCollectionOfPrimitiveValues<(?<type>(?:global::Microsoft\.Kiota\.Abstractions\.Serialization\.)?UntypedNode)>\(\)",
-        "GetCollectionOfObjectValues<${type}>(${type}.CreateFromDiscriminatorValue)");
+    private static string RepairGeneratedUntypedCollections(string source)
+    {
+        source = Regex.Replace(source,
+            @"GetCollectionOfPrimitiveValues<(?<type>(?:global::Microsoft\.Kiota\.Abstractions\.Serialization\.)?UntypedNode)>\(\)",
+            "GetCollectionOfObjectValues<${type}>(${type}.CreateFromDiscriminatorValue)");
+        // Kiota treats byte[] as an unsupported primitive collection item. JSON represents
+        // each binary value as a base64 string, just like GetByteArrayValue/WriteByteArrayValue.
+        source = Regex.Replace(source, @"(?<node>\b\w+)\.GetCollectionOfPrimitiveValues<byte\[\]>\(\)",
+            "global::System.Linq.Enumerable.Select(${node}.GetCollectionOfPrimitiveValues<string>(), value => value == null ? null! : global::System.Convert.FromBase64String(value))");
+        return Regex.Replace(source, @"writer\.WriteCollectionOfPrimitiveValues<byte\[\]>\((?<key>null|""[^""]*""), (?<value>\w+)\);",
+            "writer.WriteCollectionOfPrimitiveValues<string>(${key}, ${value} == null ? null : global::System.Linq.Enumerable.Select(${value}, value => value == null ? null! : global::System.Convert.ToBase64String(value)));");
+    }
 
     private static string RepairGeneratedUnionCollectionChecks(string source)
     {

@@ -296,11 +296,11 @@ public sealed partial class OpenApiFixer
             IOpenApiSchema schema = kv.Value;
             OpenApiSchema? wrapperSegment = null;
 
-            if (schema.Properties?.ContainsKey("value") == true)
-                wrapperSegment = (OpenApiSchema)schema;
-            else if (schema.AllOf?.Count == 2 && schema.AllOf[1]
-                                                       .Properties?.ContainsKey("value") == true)
-                wrapperSegment = (OpenApiSchema)schema.AllOf[1];
+            if (schema is OpenApiSchema concrete && concrete.Properties?.ContainsKey("value") == true)
+                wrapperSegment = concrete;
+            else if (schema.AllOf?.Count == 2 && schema.AllOf[1] is OpenApiSchema segment &&
+                     segment.Properties?.ContainsKey("value") == true)
+                wrapperSegment = segment;
             else
                 continue;
 

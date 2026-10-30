@@ -97,8 +97,8 @@ public sealed class OpenApiGeneratedUnionTests
         string repaired = Repair(Source, schemas);
         await Assert.That(repaired).Contains("\"left\".Equals(");
         await Assert.That(repaired).Contains("\"right\".Equals(");
-        await Assert.That(repaired).Contains("matchesUnionBranch0 && !matchesUnionBranch1");
-        await Assert.That(repaired).Contains("matchesUnionBranch1 && !matchesUnionBranch0");
+        await Assert.That(repaired).Contains("matchesUnionBranch0 && matchingUnionBranches == 1");
+        await Assert.That(repaired).Contains("matchesUnionBranch1 && matchingUnionBranches == 1");
         await Assert.That(repaired).DoesNotContain("GetChildNode(\"type\")");
     }
 
@@ -114,6 +114,24 @@ public sealed class OpenApiGeneratedUnionTests
         string repaired = Repair(source, schemas);
         await Assert.That(repaired.Split("var unionPayload =").Length).IsEqualTo(2);
         await Assert.That(repaired).Contains("result.UnrecognizedValue = ambiguousArray; return result;");
+    }
+
+    [Test]
+    public async ValueTask Inherited_required_fields_and_tags_participate_in_union_selection()
+    {
+        JsonObject schemas = JsonNode.Parse("""
+            {"Choice":{"oneOf":[{"$ref":"#/components/schemas/Left"},{"$ref":"#/components/schemas/Right"}]},
+             "Left":{"type":"object","allOf":[{"$ref":"#/components/schemas/LeftBase"}],"required":["common"],"properties":{"common":{"type":"string"}}},
+             "Right":{"type":"object","allOf":[{"$ref":"#/components/schemas/RightBase"}],"required":["common"],"properties":{"common":{"type":"string"}}},
+             "LeftBase":{"type":"object","required":["resource_id","kind"],"properties":{"resource_id":{"type":"string"},"kind":{"type":"string","enum":["left"]}}},
+             "RightBase":{"type":"object","required":["external_id"],"properties":{"external_id":{"type":"string"}}}}
+            """)!.AsObject();
+        string repaired = Repair(Source, schemas);
+        await Assert.That(repaired).Contains("ContainsKey(\"resource_id\")");
+        await Assert.That(repaired).Contains("ContainsKey(\"external_id\")");
+        await Assert.That(repaired).Contains("\"left\".Equals(");
+        await Assert.That(repaired).Contains("matchesUnionBranch0 && matchingUnionBranches == 1");
+        await Assert.That(Repair(repaired, schemas)).IsEqualTo(repaired);
     }
 
     private static string Repair(string source, JsonObject schemas) => (string)typeof(OpenApiFixer)

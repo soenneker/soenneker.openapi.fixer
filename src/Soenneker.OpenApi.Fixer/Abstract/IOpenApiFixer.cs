@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Soenneker.OpenApi.Fixer.Abstract;
 
 /// <summary>
-/// Normalizes OpenAPI JSON documents for generated-client compatibility and repairs generated Kiota enum members.
+/// Normalizes OpenAPI JSON documents for generated-client compatibility and repairs generated Kiota C# models and request builders.
 /// </summary>
 public interface IOpenApiFixer
 {
@@ -44,9 +44,9 @@ public interface IOpenApiFixer
     ValueTask Fix(string sourceFilePath, string targetFilePath, OpenApiFixerOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories, union collection shape checks, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs. Wires form request builders to a generated serializer using the local specification's operation-specific encoding rules.
+    /// Repairs enum identifiers and defaults, exception message overrides, indexer collisions, missing plain-model factories and omitted properties, union collection shape checks, and duplicate inherited fields in Kiota-generated C# files, preserving wire values and URLs. Wires form request builders to a generated serializer using the local specification's operation-specific encoding rules.
     /// </summary>
-    /// <remarks>Repairs union dispatch using JSON shapes and compatible required fields; ambiguous payloads remain available as untyped data instead of being assigned to an arbitrary branch. Preserves explicitly assigned nulls separately from absent fields and repairs untyped collections and multipart body parameters. Union branch selection requires the local JSON specification referenced by kiota-lock.json. Form repairs preserve empty strings and support form/explode and deepObject encodings. Nested deepObject values use recursive brackets and numeric array indices as an explicit convention beyond OpenAPI's defined shallow-object behavior. Encodings with custom content types or headers and non-JSON source specifications are not rewritten.</remarks>
+    /// <remarks>Repairs union dispatch using JSON shapes and compatible required fields; ambiguous payloads remain available as untyped data instead of being assigned to an arbitrary branch. Preserves explicitly assigned nulls separately from absent fields and repairs untyped collections and multipart body parameters. Union branch selection, omitted-property recovery, and service routing require the local JSON specification referenced by kiota-lock.json. Original paths and declared service hosts are restored without changing request-builder namespaces; unresolved server variables require an explicit service URL or raw URL override. Form repairs preserve empty strings and support form/explode and deepObject encodings. Nested deepObject values use recursive brackets and numeric array indices as an explicit convention beyond OpenAPI's defined shallow-object behavior. Encodings with custom content types or headers and non-JSON source specifications are not rewritten.</remarks>
     /// <param name="generatedRoot">The root directory containing generated C# files. A missing directory is ignored.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the operation.</returns>

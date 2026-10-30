@@ -39,10 +39,43 @@ public sealed partial class OpenApiFixer
         static bool Annotation(string key) => key is "title" or "description" or "default" or "example" or "examples" or
             "deprecated" or "readOnly" or "writeOnly" or "xml" or "externalDocs" || key.StartsWith("x-", StringComparison.Ordinal);
 
-        JsonObject? Project(JsonObject schema)
+        JsonNode MergeField(JsonNode? left, JsonNode? right)
         {
-            if ((schema["oneOf"] ?? schema["anyOf"]) is not JsonArray { Count: > 1 } alternatives ||
-                !schema.All(p => Annotation(p.Key) || p.Key is "oneOf" or "anyOf" or "type") ||
+            if (JsonNode.DeepEquals(left, right)) return left?.DeepClone() ?? new JsonObject();
+            JsonObject? a = Resolve(left, "schemas"), b = Resolve(right, "schemas");
+            JsonObject Shape(JsonObject value) => new(value.Where(p => !Annotation(p.Key) || p.Key is "readOnly" or "writeOnly").Select(p => new KeyValuePair<string, JsonNode?>(p.Key, p.Value?.DeepClone())));
+            if (a != null && b != null)
+            {
+                JsonObject shapeA = Shape(a), shapeB = Shape(b);
+                if (JsonNode.DeepEquals(shapeA, shapeB)) return left!.DeepClone();
+                // Enum alternatives share a CLR shape. Unite their values without inventing a tag.
+                JsonNode? enumA = shapeA["enum"]?.DeepClone(), enumB = shapeB["enum"]?.DeepClone();
+                shapeA.Remove("enum");
+                shapeB.Remove("enum");
+                if (shapeA["type"]?.ToJsonString() == "\"string\"" && JsonNode.DeepEquals(shapeA, shapeB))
+                {
+                    if (enumA is JsonArray valuesA && enumB is JsonArray valuesB)
+                    {
+                        var values = new JsonArray();
+                        foreach (JsonNode? value in valuesA.Concat(valuesB))
+                            if (!values.Any(v => JsonNode.DeepEquals(v, value))) values.Add(value?.DeepClone());
+                        shapeA["enum"] = values;
+                    }
+                    return shapeA;
+                }
+            }
+            // Only the incompatible field becomes untyped; the surrounding exception stays typed.
+            return new JsonObject
+            {
+                ["x-client-untyped-value"] = true,
+                ["x-client-original-field-schemas"] = new JsonArray(left?.DeepClone(), right?.DeepClone())
+            };
+        }
+
+        JsonObject? Project(JsonObject schema, int depth = 0)
+        {
+            if (depth > 16 || (schema["oneOf"] ?? schema["anyOf"]) is not JsonArray { Count: > 1 } alternatives ||
+                !schema.All(p => Annotation(p.Key) || p.Key is "oneOf" or "anyOf" or "type" or "discriminator") ||
                 (schema.ContainsKey("oneOf") && schema.ContainsKey("anyOf")) ||
                 (schema["type"] != null && schema["type"]!.ToJsonString() != "\"object\""))
                 return null;
@@ -52,6 +85,8 @@ public sealed partial class OpenApiFixer
             foreach (JsonNode? alternative in alternatives)
             {
                 JsonObject? branch = Resolve(alternative, "schemas");
+                if (branch != null && (branch["oneOf"] ?? branch["anyOf"]) is JsonArray)
+                    branch = Project(branch, depth + 1);
                 if (branch?["type"]?.ToJsonString() != "\"object\"" || branch["properties"] is not JsonObject fields ||
                     !branch.All(p => Annotation(p.Key) || p.Key is "type" or "properties" or "required" ||
                         (p.Key == "additionalProperties" && p.Value?.ToJsonString() == "true")))
@@ -66,7 +101,7 @@ public sealed partial class OpenApiFixer
                 {
                     if (properties.TryGetPropertyValue(name, out JsonNode? existing))
                     {
-                        if (!JsonNode.DeepEquals(existing, field)) return null;
+                        properties[name] = MergeField(existing, field);
                     }
                     else properties[name] = field?.DeepClone();
                 }

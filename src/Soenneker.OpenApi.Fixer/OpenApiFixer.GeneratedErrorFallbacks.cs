@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,24 @@ public sealed partial class OpenApiFixer
     {
         if (!source.Contains("RequestAdapter.Send", StringComparison.Ordinal)) return source;
         const string factory = "global::Soenneker.OpenApi.Generated.OpenApiRawError.CreateFromDiscriminatorValue";
+        // Kiota maps an array-shaped error to the element factory, which cannot parse the
+        // response array. Keep the complete payload in the raw exception instead.
+        foreach (Match error in Regex.Matches(source, "/// <exception cref=\"List<(?<type>[^>]+)>\">When receiving a (?<status>[0-9A-Z]+(?: or [0-9A-Z]+)?) status code</exception>").Cast<Match>().Reverse())
+        {
+            string type = error.Groups["type"].Value;
+            string status = error.Groups["status"].Value;
+            string mappingStatus = status.Contains(" or ", StringComparison.Ordinal) ? "XXX" : status;
+            int dictionary = source.IndexOf("var errorMapping =", error.Index, StringComparison.Ordinal);
+            int send = source.IndexOf("RequestAdapter.Send", error.Index, StringComparison.Ordinal);
+            if (dictionary < 0 || send < dictionary) continue;
+            int end = source.IndexOf("};", dictionary, StringComparison.Ordinal);
+            if (end < dictionary || end > send) continue;
+            string mapping = source[dictionary..(end + 2)];
+            string repaired = mapping.Replace("{ \"" + mappingStatus + "\", " + type + ".CreateFromDiscriminatorValue }", "{ \"" + mappingStatus + "\", " + factory + " }", StringComparison.Ordinal);
+            source = source.Remove(dictionary, mapping.Length).Insert(dictionary, repaired);
+            source = source.Remove(error.Index, error.Length).Insert(error.Index, "/// <exception cref=\"global::Soenneker.OpenApi.Generated.OpenApiRawError\">When receiving a " + status + " status code</exception>");
+        }
+
         source = Regex.Replace(source, @"(?<prefix>var errorMapping = new Dictionary<string, ParsableFactory<IParsable>>\s*\{)(?<entries>[\s\S]*?)(?<suffix>\s*\};)", match =>
         {
             string entries = match.Groups["entries"].Value;

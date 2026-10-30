@@ -129,6 +129,7 @@ internal static class OpenApiJsonCompositionNormalizer
                     if (schema[keyword] is not JsonArray { Count: 1 } single ||
                         !schema.All(p => Annotation(p.Key) || p.Key == keyword) || Resolve(single[0]) is not JsonObject target) continue;
                     JsonObject singleReplacement = target.DeepClone().AsObject();
+                    if (target["type"]?.ToJsonString() == "\"string\"" && target["enum"] == null) singleReplacement["x-client-inline-scalar"] = true;
                     foreach ((string key, JsonNode? value) in schema)
                         if (Annotation(key)) singleReplacement[key] = value?.DeepClone();
                     schema.Clear();
@@ -167,6 +168,24 @@ internal static class OpenApiJsonCompositionNormalizer
                         InferEnumType(schema, allowed);
                     }
                     changed = true;
+                }
+
+                // An unrestricted branch already accepts constrained branches of the same type.
+                // Retaining string | string-enum makes Kiota emit a propertyless object model.
+                if (schema["anyOf"] is JsonArray redundantAlternatives)
+                {
+                    for (int index = redundantAlternatives.Count - 1; index >= 0 && redundantAlternatives.Count > 1; index--)
+                    {
+                        JsonObject? narrow = Resolve(redundantAlternatives[index]);
+                        if (narrow == null) continue;
+                        for (int other = 0; other < redundantAlternatives.Count; other++)
+                        {
+                            if (other == index || Resolve(redundantAlternatives[other]) is not JsonObject broad || !Allows(broad, narrow)) continue;
+                            redundantAlternatives.RemoveAt(index);
+                            changed = true;
+                            break;
+                        }
+                    }
                 }
 
                 if (schema["allOf"] is not JsonArray { Count: > 0 } allOf) return;
