@@ -7,6 +7,35 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedLossyPropertyTests
 {
     [Test]
+    [Arguments("00:00:00")]
+    [Arguments("09:00:00+05:30")]
+    public async ValueTask Time_constructor_defaults_become_strings(string defaultValue)
+    {
+        string source = $$"""
+            public partial class LocalTimeCondition : IParsable
+            {
+                public Time? OnOrAfter { get; set; }
+                public Time? Before { get; set; }
+                public LocalTimeCondition()
+                {
+                    OnOrAfter = new Time(DateTimeOffset.Parse("{{defaultValue}}").DateTime);
+                }
+                public void Read() { var fields = new Dictionary<string, Action<IParseNode>> { { "on_or_after", n => { OnOrAfter = n.GetTimeValue(); } }, { "before", n => { Before = n.GetTimeValue(); } } }; }
+                public void Serialize(ISerializationWriter writer) { writer.WriteTimeValue("on_or_after", OnOrAfter); writer.WriteTimeValue("before", Before); }
+            }
+            """;
+        JsonObject schemas = JsonNode.Parse("""{"LocalTimeCondition":{"properties":{"on_or_after":{"type":"string","format":"time"},"before":{"type":"string","format":"time"}}}}""")!.AsObject();
+        string repaired = Repair(source, schemas);
+        await Assert.That(repaired).Contains($"OnOrAfter = \"{defaultValue}\";");
+        await Assert.That(repaired).Contains("public string? OnOrAfter");
+        await Assert.That(repaired).Contains("OnOrAfter = n.GetStringValue()");
+        await Assert.That(repaired).Contains("writer.WriteStringValue(\"on_or_after\", OnOrAfter)");
+        await Assert.That(repaired).DoesNotContain("new Time(");
+        await Assert.That(repaired).DoesNotContain("Before = \"");
+        await Assert.That(Repair(repaired, schemas)).IsEqualTo(repaired);
+    }
+
+    [Test]
     public async ValueTask Time_strings_keep_offsets_and_use_a_nullable_annotation_context()
     {
         const string source = """

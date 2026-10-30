@@ -63,6 +63,12 @@ public sealed partial class OpenApiFixer
             bool untypedValue = definitions.Count == 1 && definitions[0]["x-client-untyped-value"]?.ToJsonString() == "true";
             nestedUnion |= untypedValue;
             if (!stringUnion && !mixedArray && !nestedUnion) continue;
+            if (time)
+            {
+                // Keep constructor defaults as wire strings when replacing Kiota's Time property.
+                source = Regex.Replace(source, @"\b" + Regex.Escape(property) + @"\s*=\s*new (?:global::)?(?:Microsoft\.Kiota\.Abstractions\.)?Time\((?:global::)?(?:System\.)?DateTimeOffset\.Parse\((?<literal>""(?:\\.|[^""\\])*"")\)\.DateTime\)",
+                    match => property + " = " + match.Groups["literal"].Value);
+            }
             const string untyped = "global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode";
             string type = stringUnion ? "string" : nestedUnion ? untyped : "List<" + untyped + ">";
             source = Regex.Replace(source, @"(?<visibility>public|private) [\w:.]+(?:<[^>\r\n]+>)?(?<nullable>\?)? (?<property>" + Regex.Escape(property) + "|_explicitNullValue" + Regex.Escape(property) + @")\b",
