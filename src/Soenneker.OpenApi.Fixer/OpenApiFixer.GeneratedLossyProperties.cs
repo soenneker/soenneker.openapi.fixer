@@ -60,6 +60,8 @@ public sealed partial class OpenApiFixer
             JsonArray? valueChoices = definitions.Count == 1 ? (definitions[0]["oneOf"] ?? definitions[0]["anyOf"]) as JsonArray : null;
             bool nestedUnion = valueChoices is { Count: > 1 } && valueChoices.Select(c => Resolve(c)?["type"]?.ToJsonString()).Distinct(StringComparer.Ordinal).Count() > 1 &&
                 assignment.Groups["getter"].Value == "GetObjectValue" && assignment.Groups["type"].Value.Contains("." + declaration.Groups["name"].Value + ".", StringComparison.Ordinal);
+            bool untypedValue = definitions.Count == 1 && definitions[0]["x-client-untyped-value"]?.ToJsonString() == "true";
+            nestedUnion |= untypedValue;
             if (!stringUnion && !mixedArray && !nestedUnion) continue;
             const string untyped = "global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode";
             string type = stringUnion ? "string" : nestedUnion ? untyped : "List<" + untyped + ">";

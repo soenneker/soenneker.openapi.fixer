@@ -14,7 +14,8 @@ public interface IOpenApiFixer
     /// <remarks>
     /// Local operation IDs take precedence. Unique cross-document IDs become relative operation references.
     /// Unresolved or ambiguous operation-ID links are removed with a warning; operation references, API operations,
-    /// schemas, reusable link components, and example payloads are preserved. Files without an OpenAPI declaration are skipped.
+    /// schemas and reusable link components are preserved. When example reconciliation is enabled, repaired schema examples
+    /// retain their original values in extension metadata. Files without an OpenAPI declaration are skipped.
     /// </remarks>
     /// <param name="directoryPath">The directory containing all JSON documents to be merged.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>

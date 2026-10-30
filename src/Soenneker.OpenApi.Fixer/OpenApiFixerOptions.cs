@@ -9,6 +9,15 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Repairs object examples encoded as strings, JSON Pointer examples, and incompatible inherited
+    /// examples when compatible defaults or property examples exist. Original examples are retained
+    /// in x-client-original-example. Unconstrained object placeholders with scalar examples become
+    /// object/scalar unions, widening validation; x-stainless-any values retain arbitrary JSON.
+    /// Enabled by default. Disable to retain the original example annotations and type placeholders.
+    /// </summary>
+    public bool ReconcileSchemaExamples { get; set; } = true;
+
+    /// <summary>
     /// Gives divergent successful JSON responses a shared union return type so Kiota does not discard
     /// alternate statuses or representations. Mixed JSON and binary/text representations return a stream.
     /// Enabled by default. This widens per-status validation; original media schemas are retained in

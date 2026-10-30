@@ -199,6 +199,21 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         }
     }
 
+    [Test]
+    public async ValueTask Example_reconciliation_runs_in_pipeline_and_can_be_disabled(CancellationToken cancellationToken)
+    {
+        const string input = """
+            {"Bucket":{"type":"object","required":["name"],"properties":{"name":{"type":"string"}},"example":"{\"name\":\"bucket\"}"},
+             "Binding":{"type":"object","properties":{"json":{"type":"object","x-stainless-any":true}}}}
+            """;
+        JsonObject repaired = await Fix(input, cancellationToken);
+        await Assert.That(repaired["Bucket"]!["example"]!["name"]!.GetValue<string>()).IsEqualTo("bucket");
+        JsonNode json = Resolve(repaired, repaired["Binding"]!["properties"]!["json"]!);
+        await Assert.That(json["x-client-untyped-value"]!.GetValue<bool>()).IsTrue();
+        JsonObject original = await Fix(input, cancellationToken, new OpenApiFixerOptions { ReconcileSchemaExamples = false });
+        await Assert.That(original["Bucket"]!["example"]!.GetValue<string>()).IsEqualTo("{\"name\":\"bucket\"}");
+    }
+
     private async ValueTask<JsonObject> Fix(string schemas, CancellationToken cancellationToken, OpenApiFixerOptions? options = null)
     {
         string source = Path.GetTempFileName();

@@ -276,6 +276,9 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             if (options.ProjectDivergentSuccessResponses)
                 json = ProjectDivergentSuccessResponses(json);
 
+            if (options.ReconcileSchemaExamples)
+                json = ReconcileSchemaExamples(json);
+
             // Add enum member names for symbol-only values so Kiota can generate valid identifiers directly from the fixed spec.
             json = InjectKiotaEnumValueNames(json);
 

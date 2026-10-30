@@ -62,5 +62,23 @@ public sealed class OpenApiGeneratedLossyPropertyTests
         await Assert.That(repaired).Contains("writer.WriteStringValue(\"kind\", Kind)");
     }
 
+    [Test]
+    public async ValueTask Arbitrary_json_properties_use_untyped_nodes_for_reading_and_writing()
+    {
+        const string source = """
+            public partial class Model : IParsable
+            {
+                public global::Models.JsonValue? Json { get; set; }
+                public void Read() { var fields = new Dictionary<string, Action<IParseNode>> { { "json", n => { Json = n.GetObjectValue<global::Models.JsonValue>(global::Models.JsonValue.CreateFromDiscriminatorValue); } } }; }
+                public void Serialize(ISerializationWriter writer) { writer.WriteObjectValue<global::Models.JsonValue>("json", Json); }
+            }
+            """;
+        JsonObject schemas = JsonNode.Parse("""{"Model":{"properties":{"json":{"$ref":"#/components/schemas/Any"}}},"Any":{"x-client-untyped-value":true}}""")!.AsObject();
+        string repaired = Repair(source, schemas);
+        await Assert.That(repaired).Contains("public global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode? Json");
+        await Assert.That(repaired).DoesNotContain("global::Models.JsonValue");
+        await Assert.That(Repair(repaired, schemas)).IsEqualTo(repaired);
+    }
+
     private static string Repair(string source, JsonObject schemas) => (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedLossyUnionProperties", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, schemas])!;
 }
