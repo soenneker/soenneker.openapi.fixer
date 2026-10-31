@@ -9,6 +9,16 @@ namespace Soenneker.OpenApi.Fixer.Abstract;
 public interface IOpenApiFixer
 {
     /// <summary>
+    /// Repairs Kiota-generated models, serialization, factories, and request builders and reports changed files.
+    /// </summary>
+    /// <remarks>Schema-dependent repairs require the local specification referenced by kiota-lock.json.
+    /// Missing metadata is reported explicitly. This method does not compile or execute the generated client.</remarks>
+    /// <param name="generatedRoot">The directory containing the generated client and kiota-lock.json.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A report containing changed files and prerequisites that could not be satisfied.</returns>
+    ValueTask<OpenApiGeneratedClientRepairReport> RepairGeneratedClient(string generatedRoot, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Repairs inline response operation-ID links in OpenAPI JSON files beneath a directory before merging them, updating changed files in place.
     /// </summary>
     /// <remarks>

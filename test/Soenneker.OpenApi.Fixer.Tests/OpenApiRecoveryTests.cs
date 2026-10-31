@@ -28,6 +28,60 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
     }
 
     [Test]
+    public async ValueTask Misplaced_media_schema_and_response_description_are_recovered(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Media indentation","version":"1"},"paths":{"/items":{"get":{"responses":{
+              "200":{"content":{"description":"OK","application/json":{"example":{"name":"one"}},"schema":{"type":"object","properties":{"name":{"type":"string"}}}}},
+              "204":{"content":{"description":"No Content"}}
+            }}}}}
+            """;
+        JsonNode preprocessed = JsonNode.Parse(_preprocessor.Fix(spec))!;
+        JsonNode responses = preprocessed["paths"]!["/items"]!["get"]!["responses"]!;
+        await Assert.That(responses["200"]!["description"]!.GetValue<string>()).IsEqualTo("OK");
+        await Assert.That(responses["200"]!["content"]!["application/json"]!["schema"]!["properties"]!["name"]!["type"]!.GetValue<string>()).IsEqualTo("string");
+        await Assert.That(responses["200"]!["content"]!["schema"]).IsNull();
+        await Assert.That(responses["204"]!["description"]!.GetValue<string>()).IsEqualTo("No Content");
+        await Fix(spec, cancellationToken);
+    }
+
+    [Test]
+    public async ValueTask Malformed_yaml_schema_fragments_are_recovered_without_rewriting_payloads(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Malformed fragments","version":"1"},"paths":{"/items":{"get":{"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Item"}}}}}}}},"components":{"schemas":{
+              "Item":{"type":"object","properties":{"type":"object","line":{"allOf":["$ref:'#/components/schemas/Text'"]},"allOf":[{"type":"object","properties":{"count":{"type":"integer"}}}]}},
+              "Text":{"type":"string"},
+              "Legitimate":{"properties":{"type":{"type":"string"},"allOf":{"type":"array","items":{"type":"string"}}},"example":{"allOf":["$ref:'#/components/schemas/Text'"]}}
+            }}}
+            """;
+        JsonNode preprocessed = JsonNode.Parse(_preprocessor.Fix(spec))!;
+        JsonNode item = preprocessed["components"]!["schemas"]!["Item"]!;
+        await Assert.That(item["properties"]!["type"]).IsNull();
+        await Assert.That(item["allOf"]).IsNotNull();
+        await Assert.That(item["properties"]!["line"]!["allOf"]![0]!["$ref"]!.GetValue<string>()).IsEqualTo("#/components/schemas/Text");
+        JsonNode legitimate = preprocessed["components"]!["schemas"]!["Legitimate"]!;
+        await Assert.That(legitimate["properties"]!["allOf"]!["type"]!.GetValue<string>()).IsEqualTo("array");
+        await Assert.That(legitimate["example"]!["allOf"]![0]!.GetValue<string>()).IsEqualTo("$ref:'#/components/schemas/Text'");
+        await Fix(spec, cancellationToken);
+    }
+
+    [Test]
+    public async ValueTask Parent_relative_discriminators_do_not_invent_payload_properties(CancellationToken cancellationToken)
+    {
+        const string spec = """
+            {"openapi":"3.0.3","info":{"title":"Parent discriminator","version":"1"},"paths":{"/payload":{"get":{"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Payload"}}}}}}}},"components":{"schemas":{
+              "Payload":{"oneOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"object","properties":{"name":{"type":"string"}}}],"discriminator":{"propertyName":"../event_type"}}
+            }}}
+            """;
+        JsonNode result = await Fix(spec, cancellationToken);
+        string payloadName = result["paths"]!["/payload"]!["get"]!["responses"]!["200"]!["content"]!["application/json"]!["schema"]!["$ref"]!.GetValue<string>()[21..];
+        JsonNode payload = result["components"]!["schemas"]![payloadName]!;
+        await Assert.That(payload["properties"]?["../event_type"]).IsNull();
+        await Assert.That(payload["x-client-parent-discriminator"]!["propertyName"]!.GetValue<string>()).IsEqualTo("../event_type");
+    }
+
+    [Test]
     public async ValueTask Preprocessing_recovers_json_examples_and_widens_nested_referenced_integer_schemas(CancellationToken cancellationToken)
     {
         const string spec = """
@@ -391,11 +445,12 @@ public sealed class OpenApiRecoveryTests : HostedUnitTest
             """;
         JsonNode result = await Fix(spec, cancellationToken);
         JsonObject content = result["paths"]!["/items"]!["get"]!["responses"]!["200"]!["content"]!.AsObject();
-        await Assert.That(content.Count).IsEqualTo(4);
+        await Assert.That(content.Count).IsEqualTo(2);
         await Assert.That(content["application/json; profile=Upper"]!["example"]!.GetValue<string>()).IsEqualTo("upper");
         await Assert.That(content["application/json; profile=upper"]!["example"]!.GetValue<int>()).IsEqualTo(42);
-        await Assert.That(content["application/*"]).IsNotNull();
-        await Assert.That(content["*/*"]).IsNotNull();
+        JsonNode excluded = result["paths"]!["/items"]!["get"]!["responses"]!["200"]!["x-client-original-non-json-content"]!;
+        await Assert.That(excluded["application/*"]).IsNotNull();
+        await Assert.That(excluded["*/*"]).IsNotNull();
     }
 
     [Test]

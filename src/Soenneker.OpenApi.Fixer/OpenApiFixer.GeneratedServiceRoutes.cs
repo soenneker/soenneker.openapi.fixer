@@ -86,7 +86,7 @@ public sealed partial class OpenApiFixer
         if (!metadata.Routes.TryGetValue(signature, out var methods))
         {
             // Kiota drops literal suffixes on parameter-only path segments (for example {sid}.json).
-            var matches = metadata.Routes.Where(entry => Regex.Replace(entry.Key, @"(\{\})\.[^/]+(?=/|$)", "$1") == signature).ToArray();
+            var matches = metadata.Routes.Where(entry => Regex.Replace(entry.Key, @"(\{\})\.[^/{}]+(?=/|$)", "$1") == signature).ToArray();
             if (matches.Length != 1) return source;
             methods = matches[0].Value;
         }

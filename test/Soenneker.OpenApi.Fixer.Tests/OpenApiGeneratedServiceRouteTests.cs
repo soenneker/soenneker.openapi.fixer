@@ -12,6 +12,18 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedServiceRouteTests
 {
     [Test]
+    public async ValueTask Parameter_suffix_routes_do_not_match_their_container_builder()
+    {
+        Type type = typeof(OpenApiFixer).Assembly.GetType("Soenneker.OpenApi.Fixer.OpenApiGeneratedRouteMetadata")!;
+        object metadata = Activator.CreateInstance(type, true)!;
+        var routes = (Dictionary<string, Dictionary<string, (string Path, string Server)>>)type.GetProperty("Routes", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(metadata)!;
+        routes["/streams/{}.{}"] = new() { ["GET"] = ("/streams/{streamId}.{ext}", "https://example.com") };
+        const string source = "public Builder(IRequestAdapter requestAdapter) : base(requestAdapter, \"{+baseurl}/streams/{streamId}\") {}";
+        string result = (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedServiceRoutes", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, metadata])!;
+        await Assert.That(result).IsEqualTo(source);
+    }
+
+    [Test]
     [Arguments("?start_date={start_date}{&limit*}", "", false)]
     [Arguments("?start_date={start_date}{&limit*}", "", true)]
     [Arguments("{?limit*}", "", false)]

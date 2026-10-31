@@ -15,12 +15,12 @@ public sealed partial class OpenApiFixer
         if (!declaration.Success || !ns.Success) return source;
         string name = declaration.Groups["name"].Value;
         if (schemas?[name]?["enum"] is not JsonArray values || !values.Any(v => v is JsonValue value && value.TryGetValue<string>(out string? text) && text.Length == 0)) return source;
-        Match existing = Regex.Match(source, "\\[EnumMember\\(Value = \"\"\\)\\]\\s*(?:#pragma[^\\r\\n]+\\s*)*(?<name>\\w+),");
+        Match existing = Regex.Match(source, "\\[(?:(?:global::)?System\\.Runtime\\.Serialization\\.)?EnumMember(?:Attribute)?\\(Value = \"\"\\)\\]\\s*(?:#pragma[^\\r\\n]+\\s*)*(?<name>\\w+),");
         string member = existing.Success ? existing.Groups["name"].Value : "EmptyString";
         if (!existing.Success)
         {
             while (Regex.IsMatch(source, @"\b" + member + @"\b")) member += "Value";
-            source = source.Insert(declaration.Index + declaration.Length, "\n        [EnumMember(Value = \"\")]\n        " + member + ",\n");
+            source = source.Insert(declaration.Index + declaration.Length, "\n        [global::System.Runtime.Serialization.EnumMember(Value = \"\")]\n        " + member + ",\n");
         }
         emptyEnums["global::" + ns.Groups["name"].Value + "." + name] = member;
         return source;

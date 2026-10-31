@@ -8,6 +8,36 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedMissingPropertyTests
 {
     [Test]
+    public async ValueTask Partially_generated_intersections_recover_inherited_fields_without_duplicates()
+    {
+        const string source = """
+            namespace Models
+            {
+                public partial class Node : IParsable, IAdditionalDataHolder {
+                    public IDictionary<string, object> AdditionalData { get; set; }
+                    public string Label { get; set; }
+                    public IDictionary<string, Action<IParseNode>> GetFieldDeserializers() {
+                        return new Dictionary<string, Action<IParseNode>> { { "label & name", n => { Label = n.GetStringValue(); } } };
+                    }
+                    public void Serialize(ISerializationWriter writer) {
+                        writer.WriteStringValue("label & name", Label);
+                        writer.WriteAdditionalData(AdditionalData);
+                    }
+                }
+            }
+            """;
+        JsonObject schemas = JsonNode.Parse("""{"Node":{"properties":{"label & name":{"type":"string"}},"allOf":[{"$ref":"#/components/schemas/Base"}]},"Base":{"properties":{"label & name":{"type":"string"},"count":{"type":"integer","format":"int64"}}}}""")!.AsObject();
+        var enums = new Dictionary<string, string>();
+        var classes = new Dictionary<string, string>();
+        MethodInfo repair = typeof(OpenApiFixer).GetMethod("RepairGeneratedMissingProperties", BindingFlags.NonPublic | BindingFlags.Static)!;
+        string result = (string)repair.Invoke(null, [source, schemas, classes, enums])!;
+        await Assert.That(result).Contains("public long? Count");
+        await Assert.That(result).Contains("WriteLongValue(\"count\", Count)");
+        await Assert.That(result).DoesNotContain("public string? Label");
+        await Assert.That((string)repair.Invoke(null, [result, schemas, classes, enums])!).IsEqualTo(result);
+    }
+
+    [Test]
     public async ValueTask Depth_limited_empty_models_regain_typed_fields_and_recursive_collections()
     {
         const string source = """

@@ -55,4 +55,26 @@ public sealed class OpenApiUnionPredicateTests
         return (string?)typeof(OpenApiFixer).GetMethod("BuildGeneratedUnionStructuralCheck", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [JsonNode.Parse(json)!.AsObject(), "payload", resolve]);
     }
+
+    [Test]
+    public async ValueTask Shared_reference_graphs_have_a_bounded_expansion_budget()
+    {
+        var schemas = new JsonObject { ["Leaf"] = new JsonObject { ["type"] = "string" } };
+        string previous = "Leaf";
+        for (int i = 0; i < 16; i++)
+        {
+            string name = "Level" + i;
+            schemas[name] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject
+            {
+                ["left"] = new JsonObject { ["$ref"] = previous },
+                ["right"] = new JsonObject { ["$ref"] = previous }
+            } };
+            previous = name;
+        }
+        Func<JsonNode?, JsonObject?> resolve = node => node?["$ref"] is JsonValue reference
+            ? schemas[reference.GetValue<string>()] as JsonObject : node as JsonObject;
+        string? result = (string?)typeof(OpenApiFixer).GetMethod("BuildGeneratedUnionStructuralCheck", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [schemas[previous]!.AsObject(), "payload", resolve]);
+        await Assert.That(result).IsNull();
+    }
 }

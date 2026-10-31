@@ -1,0 +1,18 @@
+{
+  "soenneker.github.openapiclient": {
+    "CommitComparison": [{ "behind_by": 2, "ahead_by": 0, "total_commits": 0, "status": "behind", "commits": [], "files": [] }],
+    "Reaction": [{ "id": 123, "content": "+1" }, { "id": 124, "content": "-1" }]
+  },
+  "soenneker.stripe.openapiclient": {
+    "Customer": [{ "id": "cus_contract", "object": "customer", "email": null, "balance": 0, "delinquent": false, "metadata": { "tier": "pro" } }]
+  },
+  "soenneker.telnyx.openapiclient": {
+    "AvailablePhoneNumber": [{ "record_type": "available_phone_number", "phone_number": "+19705555098", "vanity_format": "", "best_effort": false, "quickship": true, "reservable": true, "region_information": [{ "region_type": "country_code", "region_name": "US" }], "cost_information": { "upfront_cost": "3.21", "monthly_cost": "6.54", "currency": "USD" }, "features": [{ "name": "sms" }, { "name": "voice" }] }]
+  },
+  "soenneker.workos.openapiclient": {
+    "UserObject": [{ "id": "user_contract", "email": "sample@example.com", "first_name": "Sample", "last_name": "User", "metadata": { "tenant": "example" } }]
+  },
+  "soenneker.cloudflare.openapiclient": {
+    "DnsRecordsDnsRecordResponse": [{ "id": "023e105f4ecef8ad9ca31a8372d0c353", "name": "example.com", "type": "A", "content": "192.0.2.1", "proxied": false, "ttl": 3600, "tags": [] }]
+  }
+}

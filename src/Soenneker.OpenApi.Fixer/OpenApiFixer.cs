@@ -244,7 +244,8 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
 
             DetachWebhooksFromPaths(document, attachedWebhooks);
 
-            OpenApiSpecVersion outputSpecVersion = options.OutputSpecVersion ?? sourceSpecVersion;
+            OpenApiSpecVersion outputSpecVersion = options.OutputSpecVersion ??
+                (sourceSpecVersion == OpenApiSpecVersion.OpenApi2_0 ? OpenApiSpecVersion.OpenApi3_0 : sourceSpecVersion);
             _logger.LogProgress("Serializing OpenAPI source {SourceFilePath} to {TargetFilePath} as {OutputSpecVersion}",
                 sourceFilePath, targetFilePath, outputSpecVersion);
             string json = await document.SerializeAsync(outputSpecVersion, OpenApiConstants.Json,

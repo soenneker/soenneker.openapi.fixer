@@ -43,12 +43,22 @@ public sealed class OpenApiProviderRegressionTests
         JsonObject schemas = JsonNode.Parse("""{"Choice":{"type":"string","enum":["","other"]}}""")!.AsObject();
         var members = new Dictionary<string, string>();
         string result = Run("RepairGeneratedEmptyEnum", source, schemas, members);
-        await Assert.That(result).Contains("[EnumMember(Value = \"\")]");
+        await Assert.That(result).Contains("[global::System.Runtime.Serialization.EnumMember(Value = \"\")]");
         await Assert.That(members["global::Models.Choice"]).IsEqualTo("EmptyString");
         await Assert.That(Run("RepairGeneratedEmptyEnum", result, schemas, members)).IsEqualTo(result);
         string read = Run("RepairGeneratedEmptyEnumReads", "n.GetEnumValue<global::Models.Choice>()", members);
         await Assert.That(read).Contains("global::Models.Choice.EmptyString");
         await Assert.That(Run("RepairGeneratedEmptyEnumReads", read, members)).IsEqualTo(read);
+    }
+
+    [Test]
+    public async ValueTask Qualified_empty_enum_members_are_not_duplicated()
+    {
+        const string source = "namespace Models { public enum Choice { [global::System.Runtime.Serialization.EnumMember(Value = \"\")] Existing, } }";
+        JsonObject schemas = JsonNode.Parse("""{"Choice":{"type":"string","enum":[""]}}""")!.AsObject();
+        var members = new Dictionary<string, string>();
+        await Assert.That(Run("RepairGeneratedEmptyEnum", source, schemas, members)).IsEqualTo(source);
+        await Assert.That(members["global::Models.Choice"]).IsEqualTo("Existing");
     }
 
     [Test]

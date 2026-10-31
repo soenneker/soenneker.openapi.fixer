@@ -12,5 +12,6 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Soenneker.OpenApi.Fixer.Tests/Soenneker.OpenApi.Fixer.Tests.csproj" />
+    <Project Path="test/Soenneker.OpenApi.Fixer.Verification/Soenneker.OpenApi.Fixer.Verification.csproj" />
   </Folder>
 </Solution>

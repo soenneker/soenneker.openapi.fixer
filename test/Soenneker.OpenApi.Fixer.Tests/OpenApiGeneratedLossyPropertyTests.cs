@@ -110,4 +110,22 @@ public sealed class OpenApiGeneratedLossyPropertyTests
     }
 
     private static string Repair(string source, JsonObject schemas) => (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedLossyUnionProperties", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, schemas])!;
+
+    [Test]
+    public async ValueTask Repaired_backing_fields_reuse_the_existing_nullable_context()
+    {
+        const string source = """
+            public partial class Model : IParsable
+            {
+            #nullable enable
+                public string? Reaction { get => _explicitNullValueReaction; set => _explicitNullValueReaction = value; }
+                private string? _explicitNullValueReaction = default!;
+            #nullable restore
+                public void Read() { var fields = new Dictionary<string, Action<IParseNode>> { { "reaction", n => { Reaction = n.GetStringValue(); } } }; }
+                public void Serialize(ISerializationWriter writer) { writer.WriteStringValue("reaction", Reaction); }
+            }
+            """;
+        JsonObject schemas = JsonNode.Parse("""{"Model":{"properties":{"reaction":{"type":"string","enum":["+1","-1"]}}}}""")!.AsObject();
+        await Assert.That(Repair(source, schemas)).IsEqualTo(source);
+    }
 }

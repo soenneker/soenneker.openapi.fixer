@@ -80,8 +80,17 @@ public sealed partial class OpenApiFixer
                 "writer." + writer + "(\"" + wire + "\", " + property + ");");
             if (stringUnion)
                 source = Regex.Replace(source, @"(?m)^[ \t]*(?:public|private) string\? (?:" + Regex.Escape(property) + "|_explicitNullValue" + Regex.Escape(property) + @")\b[^\r\n]*", match =>
-                    source[..match.Index].TrimEnd().EndsWith("#nullable enable", StringComparison.Ordinal) ? match.Value : "#nullable enable\n" + match.Value + "\n#nullable restore");
+                    NullableAnnotationsEnabled(source, match.Index) ? match.Value : "#nullable enable\n" + match.Value + "\n#nullable restore");
         }
         return source;
+    }
+
+    private static bool NullableAnnotationsEnabled(string source, int position)
+    {
+        MatchCollection directives = Regex.Matches(source[..position], @"(?m)^[ \t]*#nullable[ \t]+(?<state>enable|disable|restore)(?:[ \t]+(?<target>annotations|warnings))?");
+        for (int i = directives.Count - 1; i >= 0; i--)
+            if (directives[i].Groups["target"].Value != "warnings")
+                return directives[i].Groups["state"].Value == "enable";
+        return false;
     }
 }

@@ -12,6 +12,8 @@ public sealed partial class OpenApiFixer
         const string prefix = "global::Microsoft.Kiota.Abstractions.Serialization.";
         var active = new HashSet<JsonObject>();
         int variable = 0;
+        int nodes = 0;
+        bool exhausted = false;
         string? Literal(JsonNode? literal, string node)
         {
             if (literal == null) return "(" + node + " == null || " + node + " is " + prefix + "UntypedNull)";
@@ -34,6 +36,14 @@ public sealed partial class OpenApiFixer
         }
         string? Build(JsonObject current, string node, bool exact, int depth)
         {
+            // Shared reference graphs can expand exponentially even with a depth bound.
+            // An incomplete predicate must never be used as proof that a branch matches.
+            if (exhausted || ++nodes > 128 || current["enum"] is JsonArray { Count: > 256 } ||
+                current["required"] is JsonArray { Count: > 256 } || current["properties"] is JsonObject { Count: > 256 })
+            {
+                exhausted = true;
+                return null;
+            }
             if (depth > 16 || !active.Add(current)) return null;
             try
             {
@@ -112,10 +122,17 @@ public sealed partial class OpenApiFixer
                     if (excluded == null) return null;
                     checks.Add("!(" + excluded + ")");
                 }
-                return checks.Count == 0 ? "true" : string.Join(" && ", checks);
+                string result = checks.Count == 0 ? "true" : string.Join(" && ", checks);
+                if (result.Length > 32_768)
+                {
+                    exhausted = true;
+                    return null;
+                }
+                return result;
             }
             finally { active.Remove(current); }
         }
-        return Build(schema, value, false, 0);
+        string? predicate = Build(schema, value, false, 0);
+        return exhausted ? null : predicate;
     }
 }

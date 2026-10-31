@@ -112,6 +112,20 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
     private static bool NormalizeMediaTypeKeys(JsonObject content)
     {
         bool changed = false;
+        if (content["description"] is JsonValue description && description.TryGetValue<string>(out _) &&
+            content.Parent is JsonObject owner && (owner["description"] == null || JsonNode.DeepEquals(owner["description"], description)))
+        {
+            owner["description"] = description.DeepClone();
+            content.Remove("description");
+            changed = true;
+        }
+        JsonObject[] media = content.Where(p => p.Key.Contains('/') && p.Value is JsonObject).Select(p => p.Value!.AsObject()).ToArray();
+        if (media.Length == 1 && media[0]["schema"] == null && content["schema"] is JsonObject misplacedSchema)
+        {
+            media[0]["schema"] = misplacedSchema.DeepClone();
+            content.Remove("schema");
+            changed = true;
+        }
         foreach ((string mediaType, JsonNode? value) in content.ToList())
         {
             string normalized = mediaType.Trim();
@@ -317,7 +331,18 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
 
     private static bool NormalizeSchemaFields(JsonObject obj, bool normalizeLegacyNullable)
     {
-        bool changed = NormalizeIntegerValues(obj);
+        bool changed = NormalizeMalformedSchemaMembers(obj);
+        changed |= NormalizeIntegerValues(obj);
+        // Some providers use a parent-relative discriminator as an extension to OpenAPI.
+        // It is not a field on this payload; retain the hint without inventing a wire property.
+        if (obj["discriminator"] is JsonObject discriminator && discriminator["propertyName"] is JsonValue discriminatorName &&
+            discriminatorName.TryGetValue<string>(out string? relativePropertyName) && relativePropertyName.StartsWith("../", StringComparison.Ordinal) &&
+            obj["properties"]?[relativePropertyName] == null)
+        {
+            obj["x-client-parent-discriminator"] = discriminator.DeepClone();
+            obj.Remove("discriminator");
+            changed = true;
+        }
 
         // Some publishers repeat the primitive type as a format, including on array items.
         // This is not a string format understood by Kiota; retain all actual format constraints.

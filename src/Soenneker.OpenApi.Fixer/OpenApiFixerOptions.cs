@@ -21,7 +21,11 @@ public sealed class OpenApiFixerOptions
 
     /// <summary>
     /// Gives divergent successful JSON responses a shared union return type so Kiota does not discard
-    /// alternate statuses or representations. Mixed JSON and binary/text representations return a stream.
+    /// alternate statuses or representations. Prefers JSON when every body-bearing success response offers it;
+    /// excluded media definitions are retained in x-client-original-non-json-content. Otherwise mixed
+    /// JSON and binary/text representations return a stream.
+    /// Adds a 200 generation alias when a body schema exists only on other success statuses (such as 207),
+    /// retaining the source status in x-client-success-response-status and any replaced response in x-client-original-response.
     /// Enabled by default. This widens per-status validation; original media schemas are retained in
     /// x-client-original-success-schema. Shared component responses remain unchanged.
     /// </summary>
@@ -76,7 +80,8 @@ public sealed class OpenApiFixerOptions
     public bool VerboseLogging { get; set; }
 
     /// <summary>
-    /// Overrides the OpenAPI version used for the fixed document. When unset, the source document version is preserved.
+    /// Overrides the OpenAPI version used for the fixed document. When unset, Swagger 2.0 is upgraded to
+    /// OpenAPI 3.0 so component and response repairs apply consistently; OpenAPI 3.x versions are preserved.
     /// </summary>
     public OpenApiSpecVersion? OutputSpecVersion { get; set; }
 

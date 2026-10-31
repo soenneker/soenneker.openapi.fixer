@@ -12,13 +12,13 @@ public sealed partial class OpenApiFixer
 {
     private static string RepairGeneratedMissingProperties(string source, JsonObject? schemas, Dictionary<string, string> classes, Dictionary<string, string> newEnums)
     {
-        const string empty = @"return new Dictionary<string, Action<IParseNode>>\s*\{\s*\};";
+        const string dictionary = @"return new Dictionary<string, Action<IParseNode>>\s*\{";
         Match declaration = Regex.Match(source, @"public partial class (?<name>\w+)[^{]+\{");
         Match ns = Regex.Match(source, @"(?m)^namespace\s+(?<name>[\w.]+)");
         if (schemas == null || !declaration.Success || !ns.Success || declaration.Value.Contains("IComposedTypeWrapper", StringComparison.Ordinal) ||
-            source.Contains("base.Serialize(writer)", StringComparison.Ordinal) || !Regex.IsMatch(source, empty) ||
+            source.Contains("base.Serialize(writer)", StringComparison.Ordinal) || !Regex.IsMatch(source, dictionary) ||
             !source.Contains("writer.WriteAdditionalData(AdditionalData);", StringComparison.Ordinal) ||
-            schemas[declaration.Groups["name"].Value] is not JsonObject schema || schema["properties"] is not JsonObject { Count: > 0 } properties) return source;
+            schemas[declaration.Groups["name"].Value] is not JsonObject schema) return source;
         string space = ns.Groups["name"].Value;
         const string untyped = "global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode";
         string Quote(string value) => JsonSerializer.Serialize(value);
@@ -33,6 +33,23 @@ public sealed partial class OpenApiFixer
             }
             return node as JsonObject;
         }
+        var properties = new JsonObject();
+        var visited = new HashSet<JsonObject>(ReferenceEqualityComparer.Instance);
+        void Collect(JsonObject target)
+        {
+            if (!visited.Add(target)) return;
+            if (target["allOf"] is JsonArray parents)
+                foreach (JsonNode? parent in parents)
+                    if (Resolve(parent) is JsonObject resolved) Collect(resolved);
+            if (target["properties"] is JsonObject fields)
+                foreach ((string wire, JsonNode? field) in fields) properties[wire] = field?.DeepClone();
+        }
+        Collect(schema);
+        var existingFields = Regex.Matches(source, "\\{\\s*(?<wire>\"(?:\\\\.|[^\"\\\\])*\")\\s*,\\s*\\w+\\s*=>")
+            .Select(match => JsonSerializer.Deserialize<string>(match.Groups["wire"].Value)!).ToHashSet(StringComparer.Ordinal);
+        foreach (string wire in properties.Select(p => p.Key).ToArray())
+            if (existingFields.Contains(wire)) properties.Remove(wire);
+        if (properties.Count == 0) return source;
         string Shape(JsonObject value) => new JsonObject(value.Where(p => p.Key is not ("description" or "title" or "example" or "examples" or "default" or "deprecated") && !p.Key.StartsWith("x-", StringComparison.Ordinal))
             .Select(p => new KeyValuePair<string, JsonNode?>(p.Key, p.Value?.DeepClone()))).ToJsonString();
         (string Type, string Read, string Write, bool ValueType, bool Object) Field(JsonNode? node, string hint, int depth = 0)
@@ -91,9 +108,10 @@ public sealed partial class OpenApiFixer
             };
         }
         var declarations = new StringBuilder("\n        // Restore fields omitted by the generator's model-depth limit.\n#nullable enable\n");
-        var reads = new StringBuilder("return new Dictionary<string, Action<IParseNode>>\n            {\n");
+        var reads = new StringBuilder();
         var writes = new StringBuilder();
         var names = new HashSet<string>(StringComparer.Ordinal) { declaration.Groups["name"].Value, "AdditionalData", "Serialize", "GetFieldDeserializers", "CreateFromDiscriminatorValue" };
+        foreach (Match member in Regex.Matches(source, @"public\s+[\w.<>?,]+\s+(?<name>\w+)\s*\{")) names.Add(member.Groups["name"].Value);
         foreach ((string wire, JsonNode? property) in properties)
         {
             string name = MakeUniqueEnumMemberName(BuildSafeEnumMemberName(wire), names);
@@ -104,7 +122,7 @@ public sealed partial class OpenApiFixer
         }
         declarations.Append("#nullable restore\n");
         source = source.Insert(declaration.Index + declaration.Length, declarations.ToString());
-        source = Regex.Replace(source, empty, _ => reads + "            };");
+        source = Regex.Replace(source, dictionary, match => match.Value + "\n" + reads);
         return source.Replace("            writer.WriteAdditionalData(AdditionalData);", writes + "            writer.WriteAdditionalData(AdditionalData);", StringComparison.Ordinal);
     }
 }

@@ -27,7 +27,7 @@ public sealed partial class OpenApiFixer
         }
         else path = Path.GetFullPath(Path.Combine(root, location));
         if (!File.Exists(path) || !Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)) return null;
-        return JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken))?["components"]?["schemas"] as JsonObject;
+        return JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken))?["components"]?["schemas"] as JsonObject ?? new JsonObject();
     }
 
     private static string RepairGeneratedUnionFactories(string source, JsonObject? schemas)
@@ -37,7 +37,7 @@ public sealed partial class OpenApiFixer
             return source;
         Match declaration = Regex.Match(source, @"public partial class (?<name>\w+)[^{]+\{");
         string name = declaration.Groups["name"].Value;
-        if (!declaration.Success || schemas[name] is not JsonObject schema ||
+        if (!declaration.Success || !declaration.Value.Contains("IComposedTypeWrapper", StringComparison.Ordinal) || schemas[name] is not JsonObject schema ||
             (schema["oneOf"] ?? schema["anyOf"]) is not JsonArray alternatives) return source;
 
         Match factory = Regex.Match(source, @"public static [\w:.<>]+ CreateFromDiscriminatorValue\(IParseNode parseNode\)\s*\{[\s\S]*?return result;\s*\}");

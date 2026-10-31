@@ -224,7 +224,10 @@ public sealed partial class OpenApiFixer
         return char.IsUpper(name[0]) && OpenApiNameNormalizer.IsValidCSharpIdentifier(name);
     }
 
-    public async ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken = default)
+    public ValueTask SanitizeGeneratedEnumMembers(string generatedRoot, CancellationToken cancellationToken = default)
+        => RepairGeneratedClientCore(generatedRoot, cancellationToken);
+
+    private async ValueTask RepairGeneratedClientCore(string generatedRoot, CancellationToken cancellationToken)
     {
         if (!await _directoryUtil.Exists(generatedRoot, cancellationToken))
             return;
@@ -245,6 +248,9 @@ public sealed partial class OpenApiFixer
             await WriteGeneratedErrorSupport(generatedRoot, cancellationToken);
         }
         var emptyEnums = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Recover omitted properties before type, factory, enum and null repairs inspect the models.
+        // Otherwise those repairs only see recovered members on the next invocation.
+        await RecoverGeneratedModelMembers(generatedRoot, unionSchemas, cancellationToken);
         foreach (string filePath in await _directoryUtil.GetFilesByExtension(generatedRoot, ".cs", recursive: true, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -282,26 +288,16 @@ public sealed partial class OpenApiFixer
                                .NoSync();
         }
 
-        var recoveredEnums = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach ((string filePath, string contents) in generatedFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string sanitized = RepairGeneratedEnumDefaults(contents, enumDefaults);
             sanitized = RepairGeneratedInheritedProperties(sanitized, generatedClasses);
-            sanitized = RepairGeneratedMissingProperties(sanitized, unionSchemas, generatedClasses, recoveredEnums);
             if (unionSchemas != null) sanitized = RepairGeneratedExplicitNulls(sanitized, generatedClasses);
             sanitized = RepairGeneratedUnknownEnums(sanitized);
             sanitized = RepairGeneratedEmptyEnumReads(sanitized, emptyEnums);
             if (!string.Equals(contents, sanitized, StringComparison.Ordinal))
                 await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
-        }
-        foreach ((string fullName, string enumSource) in recoveredEnums)
-        {
-            string name = fullName[(fullName.LastIndexOf('.') + 1)..];
-            string? modelFile = generatedFiles.Keys.FirstOrDefault(path => Regex.IsMatch(generatedFiles[path], @"(?m)^namespace\s+" + Regex.Escape(fullName[..fullName.LastIndexOf('.')]) + @"\s*(?:\r?\n|\{|;)"));
-            if (modelFile == null) continue;
-            string enumFile = Path.Combine(Path.GetDirectoryName(modelFile)!, name + ".cs");
-            if (!File.Exists(enumFile)) await _fileUtil.Write(enumFile, enumSource, cancellationToken: cancellationToken).NoSync();
         }
     }
 

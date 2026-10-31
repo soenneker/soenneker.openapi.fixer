@@ -1,0 +1,33 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Generated client contracts", "version": "1" },
+  "servers": [{ "url": "https://example.invalid" }],
+  "paths": {
+    "/models": { "get": { "responses": { "200": { "description": "Model", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContractModel" } }, "text/plain": { "schema": { "type": "string" } } } } } } },
+    "/choices": { "get": { "responses": { "200": { "description": "Choice", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Choice" } } } } } } },
+    "/batch": { "post": { "responses": { "207": { "description": "Multi-status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContractModel" } } } } } } }
+  },
+  "components": { "schemas": {
+    "BaseModel": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } },
+    "ContractModel": {
+      "allOf": [{ "$ref": "#/components/schemas/BaseModel" }, { "type": "object", "properties": {
+        "name": { "type": "string", "nullable": true },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "count": { "type": "integer", "format": "int32" },
+        "enabled": { "type": "boolean" }
+      } }],
+      "x-verification-payloads": [
+        {},
+        { "name": null },
+        { "id": 9007199254740993, "name": "", "status": "active", "tags": [], "count": 0, "enabled": false },
+        { "status": "future-status", "extra": { "nested": [1, true, null] } }
+      ]
+    },
+    "Choice": { "type": "object", "properties": { "shared": { "type": "string" } },
+      "anyOf": [{ "$ref": "#/components/schemas/NamedChoice" }, { "$ref": "#/components/schemas/CountedChoice" }],
+      "x-verification-payloads": [{ "name": "one", "shared": "common" }, { "count": 42, "shared": "also common" }] },
+    "NamedChoice": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } },
+    "CountedChoice": { "type": "object", "required": ["count"], "properties": { "count": { "type": "integer", "format": "int32" } } }
+  } }
+}

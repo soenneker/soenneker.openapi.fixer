@@ -7,6 +7,23 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedUnionTests
 {
     [Test]
+    public async ValueTask Nested_wrapper_does_not_turn_its_parent_into_a_wrapper()
+    {
+        const string source = """
+            public partial class Parent : IParsable {
+                public string Name { get; set; }
+                public partial class Value : IComposedTypeWrapper, IParsable {
+                    public string String { get; set; }
+                    public static Value CreateFromDiscriminatorValue(IParseNode parseNode) { var result = new Value(); return result; }
+                    public virtual void Serialize(ISerializationWriter writer) { writer.WriteStringValue(null, String); }
+                }
+            }
+            """;
+        JsonObject schemas = JsonNode.Parse("""{"Parent":{"anyOf":[{"type":"object"},{"type":"object"}]}}""")!.AsObject();
+        await Assert.That(Repair(source, schemas)).IsEqualTo(source);
+    }
+
+    [Test]
     public async ValueTask Empty_nested_union_wrappers_emit_json_null_instead_of_an_empty_document()
     {
         const string source = """

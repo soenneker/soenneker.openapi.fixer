@@ -1,0 +1,2130 @@
+[
+  {
+    "name": "soenneker.adyen.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.adyen.openapiclient.git",
+    "revision": "66c5e9ce2880eb62e021fa2702250a6c29967deb",
+    "directory": "Vendors/Adyen/soenneker.adyen.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "a5269b6143067b7638e3c610fdb5d1487bb538206fdcbeea9718871700cdb98b",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.algolia.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.algolia.openapiclient.git",
+    "revision": "c5dc000a8df5aaf9d1d6ca4b80b71bb94e9712a2",
+    "directory": "Vendors/Algolia/soenneker.algolia.openapiclient",
+    "source": "openapi-json/merged-openapi.json",
+    "sourceKind": "original",
+    "sha256": "30767d81c6d9ec30c42dd08b13861b14f8ae3e86500fc2f46772189ba6ccd11a",
+    "additionalSources": [
+      {
+        "source": "openapi-json/abtesting-v3.json",
+        "sha256": "82d1590a278942c8431a3aa9e5d6512503a2ea99ae028ff75834a297160f1b8f"
+      },
+      {
+        "source": "openapi-json/abtesting.json",
+        "sha256": "628b557fe3735d7358cdcfb5fa3391f6e450560ebd39407635bae1991a2f8541"
+      },
+      {
+        "source": "openapi-json/advanced-personalization.json",
+        "sha256": "91793b5e77043d31ea2eb0b0b9ade701d979a6dc6aec340279c3bed3efe39990"
+      },
+      {
+        "source": "openapi-json/analytics.json",
+        "sha256": "ef52bfd5cb4f05a3ef21f34d9c35020dce3f0d3ca51b1ee07252880327bd619f"
+      },
+      {
+        "source": "openapi-json/composition.json",
+        "sha256": "fcdea3b945035766865635795e2f61af70710ab7a98c74fb5e3c92afaa8e163c"
+      },
+      {
+        "source": "openapi-json/crawler.json",
+        "sha256": "8ba7351961edec386e4626699471ce2ed778ecce88471269197f8f4b0ca1255a"
+      },
+      {
+        "source": "openapi-json/ingestion.json",
+        "sha256": "9c13083a279872d096a184c9ccd062d1661b63d2122c12cb27f8773c423d5972"
+      },
+      {
+        "source": "openapi-json/insights.json",
+        "sha256": "cc3ad17fae002f05c6f0737eb4920107371891937dfdf08b9578431f022b65e3"
+      },
+      {
+        "source": "openapi-json/monitoring.json",
+        "sha256": "71f9630e12086c0b51d0de22af1c929ab5a442dbe88a3fc66c5e818d403f5ae1"
+      },
+      {
+        "source": "openapi-json/personalization.json",
+        "sha256": "fbc1cd6adb02d8f20d2dff0242f796565b3ebd2482ea758efc3d5483cce81780"
+      },
+      {
+        "source": "openapi-json/query-suggestions.json",
+        "sha256": "7a116bb5e2ebf46436218f8d0bce913e4c685b1086179c42e12875fef4a3c661"
+      },
+      {
+        "source": "openapi-json/recommend.json",
+        "sha256": "9bf66a5a681bf0b39eea93dc5520876da8949daa4285040f32632b184081057e"
+      },
+      {
+        "source": "openapi-json/search.json",
+        "sha256": "f15e322296dd10b22256d26d26145fdb2c0c1e8f62dcce001238651ddbce9926"
+      },
+      {
+        "source": "openapi-yaml/abtesting-v3.yml",
+        "sha256": "8180e288ef09a9f07a49f15969c748ffebb8c128368ab5c63a67a13a5ecc77be"
+      },
+      {
+        "source": "openapi-yaml/abtesting.yml",
+        "sha256": "d2a44fb9ce14597aecd11a9c56a9ae948f7804984a86e3fe6a571609c768dfbf"
+      },
+      {
+        "source": "openapi-yaml/advanced-personalization.yml",
+        "sha256": "d9eeabb3a33e82880d74fb8ce5dbf7c79f50e01fb6fd9615557fa8faeb0bf658"
+      },
+      {
+        "source": "openapi-yaml/composition.yml",
+        "sha256": "b13e65a486e22647f35554e5f3065c40acce161d4afca82707f9c186f2819880"
+      },
+      {
+        "source": "openapi-yaml/crawler.yml",
+        "sha256": "fafe265d8562117d719f18ce98aed89f90bbaa376d73419f4d22e32dce8896d4"
+      },
+      {
+        "source": "openapi-yaml/ingestion.yml",
+        "sha256": "dc1dd865b2a718a208e3237b297d552a6c657c2a9693ad7bfe2d69fec1c333c5"
+      },
+      {
+        "source": "openapi-yaml/insights.yml",
+        "sha256": "c9f940de7717c1369c562cec80b73548239b1b5503ded1f2f8cdf9bb38d6d76d"
+      },
+      {
+        "source": "openapi-yaml/monitoring.yml",
+        "sha256": "cbca570c4866197a314beea955515f07db66e240a077ec0391dd196d6879c71e"
+      },
+      {
+        "source": "openapi-yaml/personalization.yml",
+        "sha256": "2d57fdc6804d3e894b0f5e6e91ccd8b047580172bc693b8b776f587707860388"
+      },
+      {
+        "source": "openapi-yaml/query-suggestions.yml",
+        "sha256": "608481c3328225d7bff62f415e8151a5763a1485da65857a7e7041adc2256025"
+      },
+      {
+        "source": "openapi-yaml/recommend.yml",
+        "sha256": "a608b33e0af912fa24982b5014b3e7772e8a69fc8bea670e2194c143a182bcfa"
+      },
+      {
+        "source": "openapi-yaml/search.yml",
+        "sha256": "9182da051a2026a83aa764fdf3d46da85fe0f21ee490599890bc320112cadf27"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.anthropic.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.anthropic.openapiclient.git",
+    "revision": "21282d92bf80f68358d8a5c37f889b8e3a82042e",
+    "directory": "Vendors/Anthropic/soenneker.anthropic.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "bf9b685d114a8c60442fa6d9e01286cf36c231ad349e209ed8b6dbe01d91b5fb",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.apollo.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.apollo.openapiclient.git",
+    "revision": "ededb0d8d20b4037d0dd94f85bfd224542c2b2d6",
+    "directory": "Vendors/Apollo/soenneker.apollo.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "2caa89ab8f3d7aaa866b68395b7e98fd951fc183e0c26bedd8b88d1dd56fe0da",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.asana.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.asana.openapiclient.git",
+    "revision": "5d6495c1f03d447787d92c7afe84cac10919a47b",
+    "directory": "Vendors/Asana/soenneker.asana.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "4861858c3bb2177c0162a7c180c9a6c3d3fe410c97cd4e18a702359c5b5b5453",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "1dd2b46f72fba8f9e878ded0c3baa18a334efaffc975a2495e0920eb5e5ae133"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.attio.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.attio.openapiclient.git",
+    "revision": "9ac380101b30fb66f21ff735d31df031d330cda2",
+    "directory": "Vendors/Attio/soenneker.attio.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "9384ff12faf17eacfee6db8b9113515f6627d4095b0d58687c56f2eb1e0a8ea9",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.bandwidth.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.bandwidth.openapiclient.git",
+    "revision": "19657196c2580e16e02ced9889eb17c8e0dadc5e",
+    "directory": "Vendors/Bandwidth/soenneker.bandwidth.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "e1a672fce01b7fdbc89cad1262678f5788596e6ac1ed36f1f4f37673f346c7b7",
+    "additionalSources": [
+      {
+        "source": "openapi-json/accounts.yml",
+        "sha256": "fdb075af870f45f6df10f4cc43b2ae32b36fe0d2f6ea64d14277967506d195ad"
+      },
+      {
+        "source": "openapi-json/active-call-info.yml",
+        "sha256": "075ef766c76248db7168d038bccfd6478e1014845fe816954f0d49193e16c60c"
+      },
+      {
+        "source": "openapi-json/applications.yml",
+        "sha256": "98a8c61d99c63ae18282e68ea4512bfb06eafcb0765d07121788cd5e02baed1f"
+      },
+      {
+        "source": "openapi-json/audit-log.yml",
+        "sha256": "6e7b1c306b9d6a3ff98a14b67720b0284ea7d4e3aab7878bbe8f763bb41ed3f9"
+      },
+      {
+        "source": "openapi-json/auth-service-oauth.yml",
+        "sha256": "db11977346c4f0e8eba8ef4bb83a35c2fd2fe41610a25c9d59ad3f4f79e03ddd"
+      },
+      {
+        "source": "openapi-json/auth-service.yml",
+        "sha256": "62e1c50d770fa5abc88f34318069533d58217a820a6a7695e90671c967812605"
+      },
+      {
+        "source": "openapi-json/billing-model.yml",
+        "sha256": "bd00e83145b799672d37efabd15c9e9567fc47853cee489ab123460c8f5280ee"
+      },
+      {
+        "source": "openapi-json/brtc.yml",
+        "sha256": "22e99c553906d7a65fb90724ece2c0babaf5ce2eb739fb56bc4dbe7a667ae394"
+      },
+      {
+        "source": "openapi-json/bulk-portins.yml",
+        "sha256": "4679aef423e87d33433642a13f7e340e3c6e6211ec3d4ef3c12e92641594ee75"
+      },
+      {
+        "source": "openapi-json/cnam.yml",
+        "sha256": "2d239383fadc1302b7b0f9f5e18de5593c0fc9cbdce8babfc129a59a5fdad022"
+      },
+      {
+        "source": "openapi-json/dash-notifications.yml",
+        "sha256": "07c750830cbd30955cb11649281047af66e03272487e96749904902519ec3905"
+      },
+      {
+        "source": "openapi-json/dash.yml",
+        "sha256": "b404eb182bccfdc61f4d5dd473d8a9119a8331c5113b6553cfd327b1aba6c980"
+      },
+      {
+        "source": "openapi-json/emergency-provisioning.yml",
+        "sha256": "8db33e0c2852dd955a4dda715441cab05fdb9c04944bcebfb2b1c40a57bd239c"
+      },
+      {
+        "source": "openapi-json/end-user-management.yml",
+        "sha256": "ad5a4057145b97db76f38e5c81ace9804a9761bff243456dec9a49a7acda4d63"
+      },
+      {
+        "source": "openapi-json/global-beta.yml",
+        "sha256": "60afe138f7dc02b74456893e0b15c1d921b7678adc68b907d5924441a6481599"
+      },
+      {
+        "source": "openapi-json/global-v2.yml",
+        "sha256": "0026a642b34470d8c720b013161eac16542930c7a700d5b9354acef815cc3dea"
+      },
+      {
+        "source": "openapi-json/global-v3.yml",
+        "sha256": "3bb3f82e6f9f29045e54817b24a250186828dcf8c263be7e9aeeba740497106a"
+      },
+      {
+        "source": "openapi-json/global.yml",
+        "sha256": "53e58da58bdf1f316d0be3404070b6c17eff81bcf35a3d8f7978b9211ecd9adc"
+      },
+      {
+        "source": "openapi-json/hosted-number-management.yml",
+        "sha256": "0a48991ec0b29d0ce7631191b5afe32b9c88a039c42051a352526a6a7a69b392"
+      },
+      {
+        "source": "openapi-json/insights.yml",
+        "sha256": "125923684aeb27c5d35fed91c47e255263c8a86b1ccfd1651cb0c93471f35104"
+      },
+      {
+        "source": "openapi-json/line-features.yml",
+        "sha256": "b02bb524052fddf9fa65db3a8712754feb470ef6f3ea80eb9190b279543e6c77"
+      },
+      {
+        "source": "openapi-json/lrn-config-service.yml",
+        "sha256": "a47ae0c2d31ae77e90b8505d4becf686677bc880a9285f8b5b25f407881cd3df"
+      },
+      {
+        "source": "openapi-json/messaging-international.yml",
+        "sha256": "ab9bcbc3cc67bdfc9b725f247ab7e3755ab86123993fba828062a41c5eb1325a"
+      },
+      {
+        "source": "openapi-json/messaging-transfer.yml",
+        "sha256": "8de788a4bf6087249e04a462734ac2a393e060a2d3d3b506fc94cd3bee47ff08"
+      },
+      {
+        "source": "openapi-json/messaging.yml",
+        "sha256": "eee0cff27c38c337707a43075e8299d0693e4564ba7f95c1a50c238eb316e105"
+      },
+      {
+        "source": "openapi-json/multi-factor-auth.yml",
+        "sha256": "574f1b8e54d5618a2708b63c983f2c394939f40e8dac9e45f92c3c5a22199f30"
+      },
+      {
+        "source": "openapi-json/my-numbers.yml",
+        "sha256": "8e435c899f2f1c51d26a26791840a6d608049167ff208b3960664e53c96cbf45"
+      },
+      {
+        "source": "openapi-json/number-acquisition.yml",
+        "sha256": "b8e8c86d51f8bb1af7dfb069f3494ac9f57b5732f3282dd175827851539d7bcb"
+      },
+      {
+        "source": "openapi-json/number-management.yml",
+        "sha256": "478b0011e0b39a401a367d71b13e8aa6d949a7532482761a34f0ad95a18fd28b"
+      },
+      {
+        "source": "openapi-json/numbers.yml",
+        "sha256": "88b384d8bdad8ca61c5b4537ac3afcc92ad7a2a537e782eb174b65c5334a8e57"
+      },
+      {
+        "source": "openapi-json/phone-number-lookup-v2.yml",
+        "sha256": "0e89e3589d4f73a29dc81b1d44cca7f1a3d3e2897ede93b6f7efcdb0d9fc5c3a"
+      },
+      {
+        "source": "openapi-json/portins.yml",
+        "sha256": "7933dd7f5d926492f360c1b1f120d3237d2e81165c27f262cd01ca3636a71730"
+      },
+      {
+        "source": "openapi-json/portouts.yml",
+        "sha256": "98adcc1c85f48702baf8045f37d435c1f6d48aa468266bf327c1171e3bb0a1ed"
+      },
+      {
+        "source": "openapi-json/product-settings.yml",
+        "sha256": "4f30207443c5519d14b60dc367865b00fea34a61f8c9cc777872e3a55fa6d00c"
+      },
+      {
+        "source": "openapi-json/psap-alerts.yml",
+        "sha256": "05237692adca034f5bef264d83ca06833116be80a3f54f333ea51e51be664fb4"
+      },
+      {
+        "source": "openapi-json/shortcodes.yml",
+        "sha256": "0ff80036c5b4e01cf50626faf3081605cc934dfb4984002117feb48fda1b389c"
+      },
+      {
+        "source": "openapi-json/subscriptions.yml",
+        "sha256": "a6085be11c0786e3eb422252757afadd218c79806abc0814088d231c0465c29b"
+      },
+      {
+        "source": "openapi-json/tendlc.yml",
+        "sha256": "7672149482844f262afd2060a69ddaf3a0716eb5ba38300ae5f55a27e6784e43"
+      },
+      {
+        "source": "openapi-json/toll-free-verification.yml",
+        "sha256": "4c28aee48d3b3ce823a7739590c2e717f547d54be98ef626f2e040c239c7b0f8"
+      },
+      {
+        "source": "openapi-json/user-management.yml",
+        "sha256": "3c6af38db273b23d86357a147af7df2a967533aabb0f6ffedf7d6f7f1d45e3ca"
+      },
+      {
+        "source": "openapi-json/voice-application-management.yml",
+        "sha256": "a3effaab5bd9df004bfc9f7f00960b669dbf79c11574601f26039da473059c03"
+      },
+      {
+        "source": "openapi-json/voice-config-service.yml",
+        "sha256": "983b739208d6602b3b3f54a4f8537ff3cfa6bd4842ba19451ef9917db6af1c08"
+      },
+      {
+        "source": "openapi-json/voice-config-whitelist.yml",
+        "sha256": "0ec30e6d1f425754c8d087b5394b1fe15bd865545bf3d6ccefb5dce46fb08f55"
+      },
+      {
+        "source": "openapi-json/voice-debug-logs.yml",
+        "sha256": "329fea9b6fa93729a5a99eb02b7cf029f2aae94de223d8f3ef10595181005a26"
+      },
+      {
+        "source": "openapi-json/voice-integrations.yml",
+        "sha256": "fc069cab3e40b3e07f7eff97e50f9ebae2bdd145a6098bdfdf6b7c7bfac8b9c0"
+      },
+      {
+        "source": "openapi-json/voice-phone-numbers.yml",
+        "sha256": "32502aae750ac7b175788dd7bdd9132d1eae164199b93785172d23b61c2573fd"
+      },
+      {
+        "source": "openapi-json/voice-stir-shaken.yml",
+        "sha256": "f3d2e2612379373c4d48e4cca661ff20deda29dbfa3baf11d060009306a42b4c"
+      },
+      {
+        "source": "openapi-json/voice.yml",
+        "sha256": "8c58fe5bba4c9ea95f230d5b3e1ae46584895594256f90d99767024c7b103601"
+      },
+      {
+        "source": "openapi/accounts.yml",
+        "sha256": "080e66e8115d00541c34e35a2f90938b2c69d3827212ef292b76cb721cf56515"
+      },
+      {
+        "source": "openapi/active-call-info.yml",
+        "sha256": "1d1091201d37aca96afbe855fd19c9e948adfc0aa3c6ad336c00cc23b1951844"
+      },
+      {
+        "source": "openapi/applications.yml",
+        "sha256": "872236f81cda4a5b562ccf72fa91f0a462521320c100ff41a6b8be879101bcc5"
+      },
+      {
+        "source": "openapi/audit-log.yml",
+        "sha256": "96b433d31372e18d1c10db5e21b73a4f2a890aae657e75be3da16d8450c88cbb"
+      },
+      {
+        "source": "openapi/auth-service-oauth.yml",
+        "sha256": "4df9bbd467128172576546be8a2ed683e957e726ac2a4fa0677c9477a5956882"
+      },
+      {
+        "source": "openapi/auth-service.yml",
+        "sha256": "f325754c1af16d7364f68d359d0423dc362a85f52853443c9f786bf044c85ed1"
+      },
+      {
+        "source": "openapi/billing-model.yml",
+        "sha256": "f38f2af54cd2c704898703f744e7a028584822a15b81ed50a3add580d3f38b41"
+      },
+      {
+        "source": "openapi/brtc.yml",
+        "sha256": "b3a8eb75454ab773fb4659f298a6b5a52cb5d3954a5bc0d5696326be97b6b3ea"
+      },
+      {
+        "source": "openapi/bulk-portins.yml",
+        "sha256": "d9bc0a534a0ec89e72792b2647f457860469d9e72a95a78aa190867844979e59"
+      },
+      {
+        "source": "openapi/cnam.yml",
+        "sha256": "d575c2381c0c56ae0618bd374612168d23ec2f879d56150304b012edacf247f0"
+      },
+      {
+        "source": "openapi/dash-notifications.yml",
+        "sha256": "c8ef9f725d961fdd7063faa04007fd58499ed3827c229b90e6f226a301028018"
+      },
+      {
+        "source": "openapi/dash.yml",
+        "sha256": "9d46fc91b8f81bc3722f823273e3bb1beb4dee3f27dbe3f1364c8369fb417e7c"
+      },
+      {
+        "source": "openapi/emergency-provisioning.yml",
+        "sha256": "d63222175ca42af678a54e7b452b8a137e58f995f4e675d573cbf9eb008ad2ae"
+      },
+      {
+        "source": "openapi/end-user-management.yml",
+        "sha256": "040e37faec43fb2ac946c5e1be866d16a13f924d68e6d72f24d8f7997dd6813e"
+      },
+      {
+        "source": "openapi/global-beta.yml",
+        "sha256": "c0f3f9f0d1cd14c92ddd4fc40b74d2d054796e0731f0985aa7d22e0dd2a7ad5d"
+      },
+      {
+        "source": "openapi/global-v2.yml",
+        "sha256": "4d6d1d4861771f706c5857368fe5c2962a7046d27298a8af07cf22877341e055"
+      },
+      {
+        "source": "openapi/global-v3.yml",
+        "sha256": "a9a3c01ec04be003397df6e00aa468f0589c17731ff2d0ddfbbf3aa9f7f62ed5"
+      },
+      {
+        "source": "openapi/global.yml",
+        "sha256": "5fd7fa9807437012808cb54fcf014de834c8f1441a5b66b8085f1c390a0dc158"
+      },
+      {
+        "source": "openapi/hosted-number-management.yml",
+        "sha256": "cbd4e6e63ec68cd069946261731668edfc518eaf53b180c4e530112a3aedc380"
+      },
+      {
+        "source": "openapi/insights.yml",
+        "sha256": "d03f7034c9e5e7d5cc5668c6cebc80f078adc92c6f8af9bf6d9738631a25f46f"
+      },
+      {
+        "source": "openapi/line-features.yml",
+        "sha256": "bbc7794bd0b55dab0d2551ff1a3d839af0655205316f32744204c0285e227fb1"
+      },
+      {
+        "source": "openapi/lrn-config-service.yml",
+        "sha256": "f558cc2c42641157d51bc61166c8fa5d6658ac9d41302dd17bb4cb1722f818b2"
+      },
+      {
+        "source": "openapi/messaging-international.yml",
+        "sha256": "5aaa152fc275a0eed3f08fbd2c68251cd4016e3d9a6ad04bf6b59fcc78a18f95"
+      },
+      {
+        "source": "openapi/messaging-transfer.yml",
+        "sha256": "126d567bc6c26d51fe9b144553500378af9ba595a1e532d13876aa7e91bf7ad7"
+      },
+      {
+        "source": "openapi/messaging.yml",
+        "sha256": "31e384bd8d0047dced2bbf017c91a9ba24da959b325cf0a8f37c09184a9abacb"
+      },
+      {
+        "source": "openapi/multi-factor-auth.yml",
+        "sha256": "afea774fae0cd699dd2fcaf98779f5259f70aa3c01891e13528c45bea5418702"
+      },
+      {
+        "source": "openapi/my-numbers.yml",
+        "sha256": "a443c20a61c63661b266de409606cd152c3325e96e92c45e6e20064a8f7e3aee"
+      },
+      {
+        "source": "openapi/number-acquisition.yml",
+        "sha256": "63177231668b6100989218510b341db347c5bc899db8125ff213feb568f6f3aa"
+      },
+      {
+        "source": "openapi/number-management.yml",
+        "sha256": "75055829c1fed25b8aa107b37a3f76d34029f92eaaf0ad6162a49d0e036d4d3a"
+      },
+      {
+        "source": "openapi/numbers.yml",
+        "sha256": "c21fb11cbf6fed7a53df52d2c906bf661055c8ead991677edc341dd737c51e62"
+      },
+      {
+        "source": "openapi/phone-number-lookup-v2.yml",
+        "sha256": "554f7b06c76f5e7b4b9711c50df88b97c95efefc3e6f485f93b7166d15962ad3"
+      },
+      {
+        "source": "openapi/portins.yml",
+        "sha256": "25ab8499b597f9076e082cc8d5310ba5970752914f65948e55e50cf7d7ece667"
+      },
+      {
+        "source": "openapi/portouts.yml",
+        "sha256": "a01f7a21927c800765db4ccd4b0176660ecd69c8a3c17336d1eaf5c685f29731"
+      },
+      {
+        "source": "openapi/product-settings.yml",
+        "sha256": "ce691715fd8c32065fd786e86e2149c0f22d7eac76683e98a364e8cbdba3d1c5"
+      },
+      {
+        "source": "openapi/psap-alerts.yml",
+        "sha256": "625dff33e6d23e6d429fdfb6396d9469fb89aa727a9135016f108d4ef16ba8ab"
+      },
+      {
+        "source": "openapi/shortcodes.yml",
+        "sha256": "87a2df15ab4021485446c476fcc36337b08562e74d9bc6996e74933d264d9b1e"
+      },
+      {
+        "source": "openapi/subscriptions.yml",
+        "sha256": "292144285b7d428bf8e2c0cb58930d8a5a94262d1143bf763fe157a028265cf0"
+      },
+      {
+        "source": "openapi/tendlc.yml",
+        "sha256": "549175788fa8d37bd61c498126a1cbf093af7b1ca386c6c146fe98e57d6f1312"
+      },
+      {
+        "source": "openapi/toll-free-verification.yml",
+        "sha256": "bf60a0f56ed87595ec2a3fb946e383a3436ce6b103b5a13cca25d493010f238f"
+      },
+      {
+        "source": "openapi/user-management.yml",
+        "sha256": "af357a1546948ccbac5a5e52165a226d81e4ac22ee7587192a844f4bfb85d81b"
+      },
+      {
+        "source": "openapi/voice-application-management.yml",
+        "sha256": "46957d0217325e0263cd183a6949c2ef516412732b13558fa8cb7c5431af5a6f"
+      },
+      {
+        "source": "openapi/voice-config-service.yml",
+        "sha256": "94c34459731714993d87931ecd33a0001ec6d63fff7aa61925efbf00958217fa"
+      },
+      {
+        "source": "openapi/voice-config-whitelist.yml",
+        "sha256": "58505782f59b6765ea72211c09e7e0a10f9419156d0af47262cf141fd83ea47c"
+      },
+      {
+        "source": "openapi/voice-debug-logs.yml",
+        "sha256": "1b5cfd30bd50b1a11fc35512aa1df7b2a33109b941c457f0499e6bbe8789ad7a"
+      },
+      {
+        "source": "openapi/voice-integrations.yml",
+        "sha256": "8467a6c372d6bbe04cb53300b98bbba45349f22d3d383c060d71c3c79982f231"
+      },
+      {
+        "source": "openapi/voice-phone-numbers.yml",
+        "sha256": "480cc4a828fe112fd50c62abce5043dac76c3ded4d0cab8db8029a56b1a1e28c"
+      },
+      {
+        "source": "openapi/voice-stir-shaken.yml",
+        "sha256": "14509bfd7e32446fcb1f81cb6225b9f1d211695ec2d2a39286f5d3ce2052c395"
+      },
+      {
+        "source": "openapi/voice.yml",
+        "sha256": "8ae3d3766c51a239dfa093df0cbe7d8061cf111e9dbd8db62b95245a2365a416"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.bitly.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.bitly.openapiclient.git",
+    "revision": "6aa4a8343e7a153da13a79fa3764254831ed3fb4",
+    "directory": "Vendors/Bitly/soenneker.bitly.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "7455214c235b9acf3bca2928e53431c8b311919178838ca00c6e78b2fcbd4678",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.box.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.box.openapiclient.git",
+    "revision": "5d6f6178f09bf871386c2d16db16ad6ef4238c08",
+    "directory": "Vendors/Box/soenneker.box.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "47cdf4bcbc7cdebcb042f155f13a8413bf913678489bd15b263b65f49e841ba1",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.bunny.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.bunny.openapiclient.git",
+    "revision": "5a1244e315f70a07c72052133c8278b807088d5b",
+    "directory": "Vendors/Bunny/soenneker.bunny.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c8d78c2cf8d305f656364947ef8f9fa400caee96dd894182c24cecbe79a5a0d5",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.calcom.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.calcom.openapiclient.git",
+    "revision": "448c46d136311d269baed906a48c3df7284ea554",
+    "directory": "Vendors/CalCom/soenneker.calcom.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "d5f2dd5f993590b95a3654182cd302bc1001c3d4ec5c6aac3a2b5807df3f9ebf",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.calendly.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.calendly.openapiclient.git",
+    "revision": "cb9bb1ae71bb4bd8b94eb51c551c656f01e0f776",
+    "directory": "Vendors/Calendly/soenneker.calendly.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "5089dba4ac3b1698ecb51dea117faa23808c02e6184ebf1773e0885c011ba185",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.canva.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.canva.openapiclient.git",
+    "revision": "7fb2b5bd0dd3c99309f1d837bb07785c3577e42c",
+    "directory": "Vendors/Canva/soenneker.canva.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "fbfcedf8bbe7aeaef3c394ccad3de96732cda7c8446905a1544edca82ec925bb",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "4844ba87a854130621f7a7cb96b2a6335a23a101bc0a4204e64d384f76caa677"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.clay.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.clay.openapiclient.git",
+    "revision": "17f7f56b6456ffd79464a84591ad745063bfa679",
+    "directory": "Vendors/Clay/soenneker.clay.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "755001306740e0385fd5841d5bb8111effd29be6d9081738a846c5485a4851f0",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.close.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.close.openapiclient.git",
+    "revision": "a8b4c6014256a9f6883673dd91017a6387b5332b",
+    "directory": "Vendors/Close/soenneker.close.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "755f731821b13fb2c251687c377e61573d8b63b5bda3322d44a8b7160766eb02",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.cloudflare.clamav.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.cloudflare.clamav.openapiclient.git",
+    "revision": "625b6ac7ecd92c74670df656025ef904984775fa",
+    "directory": "Vendors/Cloudflare/soenneker.cloudflare.clamav.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "fd2a4840f30321c9f9da313fec3687b1ded42d5571bd3450217cc1f5e555571c",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.cloudflare.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.cloudflare.openapiclient.git",
+    "revision": "d6189ef7f51addfd58c63412ee766ec102793ee1",
+    "directory": "Vendors/Cloudflare/soenneker.cloudflare.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "cda658b222f273d562d6178a32df6537168eb7bbad1a8bda50b64621db419b18",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.cloudinary.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.cloudinary.openapiclient.git",
+    "revision": "59b9286788d74be7a8a2530d59a2280723cbe549",
+    "directory": "Vendors/Cloudinary/soenneker.cloudinary.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c14101d34e8252158e89e58dfb4e3402d94d439a2b188e54c64e18cf61b80b03",
+    "additionalSources": [
+      {
+        "source": "openapi.yml",
+        "sha256": "0d072bbcd30c717d2e1121a5fabd0afbc73dba9c85dd26ad8e8a869e88f288a1"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.cohere.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.cohere.openapiclient.git",
+    "revision": "aa0bda4905ab81f1e0ac59c00ea1145e49501af5",
+    "directory": "Vendors/Cohere/soenneker.cohere.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b7c87f643438c810a5f231e915c5afaba82d0f6cc827828eb73fda1f9fcbe635",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "25184037512d4149d2e2ded604bcf00d748a8fe23f979534020a9f0036fd2e71"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.coinbase.openapiclients.cdp",
+    "repository": "https://github.com/soenneker/soenneker.coinbase.openapiclients.cdp.git",
+    "revision": "6db7a817958ace0e52aaba297fb0c9392ef74316",
+    "directory": "Vendors/Coinbase/soenneker.coinbase.openapiclients.cdp",
+    "source": "spec3.json",
+    "sourceKind": "original",
+    "sha256": "70ac0ee2824eb4998105b2c185f5dc4e6f34cad47ec3e530d17acbb925d178a1",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "fa99d7ef723f68ffd58be2db9075fdbcf8c0c15a0927b92119c1b383469d0379"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.composio.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.composio.openapiclient.git",
+    "revision": "f0fa556f20a5e90182511b729f846e676982dcda",
+    "directory": "Vendors/Composio/soenneker.composio.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "08d9850171a6f3fa98068fe5e317d8af772ca534769bdc2ba55a3b5548208f2d",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.context7.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.context7.openapiclient.git",
+    "revision": "50d13bb37a74488264231acfc6279a0006a4d04c",
+    "directory": "Vendors/Context7/soenneker.context7.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f5831eae055c5c3505a1cabbb1ea526cbe8777b5b9dbfa2fa397f8f2b827d8f9",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.copper.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.copper.openapiclient.git",
+    "revision": "db7fe762423f2cace2a9acf6aa7fc195d4072230",
+    "directory": "Vendors/Copper/soenneker.copper.openapiclient",
+    "source": "openapi.converted.json",
+    "sourceKind": "original",
+    "sha256": "742534d4dcb47013907f7520d09084f23c25457f3c0619057ee95f2080fc0180",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.cursor.cloudagents.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.cursor.cloudagents.openapiclient.git",
+    "revision": "87e5e813c946e975d7097d7c372d88f7b09c7ec8",
+    "directory": "Vendors/Cursor/soenneker.cursor.cloudagents.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b0e1c71f071aa77532bee01b4f2b5f764ed14285aaa6d8d72138db1f27a9c438",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "dd3b836c4e95ad68892274280e53c348619cdd2051988793d2a85e8213d9a489"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.devto.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.devto.openapiclient.git",
+    "revision": "0b6c3e487abffc3fcc9af8ba3f3cf712f1dd9a26",
+    "directory": "Devto/soenneker.devto.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "8fe2ae044cd657f8fb2257b21e294a96df5f7b1c8a8b74b2955ecf19270562b8",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.digitalocean.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.digitalocean.openapiclient.git",
+    "revision": "5d924f936ef7f8c9f342759247628285670eb0ad",
+    "directory": "Vendors/DigitalOcean/soenneker.digitalocean.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "1f122e3d1f161540514829336dc4d0c080add1450d6445b1ce2cfdde4fe2c86d",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "41dec0204bc7a5b854ae256cdd05fa1c05a4f10827ccb7f57fff1a48ee034039"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.discord.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.discord.openapiclient.git",
+    "revision": "6b56cdc88456ffb6163147a59cf20be6f4caa9e1",
+    "directory": "Vendors/Discord/soenneker.discord.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "281a2bff563d77a19e51fc3bf8bbe3ebcef28e3dc86684ae395b06ac51ba7484",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.dnsimple.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.dnsimple.openapiclient.git",
+    "revision": "748fd2dca47b4e4f0c40018ae96cb6f2e086fdf7",
+    "directory": "Vendors/DNSimple/soenneker.dnsimple.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "390a448991ed5d02cc5cdb22bdb318aba23facf3f3a8eb4fe634c440a5ff301b",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.docker.hub.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.docker.hub.openapiclient.git",
+    "revision": "7d149756fc05d13b1c69a1e8c0ec9664c73e1e84",
+    "directory": "Vendors/Docker/soenneker.docker.hub.openapiclient",
+    "source": "openapi.converted.json",
+    "sourceKind": "original",
+    "sha256": "d90840672fd41d41d6b5b2180623dbbb75f012319d90dd0679e08319774c9d33",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.docker.registry.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.docker.registry.openapiclient.git",
+    "revision": "9b69aea033ffbc9c694ec38ba6db1581c9f3e064",
+    "directory": "Vendors/Docker/soenneker.docker.registry.openapiclient",
+    "source": "openapi.converted.json",
+    "sourceKind": "original",
+    "sha256": "ec930e7e082b54d3038d67e9c9c76e87c700d03319342214d3d38060c896f2c9",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.docusign.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.docusign.openapiclient.git",
+    "revision": "0e674f3cd5a399189c8e5bac0a306407bd370000",
+    "directory": "Docusign/soenneker.docusign.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "77f1998c313d69701eca52cb80e860c2a4b7e97bdceea11fd0427f9405f06c2e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.dropboxsign.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.dropboxsign.openapiclient.git",
+    "revision": "e301d7fcc7e54c6275a010a4120e74459fd003a7",
+    "directory": "Vendors/DropboxSign/soenneker.dropboxsign.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "a31077d57a55cc277c7da6879e380f75b4db70a631821edd3ee470521dfeb3fd",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "0887ba8bdd7547c1951e46c8b31a7733e84113f33b72281f1c0f025537a030ff"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.elevenlabs.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.elevenlabs.openapiclient.git",
+    "revision": "07f4f04b1649d918ee22a52cb21cdc5703668861",
+    "directory": "Vendors/ElevenLabs/soenneker.elevenlabs.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b402c33b07b44113faa2afd2e828027f0f9be11789a708db3bccb98c21c486dc",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.facebook.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.facebook.openapiclient.git",
+    "revision": "6d44207fcf976cd3458b1d26d18821e292981187",
+    "directory": "Facebook/soenneker.facebook.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "ed1b2be9092b6818cc89055ebdf02225e20783f14fa08eaef6cbd79859ef14ba",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.fastly.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.fastly.openapiclient.git",
+    "revision": "21f1c406122d49ca7e5a27cb0b1474ec9b6272ce",
+    "directory": "Vendors/Fastly/soenneker.fastly.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "faaaace64d21f504d640fb1644954e703c84d40d76fe1f57d905944a91a08b71",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.figma.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.figma.openapiclient.git",
+    "revision": "ff90aafe15a2e5ded64bf474cec0a9ba3470254b",
+    "directory": "Vendors/Figma/soenneker.figma.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c05661575ede47290f3d1b50140c8034d5662d4caf29d3c7b68499256f9ecd16",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "0957c718af4165c15846fcee493f942fe07a6ee247303ad960a2fc77d226bb2e"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.firecrawl.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.firecrawl.openapiclient.git",
+    "revision": "7fbd043aee93a2d559e436a0da1782020ad89d77",
+    "directory": "Vendors/Firecrawl/soenneker.firecrawl.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "ec8f951227320ad879e02c575d8ba74fd9420cdccdd0884932739d507512c5af",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.fly.machines.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.fly.machines.openapiclient.git",
+    "revision": "ec4cf795d79b8ed11593e171dc655640e502db8d",
+    "directory": "Vendors/Fly/soenneker.fly.machines.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "0394571a4e33878bd7c2fbc506b43f402990d0b66ee3a9c8a58fe03b417ef17b",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "67b29e03b54c64d112c9ad8168c3e4aecda6906dfcb55035c1f2354ebd9e7b83"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.github.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.github.openapiclient.git",
+    "revision": "9c7e051a0c9c25cf9bf53a20243be23eb12ceb41",
+    "directory": "Vendors/GitHub/soenneker.github.openapiclient",
+    "source": "api.github.com.json",
+    "sourceKind": "original",
+    "sha256": "917f3119d8f7afd5287136ed9ada3142d671534e9c309f315260332348693e13",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.gitlab.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.gitlab.openapiclient.git",
+    "revision": "3571c1a15c5c412a791467d8a66d59289968bd89",
+    "directory": "Vendors/GitLab/soenneker.gitlab.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "08675245b935aaded7dec85dcbe765b9a66056806360379aca37fab6bf9fbcba",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "530d830217abe1ac9e1019ff2ec69e60b2fd9f1a81909b3afd9c52543e54946e"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.grafana.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.grafana.openapiclient.git",
+    "revision": "6dd60a1651e104ac55181a4e55bd47025b1708e7",
+    "directory": "Vendors/Grafana/soenneker.grafana.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "89ff3e97e4d0e47ddd5a0bc757f2be2c909e655d275486a776a85fbde44dc661",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.granola.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.granola.openapiclient.git",
+    "revision": "47e0a6571cd8f6d714c4b9869024782f591f4043",
+    "directory": "Vendors/Granola/soenneker.granola.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "409b491fd084c2e7fdf681dc0b4c6d92b02c3ce8acae49e6327d3bf854aee39c",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.groq.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.groq.openapiclient.git",
+    "revision": "682c4b646e459bcd61f3541d3664b60a8fae24f6",
+    "directory": "Vendors/Groq/soenneker.groq.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "7dfa3d89e6283bcb1ab39f7eb6676a6647755ccc86a2fff7686e3fab54ad8893",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.healthsherpa.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.healthsherpa.openapiclient.git",
+    "revision": "e48e30f20398dcd8189d6854132291c28a8a5c44",
+    "directory": "Vendors/HealthSherpa/soenneker.healthsherpa.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "eda31e8f91c8a63430d463021c3b127c9544a81be444bb1646df26e12d9f80d7",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.highlevel.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.highlevel.openapiclient.git",
+    "revision": "2b5b0f9c68612743cb186285a0e60abfd2da08e6",
+    "directory": "Vendors/HighLevel/soenneker.highlevel.openapiclient",
+    "source": "apps/openapi.json",
+    "sourceKind": "original",
+    "sha256": "a0cc8ac53891180ac561d8ea594d03429f8b21adf03dfe51cbbfbcfc0661320a",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.hubspot.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.hubspot.openapiclient.git",
+    "revision": "2ec36f8155c31fdcd82661610b9ac5b8a9fd7d98",
+    "directory": "Vendors/HubSpot/soenneker.hubspot.openapiclient",
+    "source": "merged.json",
+    "sourceKind": "original",
+    "sha256": "b88b7377430e7578a954c92f365ade6f3028d0afadcbcccd8b1594cfff26ef22",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.huggingface.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.huggingface.openapiclient.git",
+    "revision": "624ee5e1c09176bfa248189e792044f1ab64147d",
+    "directory": "Vendors/HuggingFace/soenneker.huggingface.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "9c6792f8e0e5b9b69d05ed6c493521cd9cf31a45ef8c377115435de09368b6a8",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.incident.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.incident.openapiclient.git",
+    "revision": "7cfd6de6f3591eafb1fb6c52bca8841c4a8dc3b8",
+    "directory": "Incident/soenneker.incident.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "9b6be70b5d4d2a3b146bd1e0ede145d441858cc18a63d552d05bbcfa3a83dc80",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.instagram.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.instagram.openapiclient.git",
+    "revision": "8735df50c498cf00e8fdf019f4dc198376c3ee7f",
+    "directory": "Instagram/soenneker.instagram.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "21939d1c917735883fee3d5b2f40d4d0f848b185b8bf5d5668bfd0a7a3b5fd4f",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.instantly.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.instantly.openapiclient.git",
+    "revision": "7bd758030238df94a8d72e9f9c231adb35d221f3",
+    "directory": "Vendors/Instantly/soenneker.instantly.openapiclient",
+    "source": "api_v2.json",
+    "sourceKind": "original",
+    "sha256": "68abd2531450501dde780c08ab091a081930cbfc5bbd9f5d88c84b7770167521",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.intercom.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.intercom.openapiclient.git",
+    "revision": "8ff0985e642e07045fa56518141606da53123887",
+    "directory": "Vendors/Intercom/soenneker.intercom.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b9ba9c94502ce8fcec013b6d2355120cb039bb7289befa87ca5578c72bc9cc75",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "9861295533cb2423992425ea69addb1259563852d2e688e0b7d598604bc5d506"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.jellyfin.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.jellyfin.openapiclient.git",
+    "revision": "33664c27b4530055eb64e3533a46749de4dc0d44",
+    "directory": "Vendors/Jellyfin/soenneker.jellyfin.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "02a6064916b7e08f1f1d8d7ffc1fb1c7623df0e378729fcd7fd353766868036e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.jira.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.jira.openapiclient.git",
+    "revision": "dcedfd9262179feee77d3d53f1d040e23a3dee36",
+    "directory": "Jira/soenneker.jira.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f22db3da5febbb9a8184a43161eefdf712f6950c614910db7aa90854a5078859",
+    "additionalSources": [
+      {
+        "source": "openapi.normalized.json",
+        "sha256": "c086d6953c17295840c76e19ba13b80d69b04ada7fee3ffdc4c46afc7fe2b43c"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.keap.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.keap.openapiclient.git",
+    "revision": "c27270fad2e46946bb50e4c0ddffd16d82463988",
+    "directory": "Vendors/Keap/soenneker.keap.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "a113132fe3667de86aed056d77b78795c01df3783c081d2a4489d852fe3f4e98",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.klaviyo.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.klaviyo.openapiclient.git",
+    "revision": "477b82d9c77d91c65e6b68804112597644e71da9",
+    "directory": "Vendors/Klaviyo/soenneker.klaviyo.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "1b6d93e78dee93bdbf7c1665a4ad278c71fc21267023511d7e7da05438b00656",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.launchdarkly.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.launchdarkly.openapiclient.git",
+    "revision": "45f2e10fd0bd88bdc6d735fd9d786ddc76c58247",
+    "directory": "Vendors/LaunchDarkly/soenneker.launchdarkly.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "77812f37f49a620cd77ad19d144d8e655deda1e2e461441ca40bcdd49bec1203",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.lemlist.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.lemlist.openapiclient.git",
+    "revision": "5f7d9ce4c1d64fce834e2a376ef33ba7cf4ef563",
+    "directory": "Vendors/Lemlist/soenneker.lemlist.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "7aae39c0bc100392cda9d60e8eab43b8fa76b9490f496b01fd3d8a3c0441f212",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.linkedin.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.linkedin.openapiclient.git",
+    "revision": "25ed5556f703d13e31241a4dc3bcc3c1871879fb",
+    "directory": "Vendors/LinkedIn/soenneker.linkedin.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "9564a1ec973ec09295b78d572eec5fe65f0ec097fddb104acd88d815df33d9c6",
+    "additionalSources": [
+      {
+        "source": "postman/ads-transparency-api.openapi.json",
+        "sha256": "44da732bb08823a6a5e08a56869293c6f958ca8847e42f88738167bbfaee5cd9"
+      },
+      {
+        "source": "postman/apply-connect.openapi.json",
+        "sha256": "8ad5ec25662724a82a3d85f540e89d4c31f41449f4776c4d96d4181a18e0f308"
+      },
+      {
+        "source": "postman/apply-with-linkedin-v3.openapi.json",
+        "sha256": "fe9b9e1b50f277c5b274aa4baa74d2bd12b9cfc3f94101412467219a904bc9d8"
+      },
+      {
+        "source": "postman/audience-insights.openapi.json",
+        "sha256": "7ef5e2e55d624d9bd57e73455f7f00dd00330449a0b778bc28a2be720945e99c"
+      },
+      {
+        "source": "postman/audiences.openapi.json",
+        "sha256": "6086f087a71c53399ac60c71fa218b8724fa791625ad6950a2bde1dba6edf48c"
+      },
+      {
+        "source": "postman/campaign-management.openapi.json",
+        "sha256": "5bb947039dcd2c306351189d2c8d640f9a39cbc63066008630961c97fa614d82"
+      },
+      {
+        "source": "postman/community-management.openapi.json",
+        "sha256": "f01ec3b7f1acf6c09686f684da826979cdecc86de5b4ad91b811d0d170696c4e"
+      },
+      {
+        "source": "postman/company-intelligence-api.openapi.json",
+        "sha256": "ba74321868b3c074565b60f61af870373c2ca99fddb505416ce7ebf549b7aacd"
+      },
+      {
+        "source": "postman/compliance-events.openapi.json",
+        "sha256": "074bcaf192f0dc87b3a58cf4e0352eebcd4bbb3608756680e76d11a8d7c73ba7"
+      },
+      {
+        "source": "postman/content-apis.openapi.json",
+        "sha256": "a455be4425539509e6882461d870f45a45e09dba09b3480b86cc78500fecbe22"
+      },
+      {
+        "source": "postman/conversions-api.openapi.json",
+        "sha256": "b71dc6d2633ac0c79d41f246f192a5c7cd2393edfa92be4eca75e788a686920a"
+      },
+      {
+        "source": "postman/events-management-api.openapi.json",
+        "sha256": "9c543c488bc104d38f9b6023e54822f0098ae7f9f15336ba227b452908ee9f24"
+      },
+      {
+        "source": "postman/job-posting.openapi.json",
+        "sha256": "096d88d9fec8ab1d980c93ef836b68251c2f856c03aed1af395c8fa117a2ff2a"
+      },
+      {
+        "source": "postman/lead-sync.openapi.json",
+        "sha256": "24534d56353b7b77ae8e2d41da9a39371183a275c6690292b581c1d5fd9d8fab"
+      },
+      {
+        "source": "postman/learning-activity-reports.openapi.json",
+        "sha256": "17761efd67041b52a28e488896f6e8275b2e411096d91d7111343f5dfc634970"
+      },
+      {
+        "source": "postman/learning-content.openapi.json",
+        "sha256": "f7a61f9689a9a094009fd8bb373f250f72bfd97470d142d187e82d1cf68e6eac"
+      },
+      {
+        "source": "postman/linkedin-live-events.openapi.json",
+        "sha256": "9f86a6c4aaddab5e6cc8a651d022039619cd57b2e838600107bad0a34fefa1cc"
+      },
+      {
+        "source": "postman/lms-api-siteup.openapi.json",
+        "sha256": "80dd02b1bfd3286dcb9f606db7f1fb5d9b15efd5bfedda83153c7a78be409bf0"
+      },
+      {
+        "source": "postman/media-planning.openapi.json",
+        "sha256": "c25f36ba3ff0f1d007eea8eb2f558742e2773c24a96e4d71ab200b91bc623072"
+      },
+      {
+        "source": "postman/pages-data-portability.openapi.json",
+        "sha256": "2df394ddae42103194dfc772b7ac232830d24e45c4f18cb1666a810548c6fdb0"
+      },
+      {
+        "source": "postman/parent-application-management.openapi.json",
+        "sha256": "61e65e97c829caf584568dfade362eae9485d7c0f3b5845f60648aafe99b970d"
+      },
+      {
+        "source": "postman/recruiter-system-connect-versioned.openapi.json",
+        "sha256": "106cfcc63856ac55c20c7b12daea6062a450d6b3d66ac12b86d5862539e9a575"
+      },
+      {
+        "source": "postman/recruiter-system-connect.openapi.json",
+        "sha256": "a2c274e438949f87c4c7faa26c8ed9ade8d67c22dcc0dccb99514a53ce83cf3b"
+      },
+      {
+        "source": "postman/reporting-roi.openapi.json",
+        "sha256": "cf9c58cd4069294ba4cf3d99f02916e0c4eb988b5319354a4ef709652cf62a2f"
+      },
+      {
+        "source": "postman/talent-crm-connect.openapi.json",
+        "sha256": "0788a4d4da9fd812d9268f408976448da1f762b726abf9a2f7464fbc4dbef365"
+      },
+      {
+        "source": "postman/utilities.openapi.json",
+        "sha256": "a78f197f02f2c8c29f0fa82df01b6e230be87db94f58dee92ba8e08a3970e4e5"
+      },
+      {
+        "source": "postman/verified-on-linkedin.openapi.json",
+        "sha256": "12abcb28a13614b4cf5dc0a1ccfb5f3d8ba28822691b6e37134576db2414198c"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.loops.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.loops.openapiclient.git",
+    "revision": "01b0e69cf992dc93a3a5db7adb42730749c28235",
+    "directory": "Vendors/Loops/soenneker.loops.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "6f432417f553fe382f433bbe962c09af8387659fecfb70cd80f01d003b3b0473",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.mailgun.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.mailgun.openapiclient.git",
+    "revision": "ae9c63b0e4f8f6f75970b4baadede63142e0a653",
+    "directory": "Vendors/Mailgun/soenneker.mailgun.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "2aafe4964e4fc68fb3b92be7372a42403fa8500e8c0ae69de8361d392fa6549d",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.make.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.make.openapiclient.git",
+    "revision": "95e8c24de59a274cea3c84625891a97f941cc489",
+    "directory": "Vendors/Make/soenneker.make.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c5db7d5b10cd0a1731f4790c1a98552cd94b0bbd42b27961b497b9096baba3c6",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.mistral.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.mistral.openapiclient.git",
+    "revision": "3aa97ac070dd6fcb6b1c3ce848198e1653f01223",
+    "directory": "Vendors/Mistral/soenneker.mistral.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "2dfa20b3b2934a3a9e3e434da337f0813ba7e7dbcc1b009df92b99e7758639c4",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "08a585fb75bcfa6ff968773134ee00060e0db283fc6b16f421f544e78ba8db92"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.n8n.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.n8n.openapiclient.git",
+    "revision": "77ba233e89eec645e6923f49eeabaec3dbbbcb2b",
+    "directory": "Vendors/N8n/soenneker.n8n.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c80047a86c4f215fc2a6e2c01cd6a7b3fb98728a4f98988095517fe6d9dc5fb3",
+    "additionalSources": [
+      {
+        "source": "openapi.yml",
+        "sha256": "f33305801effecf2c5c1137c138e628f8e0147761d621d741f674030e3c7ccef"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.neon.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.neon.openapiclient.git",
+    "revision": "eb3d5e7f4e0d48f03b02985ae2ec291f387b4ff2",
+    "directory": "Vendors/Neon/soenneker.neon.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "fcc7b2c39f15df03adedf90aa7cde7f1f5e7729ae50b10fd9c7a959f3fb1f82d",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.netlify.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.netlify.openapiclient.git",
+    "revision": "35608e5ca107eaa648aee3b0947acd03e3087fb0",
+    "directory": "Vendors/Netlify/soenneker.netlify.openapiclient",
+    "source": "openapi.yml",
+    "sourceKind": "original",
+    "sha256": "3af3c5d0165ae3be63f1c11373ba5f42d0325c1064759e3cd5a3eeaacff77ad7",
+    "additionalSources": [
+      {
+        "source": "openapi2.json",
+        "sha256": "39db5589cef5c03225a13eed7f46847e5a8aaf36d53da40f238c25818b4218f8"
+      },
+      {
+        "source": "openapi3.json",
+        "sha256": "25ed9ca3ab77320261d908440ae75aec2bef5bc5e65199c2785bb4195e1b9c9f"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.ngrok.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.ngrok.openapiclient.git",
+    "revision": "a6463aba08bab67c8cf91c53ad8f8929905b8efc",
+    "directory": "Vendors/ngrok/soenneker.ngrok.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "405cc399fc9e13f2458afa77f526fdc187a12e38dd1e5272a9975b3b6951c019",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "c697539ac350067eead6c4977cef96e41b79ecd395dbfb93ce9f22c9c2fb87cc"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.notion.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.notion.openapiclient.git",
+    "revision": "11f91147511e74b281ce028527bf848c758c1f0c",
+    "directory": "Vendors/Notion/soenneker.notion.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "27a3d0e77515a1112759bbd328ba77e92f56ed76c3e76fc649741df75cf75ef6",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.nws.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.nws.openapiclient.git",
+    "revision": "4b7b4bf32e1a7659ab0b02a58094428a4a6ca098",
+    "directory": "Vendors/Nws/soenneker.nws.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "ae478b69cdac6449e3b834dca636300f830dde552ac6abc180b1d5e82e2f1d35",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.onesignal.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.onesignal.openapiclient.git",
+    "revision": "bf4aac3b2267735a8dfebd5ca92d411d11a92b48",
+    "directory": "OneSignal/soenneker.onesignal.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "3b9efb74e8e1e6d515c9feb568ee05dc904477b1ee062e7264ba03b3d0c5592e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.openai.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.openai.openapiclient.git",
+    "revision": "41845ba033c6bb6a8b5c00858ff3f1acc78d8b46",
+    "directory": "Vendors/OpenAI/soenneker.openai.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "bb8e6c7a07ddcf6b1c756d8e1e25af48b6185d488aa86bf6bb01865e93b5f543",
+    "additionalSources": [
+      {
+        "source": "openapi.yml",
+        "sha256": "4ed872b05afd3cd51c7027f6741a3464651afe8970b468efc3a467a9c5348985"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.openaq.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.openaq.openapiclient.git",
+    "revision": "faedeb28c534defa1a10823119f6d53809efcb48",
+    "directory": "Vendors/OpenAq/soenneker.openaq.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "05873df4fed8e82789aeb14369368950570bb83ffd5f1f9ac1b700328a942b7e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.openhands.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.openhands.openapiclient.git",
+    "revision": "12119629f6568ab1580e1a897ec9f9d0f000fdf8",
+    "directory": "Vendors/OpenHands/soenneker.openhands.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "014f726c26201675d418f85b61831dce3128ac1ae77d96261ff32b69d8ae28aa",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.openrouter.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.openrouter.openapiclient.git",
+    "revision": "a0e18068474ec3f3fffa1c84858d5488fb385f1c",
+    "directory": "Vendors/OpenRouter/soenneker.openrouter.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "745ff17775804896bc882ec6655cb082cf45a9ba36628fc724cb44c5c556380d",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.opensubtitles.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.opensubtitles.openapiclient.git",
+    "revision": "57aa0ac02ab6f9270f55613a74782b049fc5a55f",
+    "directory": "Vendors/OpenSubtitles/soenneker.opensubtitles.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "d96cc708bcc12d284f24f41bc92856a042852472b4a6a98eb4778038a7d07ec7",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.paddle.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.paddle.openapiclient.git",
+    "revision": "1184e0d0ee871f5a2a0d502ace52e53a781a9d92",
+    "directory": "Vendors/Paddle/soenneker.paddle.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f547753e36a38b55e70a27c3fe555d38b1d51a0a0b4a7dedcab2ddc692013a6f",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "bbc0c72039c8235659bf536271952cde67be512f32a31e95873fccd49b9793ef"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.paypal.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.paypal.openapiclient.git",
+    "revision": "b0324d98ad41e145f9b3724017c333469f8fd74b",
+    "directory": "Vendors/PayPal/soenneker.paypal.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "e10b27821f18f846fd08cc25d3367d11a7b4d4f0f550966f94d2aaf0d2aee7a3",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.persona.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.persona.openapiclient.git",
+    "revision": "0c02fd5ccdf004866ca7c3f929e3d8ca6ebf776b",
+    "directory": "Vendors/Persona/soenneker.persona.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b9a5212802218e7792f91ebd850b40853f30504b677217ec479b4231a9845abc",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.pinecone.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.pinecone.openapiclient.git",
+    "revision": "9dc1ee2bddbdb2a316e7ab8a3a83ed2f609a3b7d",
+    "directory": "Vendors/Pinecone/soenneker.pinecone.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "fabba8f0de27b3c197e55ad09309b97b7bcd16fd7c30ac767ff7dfcccb7d7c3b",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.pinterest.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.pinterest.openapiclient.git",
+    "revision": "c726602615e85c854b09c4ec7f1ffcd13f9d285b",
+    "directory": "Vendors/Pinterest/soenneker.pinterest.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b698c180678a616bf1d635b374c086ba9cb2484117035c12f2b906eebe92a3e5",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.pipedrive.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.pipedrive.openapiclient.git",
+    "revision": "20bf815518cecc2b5385888b830d6ffb63e7ce6d",
+    "directory": "Vendors/Pipedrive/soenneker.pipedrive.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "52c915a67f4cab185a172ae49acb5f912e5ae66ced4d5b1fa2c2bae2e37b3d36",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "2b0fb0de3cad7a37158528034f85942e6b22a0a0649d9c811e0676e7c040955d"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.plaid.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.plaid.openapiclient.git",
+    "revision": "9daf98d3456ac720401abe7b7a86a1f5b39e30a5",
+    "directory": "Vendors/Plaid/soenneker.plaid.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "bde94f5570b47b7cc8d15d2028fa7739cd17640dc8cec30ef1c91d00bc10fa29",
+    "additionalSources": [
+      {
+        "source": "openapi.yml",
+        "sha256": "0914d09677392d647dd4c37740ea1b30bfdd33ac71a254c20c89822c9566c4be"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.planetscale.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.planetscale.openapiclient.git",
+    "revision": "739929de634df44e8bc635b70c586339d1c599de",
+    "directory": "Vendors/PlanetScale/soenneker.planetscale.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "1c7226a45b7da5804c88dd2e0388f7a59f6bfe202a43f8aa4da32bb890ead1cb",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.plex.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.plex.openapiclient.git",
+    "revision": "025c592214818e3584a4401aa8c47d612d48c002",
+    "directory": "Plex/soenneker.plex.openapiclient",
+    "source": "openapi.yaml",
+    "sourceKind": "original",
+    "sha256": "2426cccbca43003ff23c40781e3b2e6d57d6d1b523fcf442099db1f65ea282bb",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.polymarket.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.polymarket.openapiclient.git",
+    "revision": "7329a1770626668ba6f6ea63da2f060b66ca5d95",
+    "directory": "Vendors/Polymarket/soenneker.polymarket.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "bf69725c80f453ae8d6e7dfaa585e19ecf9a7187acb0f3dcc64ebfd295244528",
+    "additionalSources": [
+      {
+        "source": "openapi.sources/bridge.json",
+        "sha256": "de70b5d25365d6c54b2407c15f8ccd25d68154cac6a261cdb8de1950bd6c7bd4"
+      },
+      {
+        "source": "openapi.sources/bridge.yaml",
+        "sha256": "e6ea7f3209c4b33f2e1fe8360681c0248f8a0f304c336b60b4d265fb731b6f15"
+      },
+      {
+        "source": "openapi.sources/clob.json",
+        "sha256": "9f822ab4cb8578c209c247e29945e6f7b5f0064ac1a9c9be151ce34ced93c713"
+      },
+      {
+        "source": "openapi.sources/clob.yaml",
+        "sha256": "19268516978fc513ac3b02be4dde220df1236c56860e950395abfa9d51b58255"
+      },
+      {
+        "source": "openapi.sources/combos-rfq.json",
+        "sha256": "4624e73901a8c6c6ab7fe6855877285eb277f7e8fa43b2d73b0e84da8f8e1069"
+      },
+      {
+        "source": "openapi.sources/combos-rfq.yaml",
+        "sha256": "2fd460508ace0b906948c07d0c835a49de59acf95abaed27ac59a8bffa45f638"
+      },
+      {
+        "source": "openapi.sources/data.json",
+        "sha256": "faf6ada38a7f35f5796ef73d0175e20b58c5680759b3b9c81d344cd88a7f6000"
+      },
+      {
+        "source": "openapi.sources/data.yaml",
+        "sha256": "4a56acffa689f8fadd4645dcb0cc75147de71d23469e0bf85c6989f813d57c68"
+      },
+      {
+        "source": "openapi.sources/gamma.json",
+        "sha256": "61f2af57183f5adb7461f15278464ebe5fc4dfe86f4a88a4f0bd956d06da8db6"
+      },
+      {
+        "source": "openapi.sources/gamma.yaml",
+        "sha256": "8b68e4ddd8bc4e11e5332127e6d8768a62006915999259c951568b2dc59c29a8"
+      },
+      {
+        "source": "openapi.sources/perps.json",
+        "sha256": "2f22b131a3f5c3252157fa2231dfa631da66d9ce8132583493830bcc708ee2cf"
+      },
+      {
+        "source": "openapi.sources/relayer.json",
+        "sha256": "c3ff9508703f8343fc8c00587d1373b976435a212d606ee2a33c2ca56db221a8"
+      },
+      {
+        "source": "openapi.sources/relayer.yaml",
+        "sha256": "bc166abe718228203d6d479af36eae5901d77f807a1e73444fc380ee5ae385a8"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.posthog.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.posthog.openapiclient.git",
+    "revision": "d758b86b6266e9fa120e3e79dcc57c5f07569baf",
+    "directory": "Vendors/PostHog/soenneker.posthog.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "e76d9239d68968cac1a10f8bf54742ad1ed39fb4cc5cb42540d65b16fc1bc9db",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "69d8c783ddff84edb548f29dd658524fc27fca27b4608ec2583ab0dd6a413c76"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.productboard.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.productboard.openapiclient.git",
+    "revision": "c5e362bfef593517dc5da5b1dbfa05d933b1e793",
+    "directory": "Vendors/ProductBoard/soenneker.productboard.openapiclient",
+    "source": "openapi-json/analytics.json",
+    "sourceKind": "original",
+    "sha256": "1b24c580c323e9ed5f711078c0a2bc3007f8933c2bfbdadfef03937a64b394de",
+    "additionalSources": [
+      {
+        "source": "openapi-json/entities.json",
+        "sha256": "4d14d854cfde8f1359b7bbc675e65e44fedbddd03bf8eb5a446ceab392330ad4"
+      },
+      {
+        "source": "openapi-json/jira-integrations.json",
+        "sha256": "5521d331178338011213ecc93d51e79048165696decc2c2ec71d17705d38e106"
+      },
+      {
+        "source": "openapi-json/members.json",
+        "sha256": "04ec1637ef3223b2987582689db31d4fb6fa98993e834466df1193c31a7c11e9"
+      },
+      {
+        "source": "openapi-json/notes.json",
+        "sha256": "008d9a688c1bf0106fd147f5021ef694c0bfb001483a46c30b8198968c884dc9"
+      },
+      {
+        "source": "openapi-json/plugin-integrations.json",
+        "sha256": "7e469598495f4d8ec8eda480af0e9989b5a316ab825c606ce9d6d4e2263f2d50"
+      },
+      {
+        "source": "openapi-json/teams.json",
+        "sha256": "ee67de83df77da97139e8e24871f6507180c9182068dddc1d8ef0124358ecd4a"
+      },
+      {
+        "source": "openapi-json/webhooks.json",
+        "sha256": "85a48f0fd180e1449f69cec4310e572c1d887af259eafac2c6a5a0505a39c1eb"
+      },
+      {
+        "source": "openapi-yaml/analytics.yaml",
+        "sha256": "737004d792544743676430d0fd2ec4ba37f5c495fcbdffbf0ef435be41a1c238"
+      },
+      {
+        "source": "openapi-yaml/entities.yaml",
+        "sha256": "058d6953df7b4b654537745b691ca6e12d5411250b21dba8640980376fe3cbda"
+      },
+      {
+        "source": "openapi-yaml/jira-integrations.yaml",
+        "sha256": "2d93d07098df92e2dba352a1dce11f8e0182b4233cce4c71ab1215d8ff6bcae3"
+      },
+      {
+        "source": "openapi-yaml/members.yaml",
+        "sha256": "d8f5cc9ff91135bd95b4f78cd57affe5d85b4eb6612288a064ba601308c2416b"
+      },
+      {
+        "source": "openapi-yaml/notes.yaml",
+        "sha256": "410db944a2d5491420a36b93909d9e4955e03cd93709785c117e6985321c01d6"
+      },
+      {
+        "source": "openapi-yaml/plugin-integrations.yaml",
+        "sha256": "b6568422ec66389fee9f78f98ec1ad69b21641fa98960a15ec0688ddf04db240"
+      },
+      {
+        "source": "openapi-yaml/teams.yaml",
+        "sha256": "6adec6a024a41de2ce3a62cef976cf6e6dc0107e315056e0ff7a49f3af388761"
+      },
+      {
+        "source": "openapi-yaml/webhooks.yaml",
+        "sha256": "7111edaaba4ad9998396c9335a00bb508aed695129401be560da074d26f07a58"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.quo.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.quo.openapiclient.git",
+    "revision": "41274f4a9aa9a6817ca9cd8f3c6b182b196da6fa",
+    "directory": "Vendors/Quo/soenneker.quo.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "6eb902bb58e48353ae025b2416c61d9b971c1d6e0fbb5495d7f9cac459bc36e8",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.radarr.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.radarr.openapiclient.git",
+    "revision": "5ac082765cf319f4b1ea85fc3fa8da31debdfdbb",
+    "directory": "Vendors/Radarr/soenneker.radarr.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "01520188df1e1039d41f03f9dfb22e488dc04365195762ea92e0825e7ecb217f",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.rebrickable.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.rebrickable.openapiclient.git",
+    "revision": "4e19cb8df0a461b5ec9b4ea71c0a8070a0ffc9d0",
+    "directory": "Vendors/Rebrickable/soenneker.rebrickable.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "4af1ca872c1a1afab47e211fe587655f36867fb627f5c648ea42402ccbd70b3b",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.reddit.ads.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.reddit.ads.openapiclient.git",
+    "revision": "61eb1a4474ae32fce40337fffdef4172d1ea6ea9",
+    "directory": "Vendors/Reddit/soenneker.reddit.ads.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "8b20b8f948deb346c5a78297fac6c2d7ac1904c25a382f508d142df1a868186e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.render.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.render.openapiclient.git",
+    "revision": "a23eb0df04d984cb989677c2afbf274ac1fdf0d9",
+    "directory": "Vendors/Render/soenneker.render.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "dbb2c4fd6e8bdb7a4ed4775d2bc30ea23a1edb94884e2775b655b16d95c1b101",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.replicate.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.replicate.openapiclient.git",
+    "revision": "e1ab366723eec10b07c5e239ea79cb448e15274c",
+    "directory": "Vendors/Replicate/soenneker.replicate.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "4500bf86453ef1ab65a9e133929ce97f468cff9aa62ab7512d00fd588abb8b39",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.resend.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.resend.openapiclient.git",
+    "revision": "f03f6c4cd06bd415f729acd50837444d7a1084c5",
+    "directory": "Vendors/Resend/soenneker.resend.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "3aca8750d1851d40bc9be4fdcaab71989e3008ddc0642b23e212c4836a9d49cd",
+    "additionalSources": [
+      {
+        "source": "resend.yaml",
+        "sha256": "e706637116ab3cf6b3ca99854c4cab4933a193c607b2b18b9d79c0cb16c68dd8"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.sabnzbd.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.sabnzbd.openapiclient.git",
+    "revision": "a301404000ad2f44c7d5fa8ab90a3006b2a07023",
+    "directory": "Vendors/Sabnzbd/soenneker.sabnzbd.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c7e20d6d4b308e85c98e63b4f5a6b22b671cb2337b36c86a184938fc6a148c14",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.segment.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.segment.openapiclient.git",
+    "revision": "e9a2eda63a305131143d0041680dc48bf84af233",
+    "directory": "Vendors/Segment/soenneker.segment.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "04ef6457f1934c1501b7d703925ec38a3b57b767e3e39e676197ed0a9b83ff2e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.sendgrid.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.sendgrid.openapiclient.git",
+    "revision": "51a6fac8899f60152ad8b795d54565fe0dacd6de",
+    "directory": "Vendors/SendGrid/soenneker.sendgrid.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "6dda66d047f26d8a224b2f1c0a513c8b913d5b525d2c49b947b1e2d3fe85b884",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.sentry.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.sentry.openapiclient.git",
+    "revision": "022e78c3895cd97d770aebc4c1561820cf3f74b0",
+    "directory": "Vendors/Sentry/soenneker.sentry.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "4b436a2314f1a7462424cdeae416c3eefef7815f87835dee6e9b7a3c98c30fdf",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.shippo.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.shippo.openapiclient.git",
+    "revision": "5ef7171d89a22d2ccf008ea042ac2201c7acc66f",
+    "directory": "Vendors/Shippo/soenneker.shippo.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c8f391a166d27f438e51c0a02ba26b559a9b6a83c1d23264abae8390021e6265",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "238934e08bbc4494f8904dd43db32ba03cce9b469227b4e40e119b8825fc1811"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.sixtyfour.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.sixtyfour.openapiclient.git",
+    "revision": "0ac64d40509f1da46364b2c16d3941407aa37f4a",
+    "directory": "Vendors/Sixtyfour/soenneker.sixtyfour.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "5537e3a40d168003f1616cb76a6e6356480dc48ce47d37b2f22473870c904ceb",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.slack.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.slack.openapiclient.git",
+    "revision": "739543ff8b2d7e4da0ef62f32c1a022cdeb0664c",
+    "directory": "Vendors/Slack/soenneker.slack.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "34a15893c80e334970aaa3b1dfe8ddc3a2ad51de26f127707d183935fd0127b0",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.sonarr.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.sonarr.openapiclient.git",
+    "revision": "ddda29cde1b66f5d5f16141f54089dd28fd612e9",
+    "directory": "Vendors/Sonarr/soenneker.sonarr.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "a41a4028bcd5a830ace9570ce80034f5009c3ca5118cbb7fb001c9c8490e163f",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.spotify.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.spotify.openapiclient.git",
+    "revision": "4d8b79dbcec5250441afa35f1a155f5af47722de",
+    "directory": "Vendors/Spotify/soenneker.spotify.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f030c980ab23229c692d2e3a3d635dadf101c742e04467d22128bbc1c5f16869",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "2d888d731358ae8a97126ffd4117d257305943f06721734abe9af24962bf38c3"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.stripe.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.stripe.openapiclient.git",
+    "revision": "c63a0eb532c3c51dd6cecd61f5654ed46839edb4",
+    "directory": "Vendors/Stripe/soenneker.stripe.openapiclient",
+    "source": "spec3.json",
+    "sourceKind": "original",
+    "sha256": "7cff4cc46d0654101a36a3302f7544640f5f73e4f3cad6f264f0e23c19fa1776",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.stytch.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.stytch.openapiclient.git",
+    "revision": "c8b4057c3e954d71935f9e5966d19dd3dbc53a91",
+    "directory": "Vendors/Stytch/soenneker.stytch.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "80621f688394cfe7452a9c4d88555db43ec54d1594158550ac4452b868660ac6",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "6d1ff74748039d675d2fef95442e3c8525305b863dda0618e061f44050c015d3"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.tailscale.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.tailscale.openapiclient.git",
+    "revision": "8702a0929c2aa7ba50b85829061a626d80d4da54",
+    "directory": "Vendors/Tailscale/soenneker.tailscale.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "88a1a5058f7726f294f5fc866185fb24a6e7cb4518d871e01f544edbf198f658",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "115a40c8a96d816b88dda6daae41a46f4b764517cb13c9f245d0e5e219c5b5b8"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.telnyx.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.telnyx.openapiclient.git",
+    "revision": "a3554ffd8bfc313e6f9ca837b77e3e8dc81b4dd2",
+    "directory": "Vendors/Telnyx/soenneker.telnyx.openapiclient",
+    "source": "spec3.json",
+    "sourceKind": "original",
+    "sha256": "891301351cd8d28e1030a57be64dbf0b9dd4d63c09e4595a2e3f38799cd18063",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.temporal.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.temporal.openapiclient.git",
+    "revision": "83f4c5e50b87bb119ec12196ce58c96a2a5c260b",
+    "directory": "Vendors/Temporal/soenneker.temporal.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "6d1af3b5bf999ec643d51845e66dedf60e3a8b6aba7497d374f9c444b4c4e456",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "f4956ad40786769b5ff41b227bb4a28ec5438acad4f74833f74cdde3f71a3527"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.threads.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.threads.openapiclient.git",
+    "revision": "27da6e9477a7c95ed46b013bf96fcab516bda26e",
+    "directory": "Threads/soenneker.threads.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "bc6eefbc91d918be8df812a9c5c1624392db11f4217c22131c2fcfaed8d291e9",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.tiktok.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.tiktok.openapiclient.git",
+    "revision": "a51d4737364d98eb57c91037d45bbc6de47210da",
+    "directory": "Vendors/TikTok/soenneker.tiktok.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c7b3a903ec6d546fc193f2e42e65fc87cd90e7539077a26c8af9c49b10d96340",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.together.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.together.openapiclient.git",
+    "revision": "d286579ebacfc61b532a03b5ad46a1af31bc9f58",
+    "directory": "Vendors/Together/soenneker.together.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "8ead06f7498380c7799ca7815ec90561e9e512c205be3d3d512135355fa51db2",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "93438ddac711a3ecda64278c13f989ec6b06de415af9ea540e472ad9d64035c8"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.trulioo.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.trulioo.openapiclient.git",
+    "revision": "af5905ef79d095cc9c6eed6a8aaf5fd8a3379d78",
+    "directory": "Vendors/Trulioo/soenneker.trulioo.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "b77daee208c617500653590d07336282826ce0374654eff60e1271954e341b1e",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "e19356e5efe95f710806514daee5afb1fcdac49ea0d17bdb86b63fadc9432571"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.trustedform.certificates.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.trustedform.certificates.openapiclient.git",
+    "revision": "76df19012a37dcb4d7ba607a9c6f86b48d09e713",
+    "directory": "Vendors/TrustedForm/soenneker.trustedform.certificates.openapiclient",
+    "source": "swagger.json",
+    "sourceKind": "original",
+    "sha256": "fa2fd9e1fc3f192e6f1268f4281d18da250b10614dece827336dc942d30bdbd1",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.twilio.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.twilio.openapiclient.git",
+    "revision": "93ecea9012e9c63ec8e99705a991e0c422f3c574",
+    "directory": "Vendors/Twilio/soenneker.twilio.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "fe0ae36a4a2c01fb76604554eef54b7460cab9051cc2849d8074b20fcd321c17",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.unified.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.unified.openapiclient.git",
+    "revision": "7fbf6fe02a47f139ac52f2d3221ac567560373bb",
+    "directory": "Vendors/Unified/soenneker.unified.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "0498ea555e1eef8569b36de88cd64e8f954ff9c7a75f3283579ceafc1f0ea88e",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.ups.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.ups.openapiclient.git",
+    "revision": "7fb2d9e796d61c5a4b9a5433a0a0801ed76ea089",
+    "directory": "Vendors/Ups/soenneker.ups.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "c070ef51e017146d7a1b304233a0aa0ebacfd1cac97b6d3cf170c0542b6d98ac",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.upstash.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.upstash.openapiclient.git",
+    "revision": "935de389bc3f6626d68a7d6a593e1a3b6ccb8228",
+    "directory": "Vendors/Upstash/soenneker.upstash.openapiclient",
+    "source": "openapi.fixed.json",
+    "sourceKind": "normalized-only",
+    "sha256": "1aa322c6aea9d85a8a9653809af15ca583cf12b4d8c4415aa650a789e3e8b25a",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.vercel.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.vercel.openapiclient.git",
+    "revision": "25a168c44d1c893d32703ab8f28a0fadbb33f24d",
+    "directory": "Vendors/Vercel/soenneker.vercel.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "4a35e0a7cef6ede8f38a4eba2d4456a030cd1766be029ec4c2a2f31602ffc0f8",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.webflow.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.webflow.openapiclient.git",
+    "revision": "43bc93339369958edd053b1168af48d02ff08ace",
+    "directory": "Vendors/Webflow/soenneker.webflow.openapiclient",
+    "source": "openapi.converted.json",
+    "sourceKind": "original",
+    "sha256": "c44c43a7f4b0416d553bc2f8720106b38362d8efdbdebae9c46490b7d73c81fa",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.wikimedia.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.wikimedia.openapiclient.git",
+    "revision": "315639b6ffc96b3f3e35014c04ec61eeec647945",
+    "directory": "Vendors/Wikimedia/soenneker.wikimedia.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "becc6060586499ef407f8ecf62661ab4d828e92ebe1d6ef4e0b60c1b82eee639",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.windmill.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.windmill.openapiclient.git",
+    "revision": "78ff68b635a3ec801c6e438d24dbe99b558fa49b",
+    "directory": "Vendors/Windmill/soenneker.windmill.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "01cae64e0f21ef4f5dbe0ea56465985546092d2339f9b865bb2f93f559795faa",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "fa7bfeefb3f7644f2cbfacec09b02cfc1d81b56134095a99bc19f8a447f3a6a5"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.wise.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.wise.openapiclient.git",
+    "revision": "84dfe1053e49da7180080887f0308160f380e405",
+    "directory": "Vendors/Wise/soenneker.wise.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "81c5583c7c7b8293bd104be7c84e27714ddba58e28021beced6eb70f06bfb133",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "dc8c78db296d73771815a50697916347681a21a8e1a5e72d93f5cfa734afd837"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.workos.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.workos.openapiclient.git",
+    "revision": "0217b6159e17dae9cd191f30901fa059e9b9556d",
+    "directory": "Vendors/WorkOs/soenneker.workos.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f698bc2969356c0b43eb37c7f48c8376c45e103214c2e50e38f1627a60f9f2a3",
+    "additionalSources": [
+      {
+        "source": "openapi.yaml",
+        "sha256": "16611af477f24d84ad1d5f58ce5c26b93c08fdc4db22f8801f75bf10e18729a4"
+      }
+    ]
+  },
+  {
+    "name": "soenneker.x.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.x.openapiclient.git",
+    "revision": "44594fb7d706d5964131a68324c86446abe3dd6a",
+    "directory": "Vendors/X/soenneker.x.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "f3f06f09f3de47635057e007cf7ddd86283cf6732410289206fece1e45cff083",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.zendesk.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.zendesk.openapiclient.git",
+    "revision": "eb973ee956947c8c0b6cb94822118b15cfa88764",
+    "directory": "Vendors/Zendesk/soenneker.zendesk.openapiclient",
+    "source": "openapi.converted.json",
+    "sourceKind": "original",
+    "sha256": "1f4fcd8c9de9aaeb1d60da71dd6bbde2be7e4852322995426cdf2642a71515e2",
+    "additionalSources": []
+  },
+  {
+    "name": "soenneker.zoho.openapiclient",
+    "repository": "https://github.com/soenneker/soenneker.zoho.openapiclient.git",
+    "revision": "753495ad9a00f05de94b8b1c2fde7a6393705343",
+    "directory": "Vendors/Zoho/soenneker.zoho.openapiclient",
+    "source": "openapi.json",
+    "sourceKind": "original",
+    "sha256": "1fb1632482e4891579bf18c8189a9789e40d0cf830d2c9f31b41cfd56e619d54",
+    "additionalSources": []
+  }
+]
