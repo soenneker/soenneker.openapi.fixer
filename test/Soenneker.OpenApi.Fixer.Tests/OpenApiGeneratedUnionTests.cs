@@ -7,6 +7,31 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedUnionTests
 {
     [Test]
+    public async ValueTask Large_customer_graph_retains_active_and_deleted_branch_selection()
+    {
+        JsonObject schemas = JsonNode.Parse("""
+            {"Choice":{"anyOf":[{"$ref":"#/components/schemas/Left"},{"$ref":"#/components/schemas/Right"}]},
+             "Left":{"type":"object","required":["created","id","livemode","object"],"properties":{
+               "created":{"type":"integer"},"id":{"type":"string"},"livemode":{"type":"boolean"},
+               "object":{"type":"string","enum":["customer"]}}},
+             "Right":{"type":"object","required":["deleted","id","object"],"properties":{
+               "deleted":{"type":"boolean","enum":[true]},"id":{"type":"string"},"object":{"type":"string","enum":["customer"]}}}}
+            """)!.AsObject();
+        var fields = new JsonObject();
+        for (int i = 0; i < 140; i++) fields["field" + i] = new JsonObject { ["type"] = "string" };
+        schemas["Left"]!["properties"]!["expanded"] = new JsonObject { ["type"] = "object", ["properties"] = fields };
+
+        string repaired = Repair(Source, schemas);
+        await Assert.That(repaired).Contains("ContainsKey(\"created\")");
+        await Assert.That(repaired).Contains("ContainsKey(\"livemode\")");
+        await Assert.That(repaired).Contains("ContainsKey(\"deleted\")");
+        await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1) result.Left");
+        await Assert.That(repaired).Contains("matchesUnionBranch1 == true && matchingUnionBranches == 1) result.Right");
+        await Assert.That(repaired).Contains("result.UnrecognizedValue = unionPayload");
+        await Assert.That(repaired.Length).IsLessThan(150000);
+    }
+
+    [Test]
     public async ValueTask Nested_wrapper_does_not_turn_its_parent_into_a_wrapper()
     {
         const string source = """
@@ -114,8 +139,8 @@ public sealed class OpenApiGeneratedUnionTests
         string repaired = Repair(Source, schemas);
         await Assert.That(repaired).Contains("\"left\".Equals(");
         await Assert.That(repaired).Contains("\"right\".Equals(");
-        await Assert.That(repaired).Contains("matchesUnionBranch0 && matchingUnionBranches == 1");
-        await Assert.That(repaired).Contains("matchesUnionBranch1 && matchingUnionBranches == 1");
+        await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1");
+        await Assert.That(repaired).Contains("matchesUnionBranch1 == true && matchingUnionBranches == 1");
         await Assert.That(repaired).DoesNotContain("GetChildNode(\"type\")");
     }
 
@@ -147,7 +172,7 @@ public sealed class OpenApiGeneratedUnionTests
         await Assert.That(repaired).Contains("ContainsKey(\"resource_id\")");
         await Assert.That(repaired).Contains("ContainsKey(\"external_id\")");
         await Assert.That(repaired).Contains("\"left\".Equals(");
-        await Assert.That(repaired).Contains("matchesUnionBranch0 && matchingUnionBranches == 1");
+        await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1");
         await Assert.That(Repair(repaired, schemas)).IsEqualTo(repaired);
     }
 

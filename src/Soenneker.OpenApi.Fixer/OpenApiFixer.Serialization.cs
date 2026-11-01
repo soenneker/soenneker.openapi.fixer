@@ -25,6 +25,12 @@ public sealed partial class OpenApiFixer
             // OpenAPI.NET retains unsupported JSON Schema keywords but serializes its
             // storage dictionary as a keyword. Put those original keywords back in place.
             bool changed = false;
+            if (schema["x-client-original-nullable"]?.ToJsonString() == "true")
+            {
+                schema["nullable"] = true;
+                schema.Remove("x-client-original-nullable");
+                changed = true;
+            }
             if (schema["unrecognizedKeywords"] is JsonObject keywords)
             {
                 schema.Remove("unrecognizedKeywords");

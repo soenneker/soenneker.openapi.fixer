@@ -65,6 +65,8 @@ public sealed partial class OpenApiFixer
         {
             if (!seen.Add(target)) return false;
             if (target["type"]?.ToJsonString() == "\"object\"") return true;
+            if (target["allOf"] is JsonArray intersections)
+                return intersections.Any(shape => Resolve(shape) is JsonObject child && ObjectShape(child, new HashSet<JsonObject>(seen)));
             if ((target["anyOf"] ?? target["oneOf"]) is JsonArray shapes)
                 return shapes.All(shape => Resolve(shape) is JsonObject child && ObjectShape(child, new HashSet<JsonObject>(seen)));
             return false;
@@ -114,9 +116,9 @@ public sealed partial class OpenApiFixer
             };
             if (match.Groups["kind"].Value == "Object" && type.LastIndexOf('.') is int dot && dot >= 0 &&
                 Resolve(schemas[type[(dot + 1)..]]) is JsonObject target &&
-                (BuildGeneratedUnionStructuralCheck(target, "item", Resolve) ?? (ObjectShape(target, new HashSet<JsonObject>()) ? "item is " + untyped + "UntypedObject" : null)) is string itemCheck)
+                BuildGeneratedUnionStructuralCheck(target, "item", Resolve) is string itemCheck)
                 return readPayload + " is " + untyped + "UntypedArray && global::System.Linq.Enumerable.All(((" + untyped + "UntypedArray)" + readPayload +
-                    ").GetValue(), item => " + itemCheck + ") && " + match.Value;
+                    ").GetValue(), item => (" + itemCheck + ") == true) && " + match.Value;
             if (shape == null) return match.Value;
             return readPayload + " is " + untyped + "UntypedArray && global::System.Linq.Enumerable.All(((" + untyped + "UntypedArray)" + readPayload +
                 ").GetValue(), item => item is " + untyped + shape + ") && " + match.Value;
@@ -127,38 +129,28 @@ public sealed partial class OpenApiFixer
             properties.ContainsKey(match.Groups["property"].Value) ? "" : match.Value);
 
         var conditions = new Dictionary<string, string>(StringComparer.Ordinal);
-        var selectable = new HashSet<string>(StringComparer.Ordinal);
         foreach ((string property, JsonObject branch) in objectBranches)
-        {
-            string? structural = BuildGeneratedUnionStructuralCheck(branch, "unionPayload", Resolve);
-            if (structural != null) selectable.Add(property);
-            // An unsupported predicate remains a possible competitor, never proof of a unique match.
-            conditions[property] = structural ?? "true";
-        }
+            conditions[property] = BuildGeneratedUnionStructuralCheck(branch, "unionPayload", Resolve);
+        // An unresolved object branch is still a possible competitor, never a rejected branch.
+        foreach (string property in classProperties)
+            if (!conditions.ContainsKey(property)) conditions[property] = "(bool?)null";
         string dispatch = "\n            var unionPayload = parseNode.GetObjectValue<" + untyped + "UntypedNode>(" + untyped + "UntypedNode.CreateFromDiscriminatorValue);\n";
         // Separate booleans avoid duplicate pattern-variable declarations across candidate expressions.
         int index = 0;
         var candidates = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach ((string property, string condition) in conditions.Where(_ => selectable.Count > 0))
+        foreach ((string property, string condition) in conditions)
         {
             string candidate = "matchesUnionBranch" + index++;
             candidates[property] = candidate;
             // Use a local lambda so each candidate owns its pattern variables.
-            dispatch += "            bool " + candidate + " = unionPayload is " + untyped + "UntypedObject && ((global::System.Func<bool>)(() => " + condition + "))();\n";
+            dispatch += "            bool? " + candidate + " = unionPayload is " + untyped + "UntypedObject ? " + condition + " : (bool?)false;\n";
         }
         if (candidates.Count > 0) dispatch += "            int matchingUnionBranches = 0;\n";
-        foreach (string candidate in candidates.Values) dispatch += "            if (" + candidate + ") matchingUnionBranches++;\n";
+        foreach (string candidate in candidates.Values) dispatch += "            if (" + candidate + " != false) matchingUnionBranches++;\n";
         if (candidates.Count > 0) dispatch += "            bool noSelectedUnionBranch = " + none + ";\n";
         foreach ((string property, string candidate) in candidates)
         {
-            if (!selectable.Contains(property)) continue;
-            dispatch += "            if (noSelectedUnionBranch && " + candidate + " && matchingUnionBranches == 1) result." + property + " = global::Soenneker.OpenApi.Generated.OpenApiNullTracking.Capture(new " + properties[property] + "(), parseNode);\n";
-        }
-        if (objectBranches.Count == 1 && alternatives.Count(a => Resolve(a)?["type"]?.ToJsonString() == "\"object\"") == 1)
-        {
-            string property = objectBranches.Keys.Single();
-            if (!conditions.ContainsKey(property))
-                dispatch += "            if (" + none + " && unionPayload is " + untyped + "UntypedObject) result." + property + " = global::Soenneker.OpenApi.Generated.OpenApiNullTracking.Capture(new " + properties[property] + "(), parseNode);\n";
+            dispatch += "            if (noSelectedUnionBranch && " + candidate + " == true && matchingUnionBranches == 1) result." + property + " = global::Soenneker.OpenApi.Generated.OpenApiNullTracking.Capture(new " + properties[property] + "(), parseNode);\n";
         }
         dispatch += "            if (" + none + ") result.UnrecognizedValue = unionPayload;\n";
         int returnIndex = updatedFactory.LastIndexOf("return result;", StringComparison.Ordinal);
@@ -244,4 +236,3 @@ public sealed partial class OpenApiFixer
             """, cancellationToken);
     }
 }
-

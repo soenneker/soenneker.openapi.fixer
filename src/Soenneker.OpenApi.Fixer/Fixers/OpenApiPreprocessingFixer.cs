@@ -333,6 +333,14 @@ public sealed partial class OpenApiPreprocessingFixer : IOpenApiPreprocessingFix
     {
         bool changed = NormalizeMalformedSchemaMembers(obj);
         changed |= NormalizeIntegerValues(obj);
+        // OpenAPI.NET loses 3.0 nullable on typeless compositions during its model round-trip.
+        // Carry the explicit wire contract through extraction until JSON serialization restores it.
+        if (!normalizeLegacyNullable && obj["nullable"]?.ToJsonString() == "true" && obj["type"] == null
+            && obj["x-client-original-nullable"] == null)
+        {
+            obj["x-client-original-nullable"] = true;
+            changed = true;
+        }
         // Some providers use a parent-relative discriminator as an extension to OpenAPI.
         // It is not a field on this payload; retain the hint without inventing a wire property.
         if (obj["discriminator"] is JsonObject discriminator && discriminator["propertyName"] is JsonValue discriminatorName &&
