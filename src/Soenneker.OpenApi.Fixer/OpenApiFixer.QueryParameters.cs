@@ -40,10 +40,26 @@ public sealed partial class OpenApiFixer
             foreach (JsonNode? original in parameters.ToArray())
             {
                 if (ResolveFormNode(root, original) is not JsonObject parameter || parameter["in"]?.ToString() != "query" ||
-                    parameter["style"]?.ToString() != "deepObject" || parameter["required"]?.ToJsonString() == "true" ||
+                    parameter["style"]?.ToString() != "deepObject" ||
                     parameter.ContainsKey("x-client-original-query-schema") || parameter["name"] is not JsonValue nameValue ||
                     !nameValue.TryGetValue(out string? name) || name.IndexOfAny(['[', ']']) >= 0 ||
                     ResolveFormNode(root, parameter["schema"]) is not JsonObject schema) continue;
+                // Providers such as Stripe use deepObject arrays for repeated bracketed keys.
+                // Express that wire format as an exploded form array so Kiota retains the brackets.
+                if (schema["type"]?.ToString() == "array" && parameter["explode"]?.ToJsonString() == "true" &&
+                    ResolveFormNode(root, schema["items"]) is JsonObject item && IsFormScalar(item))
+                {
+                    string wireName = name + "[]";
+                    if (parameters.Any(existing => ResolveFormNode(root, existing)?["name"]?.ToString() == wireName)) continue;
+                    var replacement = parameter.DeepClone().AsObject();
+                    replacement["x-client-original-query-parameter"] = parameter.DeepClone();
+                    replacement["name"] = wireName;
+                    replacement["style"] = "form";
+                    parameters[parameters.IndexOf(original)] = replacement;
+                    changed = true;
+                    continue;
+                }
+                if (parameter["required"]?.ToJsonString() == "true") continue;
                 JsonObject? obj = null;
                 JsonObject? scalar = null;
                 if ((schema["anyOf"] ?? schema["oneOf"]) is JsonArray { Count: 2 } alternatives)
