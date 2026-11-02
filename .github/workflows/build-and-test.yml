@@ -41,7 +41,7 @@ jobs:
         run: dotnet test --project test/Soenneker.OpenApi.Fixer.Tests/Soenneker.OpenApi.Fixer.Tests.csproj --configuration Release --no-build --no-restore --verbosity minimal
 
       - name: Setup Python for generated-client verification
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.15.2'
 
