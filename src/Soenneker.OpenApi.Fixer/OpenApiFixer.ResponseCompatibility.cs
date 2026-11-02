@@ -8,15 +8,17 @@ namespace Soenneker.OpenApi.Fixer;
 
 public sealed partial class OpenApiFixer
 {
-    private static readonly HashSet<string> UnsupportedKiotaStringFormats = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SupportedKiotaStringFormats = new(StringComparer.OrdinalIgnoreCase)
     {
-        "email", "idn-email", "hostname", "idn-hostname", "ipv4", "ipv6", "uri", "uri-reference",
-        "iri", "iri-reference", "uri-template", "json-pointer", "relative-json-pointer", "regex"
+        // Kiota's string codecs and accepted annotation formats. Unknown formats remain strings;
+        // preserve their annotation separately instead of asking Kiota to interpret it as a type.
+        "commonmark", "html", "date", "date-time", "duration", "time", "base64url", "uuid", "binary", "byte"
     };
 
     private static string NormalizeKiotaResponseCompatibility(string json, OpenApiFixerOptions options)
     {
-        if (!options.ProjectCompatibleErrorResponses && !options.NormalizeUnsupportedStringFormats)
+        if (!options.ProjectCompatibleErrorResponses && !options.ProjectRawErrorResponses && !options.NormalizeUnsupportedStringFormats && !options.NormalizeUnsignedIntegerFormats &&
+            !options.NormalizeUnsupportedNumericFormats && !options.NormalizeUnsupportedContainerFormats)
             return json;
 
         JsonNode root = JsonNode.Parse(json)!;
@@ -27,16 +29,29 @@ public sealed partial class OpenApiFixer
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             string prefix = "#/components/" + section + "/";
-            while (node is JsonObject { Count: 1 } reference && reference["$ref"] is JsonValue value)
+            JsonObject? annotations = null;
+            while (node is JsonObject reference && reference["$ref"] is JsonValue value)
             {
-                if (!value.TryGetValue(out string? id) || !id.StartsWith(prefix, StringComparison.Ordinal) || !seen.Add(id))
+                if (!reference.All(p => p.Key == "$ref" || Annotation(p.Key) || p.Key == "summary") ||
+                    !value.TryGetValue(out string? id) || !id.StartsWith(prefix, StringComparison.Ordinal) || !seen.Add(id))
                     return null;
+                foreach ((string key, JsonNode? annotation) in reference.Where(p => p.Key != "$ref"))
+                {
+                    annotations ??= new JsonObject();
+                    if (!annotations.ContainsKey(key)) annotations[key] = annotation?.DeepClone();
+                }
                 node = root["components"]?[section]?[id[prefix.Length..].Replace("~1", "/").Replace("~0", "~")];
+            }
+            if (node is JsonObject resolved && annotations != null)
+            {
+                JsonObject copy = resolved.DeepClone().AsObject();
+                foreach ((string key, JsonNode? annotation) in annotations) copy[key] = annotation?.DeepClone();
+                return copy;
             }
             return node as JsonObject;
         }
 
-        static bool Annotation(string key) => key is "title" or "description" or "default" or "example" or "examples" or
+        static bool Annotation(string key) => key is "$schema" or "title" or "description" or "default" or "example" or "examples" or
             "deprecated" or "readOnly" or "writeOnly" or "xml" or "externalDocs" || key.StartsWith("x-", StringComparison.Ordinal);
 
         JsonNode MergeField(JsonNode? left, JsonNode? right)
@@ -117,7 +132,7 @@ public sealed partial class OpenApiFixer
 
         bool changed = OpenApiJsonSchemaWalker.Visit(root, (_, _) => false, responseVisitor: (response, status) =>
         {
-            if (!options.ProjectCompatibleErrorResponses || schemas == null ||
+            if ((!options.ProjectCompatibleErrorResponses && !options.ProjectRawErrorResponses) || schemas == null ||
                 !(status is "default" or "4XX" or "5XX" or "4xx" or "5xx" ||
                   status is { Length: 3 } && int.TryParse(status, out int code) && code is >= 400 and <= 599))
                 return false;
@@ -127,14 +142,34 @@ public sealed partial class OpenApiFixer
             // Work on a copy so a reusable response can also be used by a successful operation.
             JsonObject copy = resolved.DeepClone().AsObject();
             bool updated = false;
-            foreach (JsonObject media in copy["content"]!.AsObject().Select(p => p.Value).OfType<JsonObject>())
+            foreach ((string mediaType, JsonNode? mediaNode) in copy["content"]!.AsObject())
             {
+                if (mediaNode is not JsonObject media) continue;
                 JsonObject? schema = Resolve(media["schema"], "schemas");
                 if (schema == null) continue;
-                string identity = media["schema"]!.ToJsonString();
+                string identity = mediaType + "|" + media["schema"]!.ToJsonString();
                 if (!projected.TryGetValue(identity, out string? reference))
                 {
-                    JsonObject? model = Project(schema);
+                    JsonObject? model = options.ProjectCompatibleErrorResponses ? Project(schema) : null;
+                    string mimeType = mediaType.Split(';')[0].Trim();
+                    if (model == null && options.ProjectRawErrorResponses &&
+                        (mimeType.Equals("application/json", StringComparison.OrdinalIgnoreCase) || mimeType.EndsWith("+json", StringComparison.OrdinalIgnoreCase) ||
+                         mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)) &&
+                        (schema["type"]?.ToJsonString() is "\"string\"" or "\"integer\"" or "\"number\"" or "\"boolean\"" or "\"array\"" ||
+                         !schema.ContainsKey("properties") && (schema["oneOf"] is JsonArray { Count: > 0 } || schema["anyOf"] is JsonArray { Count: > 0 }) ||
+                         schema.All(p => Annotation(p.Key) || p.Key == "type" && p.Value?.ToJsonString() == "\"object\"") ||
+                         schema["content"] is JsonObject && schema.All(p => Annotation(p.Key) || p.Key == "content")))
+                    {
+                        // Kiota needs an object model to create an exception mapping. The generated-code
+                        // repair replaces this placeholder's serializer with a raw JSON payload serializer.
+                        model = new JsonObject
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new JsonObject { ["payload"] = new JsonObject { ["x-client-untyped-value"] = true } },
+                            ["x-client-raw-error-media-type"] = mimeType,
+                            ["x-client-raw-error-schema"] = media["schema"]!.DeepClone()
+                        };
+                    }
                     if (model == null) continue;
                     string hint = media["schema"]?["$ref"]?.GetValue<string>()?.Split('/').Last() ?? "Response";
                     string key = OpenApiNameNormalizer.ReserveComponentName(schemas.Select(p => p.Key), hint + " Error", "Model");
@@ -154,13 +189,83 @@ public sealed partial class OpenApiFixer
         });
         changed |= OpenApiJsonSchemaWalker.Visit(root, (schema, _) =>
         {
+            if (options.NormalizeUnsupportedNumericFormats && schema["format"] is JsonValue numericFormat &&
+                numericFormat.TryGetValue(out string? numericName) &&
+                ((schema["type"]?.ToJsonString() == "\"integer\"" && numericName is "unix-time" or "timestamp") ||
+                 (schema["type"]?.ToJsonString() == "\"number\"" && numericName == "integer")))
+            {
+                schema["x-client-original-format"] ??= numericFormat.DeepClone();
+                if (numericName is "unix-time" or "timestamp") schema["format"] = "int64";
+                else schema.Remove("format");
+                return true;
+            }
+            if (options.NormalizeUnsignedIntegerFormats && schema["format"] is JsonValue unsignedFormat &&
+                unsignedFormat.TryGetValue(out string? unsignedName) && unsignedName is "uint32" or "uint64" &&
+                (schema["type"]?.ToJsonString() == "\"integer\"" || schema["type"] is JsonArray integerTypes &&
+                    integerTypes.Any(t => t?.ToJsonString() == "\"integer\"") &&
+                    integerTypes.All(t => t?.ToJsonString() is "\"integer\"" or "\"null\"")))
+            {
+                if (unsignedName == "uint64" && schema["multipleOf"] is JsonValue step &&
+                    (!step.TryGetValue<decimal>(out decimal stepValue) || stepValue <= 0))
+                    return false;
+                schema["x-client-original-format"] ??= unsignedFormat.DeepClone();
+                schema["format"] = unsignedName == "uint32" ? "int64" : "decimal";
+                if (unsignedName == "uint64")
+                {
+                    schema["x-client-original-type"] ??= schema["type"]!.DeepClone();
+                    if (schema["type"] is JsonArray nullableTypes)
+                        for (int i = 0; i < nullableTypes.Count; i++)
+                        {
+                            if (nullableTypes[i]?.ToJsonString() == "\"integer\"") nullableTypes[i] = "number";
+                        }
+                    else schema["type"] = "number";
+                    if (schema["multipleOf"] is JsonValue multiple && multiple.TryGetValue<decimal>(out decimal numerator))
+                    {
+                        // Integer multiples of p/q are multiples of p/gcd(p,q). Preserve that constraint
+                        // when the generator-facing representation becomes a decimal number.
+                        decimal denominator = 1;
+                        while (numerator != decimal.Truncate(numerator)) { numerator *= 10; denominator *= 10; }
+                        decimal a = numerator, b = denominator;
+                        while (b != 0) { decimal remainder = a % b; a = b; b = remainder; }
+                        schema["x-client-original-multipleOf"] ??= multiple.DeepClone();
+                        schema["multipleOf"] = numerator / a;
+                    }
+                    else schema["multipleOf"] = 1;
+                }
+                return true;
+            }
+            if (options.NormalizeUnsupportedNumericFormats && schema["format"] is JsonValue otherFormat &&
+                otherFormat.TryGetValue(out string? otherName) && !string.IsNullOrEmpty(otherName))
+            {
+                string? numericType = schema["type"] is JsonArray nullable
+                    ? nullable.Count(t => t?.ToJsonString() != "\"null\"") == 1
+                        ? nullable.OfType<JsonValue>().Select(t => t.GetValue<string>()).FirstOrDefault(t => t != "null") : null
+                    : schema["type"] is JsonValue scalarType && scalarType.TryGetValue(out string? valueType) ? valueType : null;
+                bool integralFormat = otherName is "int8" or "uint8" or "int16" or "uint16" or "int32" or "int64";
+                if (numericType is "integer" or "number" && !integralFormat && otherName is not ("uint32" or "uint64") &&
+                    !(numericType == "number" && otherName is "float" or "double" or "decimal"))
+                {
+                    schema["x-client-original-format"] ??= otherFormat.DeepClone();
+                    if (numericType == "integer") schema["format"] = otherName == "byte" ? "int32" : "int64";
+                    else schema.Remove("format");
+                    return true;
+                }
+            }
+            if (options.NormalizeUnsupportedContainerFormats && schema["format"] is JsonValue containerFormat &&
+                (schema["type"]?.ToJsonString() is "\"object\"" or "\"array\"" or "\"boolean\"" or "\"null\"" ||
+                 schema["type"] is JsonArray { Count: > 0 } containerTypes &&
+                 containerTypes.All(t => t?.ToJsonString() is "\"object\"" or "\"array\"" or "\"boolean\"" or "\"null\"")))
+            {
+                schema["x-client-original-format"] ??= containerFormat.DeepClone();
+                schema.Remove("format");
+                return true;
+            }
             if (!options.NormalizeUnsupportedStringFormats || schema["format"] is not JsonValue format ||
-                !format.TryGetValue(out string? name) || !UnsupportedKiotaStringFormats.Contains(name) ||
-                !(schema["type"]?.ToJsonString() == "\"string\"" || schema["type"] is JsonArray types &&
-                    types.Any(t => t?.ToJsonString() == "\"string\"") && types.All(t => t?.ToJsonString() is "\"string\"" or "\"null\"")) ||
-                schema.ContainsKey("x-client-original-format"))
+                !format.TryGetValue(out string? name) || string.IsNullOrEmpty(name) || SupportedKiotaStringFormats.Contains(name) ||
+                !(schema["type"] == null || schema["type"]?.ToJsonString() == "\"string\"" || schema["type"] is JsonArray types &&
+                    types.Any(t => t?.ToJsonString() == "\"string\"") && types.All(t => t?.ToJsonString() is "\"string\"" or "\"null\"")))
                 return false;
-            schema["x-client-original-format"] = format.DeepClone();
+            schema["x-client-original-format"] ??= format.DeepClone();
             schema.Remove("format");
             return true;
         });

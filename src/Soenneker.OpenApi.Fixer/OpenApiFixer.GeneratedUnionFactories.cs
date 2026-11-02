@@ -101,9 +101,36 @@ public sealed partial class OpenApiFixer
             string labels = string.Join(" || ", values.Select(v => JsonValue.Create(v!.GetValue<string>())!.ToJsonString() + ".Equals(" + variable + ".GetValue(), global::System.StringComparison.OrdinalIgnoreCase)"));
             return readPayload + " is " + untyped + "UntypedString " + variable + " && (" + labels + ") && " + match.Value;
         });
+        string arrayDispatch = "";
         if (objectCollections > 1)
-            updatedFactory = Regex.Replace(updatedFactory, @"(var result = new [\w:.]+\(\);)",
-                "$1\n            if (" + readPayload + " is " + untyped + "UntypedArray ambiguousArray) { result.UnrecognizedValue = ambiguousArray; return result; }");
+        {
+            arrayDispatch = "\n            if (" + readPayload + " is " + untyped + "UntypedArray unionArrayPayload) {\n";
+            var arrayBranches = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+            foreach ((string property, string type) in properties.Where(p => p.Value.StartsWith("List<global::", StringComparison.Ordinal)))
+            {
+                string itemType = type[5..^1];
+                JsonObject? candidate = alternatives.Select(Resolve).FirstOrDefault(branch =>
+                    branch?["type"]?.ToJsonString() == "\"array\"" && branch["items"]?["$ref"] is JsonValue reference &&
+                    reference.TryGetValue(out string? path) && path.StartsWith("#/components/schemas/", StringComparison.Ordinal) &&
+                    itemType.EndsWith("." + path[21..].Replace("~1", "/").Replace("~0", "~"), StringComparison.Ordinal));
+                if (candidate != null) arrayBranches[property] = candidate;
+            }
+            if (arrayBranches.Count == alternatives.Count && arrayBranches.Count == objectCollections &&
+                arrayBranches.Values.Distinct(ReferenceEqualityComparer.Instance).Count() == arrayBranches.Count)
+            {
+                arrayDispatch += "var arrayMatches = " + BuildGeneratedUnionStructuralChecks(arrayBranches.Values.ToArray(), "unionArrayPayload", Resolve) + ";\n";
+                int arrayIndex = 0;
+                foreach (string property in arrayBranches.Keys)
+                {
+                    string itemType = properties[property][5..^1];
+                    string unique = string.Join(" && ", Enumerable.Range(0, arrayBranches.Count).Where(i => i != arrayIndex).Select(i => "arrayMatches[" + i + "] == false"));
+                    arrayDispatch += "if (arrayMatches[" + arrayIndex++ + "] == true && " + unique + ") { result." + property +
+                        " = global::System.Linq.Enumerable.ToList(parseNode.GetCollectionOfObjectValues<" + itemType + ">(" + itemType +
+                        ".CreateFromDiscriminatorValue)!); return result; }\n";
+                }
+            }
+            arrayDispatch += "result.UnrecognizedValue = unionArrayPayload; return result; }\n";
+        }
 
         updatedFactory = Regex.Replace(updatedFactory, @"parseNode\.GetCollectionOf(?<kind>Primitive|Object)Values<(?<type>[^>]+)>", match =>
         {
@@ -129,12 +156,15 @@ public sealed partial class OpenApiFixer
             properties.ContainsKey(match.Groups["property"].Value) ? "" : match.Value);
 
         var conditions = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach ((string property, JsonObject branch) in objectBranches)
-            conditions[property] = BuildGeneratedUnionStructuralCheck(branch, "unionPayload", Resolve);
+        foreach (string property in objectBranches.Keys)
+            conditions[property] = "unionBranchMatches![" + conditions.Count + "]";
         // An unresolved object branch is still a possible competitor, never a rejected branch.
         foreach (string property in classProperties)
             if (!conditions.ContainsKey(property)) conditions[property] = "(bool?)null";
         string dispatch = "\n            var unionPayload = parseNode.GetObjectValue<" + untyped + "UntypedNode>(" + untyped + "UntypedNode.CreateFromDiscriminatorValue);\n";
+        if (objectBranches.Count > 0)
+            dispatch += "            var unionBranchMatches = unionPayload is " + untyped + "UntypedObject ? " +
+                BuildGeneratedUnionStructuralChecks(objectBranches.Values.ToArray(), "unionPayload", Resolve) + " : null;\n";
         // Separate booleans avoid duplicate pattern-variable declarations across candidate expressions.
         int index = 0;
         var candidates = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -142,7 +172,7 @@ public sealed partial class OpenApiFixer
         {
             string candidate = "matchesUnionBranch" + index++;
             candidates[property] = candidate;
-            // Use a local lambda so each candidate owns its pattern variables.
+            // Read independently evaluated candidates from the shared schema graph.
             dispatch += "            bool? " + candidate + " = unionPayload is " + untyped + "UntypedObject ? " + condition + " : (bool?)false;\n";
         }
         if (candidates.Count > 0) dispatch += "            int matchingUnionBranches = 0;\n";
@@ -155,6 +185,8 @@ public sealed partial class OpenApiFixer
         dispatch += "            if (" + none + ") result.UnrecognizedValue = unionPayload;\n";
         int returnIndex = updatedFactory.LastIndexOf("return result;", StringComparison.Ordinal);
         updatedFactory = updatedFactory.Insert(returnIndex, dispatch);
+        if (arrayDispatch.Length > 0)
+            updatedFactory = Regex.Replace(updatedFactory, @"(var result = new [\w:.]+\(\);)", match => match.Value + arrayDispatch);
         source = source.Remove(factory.Index, factory.Length).Insert(factory.Index, updatedFactory);
         string fallback = "\n        " + marker + "\n        /// <summary>The complete payload when no unique typed union branch can be selected.</summary>\n        public " + untyped + "UntypedNode UnrecognizedValue { get; set; } = null!;\n";
         if (!source.Contains("public IDictionary<string, object> AdditionalData", StringComparison.Ordinal))

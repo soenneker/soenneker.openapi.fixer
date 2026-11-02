@@ -85,7 +85,11 @@ public sealed class OpenApiDeepObjectFormTests : HostedUnitTest
         return node;
     }
 
-    private static JsonNode FormSchema(JsonNode root) => root["paths"]!["/contacts"]!["post"]!["requestBody"]!["content"]!["application/x-www-form-urlencoded"]!["schema"]!;
+    private static JsonNode FormSchema(JsonNode root)
+    {
+        JsonNode body = root["paths"]!["/contacts"]!["post"]!["requestBody"]!;
+        return (body["content"]!["application/x-www-form-urlencoded"] ?? body["x-client-original-alternative-form-content"] ?? body["x-client-original-form-content"])!["schema"]!;
+    }
 
     private static JsonObject Document() => JsonNode.Parse("""
     {"openapi":"3.0.3","info":{"title":"Form test","version":"1"},"paths":{"/contacts":{

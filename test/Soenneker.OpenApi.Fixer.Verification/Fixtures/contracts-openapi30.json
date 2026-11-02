@@ -1,0 +1,72 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "OpenAPI 3.0 nullable enum contracts",
+    "version": "1"
+  },
+  "servers": [
+    {
+      "url": "https://example.invalid"
+    }
+  ],
+  "paths": {
+    "/value": {
+      "get": {
+        "operationId": "GetValue",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Payload"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Flag": {
+        "type": "string",
+        "nullable": true,
+        "enum": [
+          "active",
+          null
+        ]
+      },
+      "Count": {
+        "type": "integer",
+        "nullable": true,
+        "enum": [
+          1,
+          null
+        ]
+      },
+      "Payload": {
+        "type": "object",
+        "properties": {
+          "flag": {
+            "$ref": "#/components/schemas/Flag"
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          }
+        },
+        "x-verification-payloads": [
+          {
+            "flag": "active",
+            "count": 1
+          },
+          {
+            "flag": null,
+            "count": null
+          }
+        ]
+      }
+    }
+  }
+}

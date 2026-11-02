@@ -97,7 +97,7 @@ def run(command, log, timeout=900, processor_count=None):
         raise RuntimeError(f"Exit {code}: {log.name}")
 
 
-def verify(entry, workspace, output, driver):
+def verify(entry, workspace, output, driver, fail_on_warning_categories=()):
     started = time.monotonic()
     directory = output / entry["name"]
     directory.mkdir(parents=True, exist_ok=True)
@@ -140,10 +140,13 @@ def verify(entry, workspace, output, driver):
         result["stage"] = "fix"
         run(["dotnet", str(driver), "fix", str(source), str(fixed)], directory / "fix.log")
         provider_contracts = json.loads((ROOT / "test/Soenneker.OpenApi.Fixer.Verification/Fixtures/provider-contracts.json").read_text(encoding="utf-8"))
-        if entry["name"] in provider_contracts:
+        provider_requests = json.loads((ROOT / "test/Soenneker.OpenApi.Fixer.Verification/Fixtures/provider-requests.json").read_text(encoding="utf-8"))
+        if entry["name"] in provider_contracts or entry["name"] in provider_requests:
             document = json.loads(fixed.read_text(encoding="utf-8-sig"))
-            for model, payloads in provider_contracts[entry["name"]].items():
+            for model, payloads in provider_contracts.get(entry["name"], {}).items():
                 document["components"]["schemas"][model]["x-verification-provider-payloads"] = payloads
+            if entry["name"] in provider_requests:
+                document["x-verification-requests"] = provider_requests[entry["name"]]
             fixed.write_text(json.dumps(document, indent=2), encoding="utf-8")
         generated = directory / "generated"
         # A unique run directory prevents stale generated files from hiding removed models.
@@ -154,6 +157,13 @@ def verify(entry, workspace, output, driver):
         # Isolate it to one processor; independent specifications still run concurrently.
         run(["dotnet", "tool", "run", "kiota", "generate", "-d", str(fixed), "-o", str(generated), "-l", "CSharp",
              "-c", "ApiClient", "-n", "Verification.Client", "--ebc", "--ll", "Warning"], directory / "generate.log", processor_count=1)
+        run(["dotnet", str(driver), "warnings", str(directory / "generate.log"), str(directory / "kiota-warnings.json")], directory / "warning-analysis.log")
+        warning_report = json.loads((directory / "kiota-warnings.json").read_text(encoding="utf-8"))
+        result["kiotaWarnings"] = warning_report["total"]
+        result["kiotaWarningCategories"] = warning_report["categories"]
+        rejected = set(fail_on_warning_categories).intersection(warning_report["categories"])
+        if rejected:
+            raise RuntimeError("Kiota warning categories require attention: " + ", ".join(sorted(rejected)))
         if not (generated / "ApiClient.cs").exists():
             raise RuntimeError("Kiota did not produce a client")
         result["stage"] = "repair"
@@ -163,14 +173,13 @@ def verify(entry, workspace, output, driver):
         result["stage"] = "compile"
         project = directory / "Client.csproj"
         references = "".join(f'<PackageReference Include="Microsoft.Kiota.{p}" Version="2.1.2" />' for p in PACKAGES)
-        shutil.copyfile(ROOT / "tools/RuntimeProbe.cs", directory / "RuntimeProbe.cs")
-        (directory / "Program.cs").write_text('await RuntimeProbe.Run(args[0]);', encoding="utf-8")
-        project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net11.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings>'
+        warning_policy = '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>' if entry["sourceKind"] == "contract" else ''
+        project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net11.0</TargetFramework><OutputType>Library</OutputType><ImplicitUsings>enable</ImplicitUsings>'
                            '<Nullable>enable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems>'
-                           '</PropertyGroup><ItemGroup><Compile Include="generated/**/*.cs" /><Compile Include="Program.cs" /><Compile Include="RuntimeProbe.cs" />' + references + '</ItemGroup></Project>', encoding="utf-8")
-        run(["dotnet", "build", str(project), "--verbosity", "quiet", "-p:UseSharedCompilation=false"], directory / "build.log")
+                           + warning_policy + '</PropertyGroup><ItemGroup><Compile Include="generated/**/*.cs" />' + references + '</ItemGroup></Project>', encoding="utf-8")
+        run(["dotnet", "build", str(project), "--verbosity", "quiet", "-p:UseSharedCompilation=false", "-m:1", "-nodeReuse:false"], directory / "build.log", processor_count=2)
         result["stage"] = "runtime"
-        run(["dotnet", str(directory / "bin/Debug/net11.0/Client.dll"), str(fixed)], directory / "runtime.log")
+        run(["dotnet", str(driver), "runtime", str(fixed), str(directory / "bin/Debug/net11.0/Client.dll")], directory / "runtime.log")
         result.update(passed=True, stage="complete", generatedFiles=len(list(generated.rglob("*.cs"))))
     except Exception as error:
         result["error"] = str(error)
@@ -188,6 +197,8 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/client-verification")
     parser.add_argument("--providers", nargs="*", help="Exact repository names or provider segments, e.g. cloudflare stripe")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--fail-on-warning-category", nargs="*", default=[],
+                        help="Fail on specified Kiota categories, e.g. unsupported-format complex-form get-body multiple-servers error-type")
     parser.add_argument("--driver", type=Path, default=DRIVER)
     parser.add_argument("--contracts-only", action="store_true", help="Generate, compile and round-trip the checked-in behavioral contracts")
     args = parser.parse_args()
@@ -216,11 +227,13 @@ def main():
         print(json.dumps({"mismatches": mismatches}, indent=2))
         raise SystemExit(bool(mismatches))
     if args.contracts_only:
-        source = ROOT / "test/Soenneker.OpenApi.Fixer.Verification/Fixtures/contracts.json"
         args.workspace = ROOT
-        entries = [{"name": "contracts", "directory": ".", "source": source.relative_to(ROOT).as_posix(),
-                    "sourceKind": "contract", "revision": git(ROOT, "rev-parse", "HEAD"),
-                    "sha256": source_hash(source)}]
+        entries = []
+        for filename in ("contracts.json", "contracts-openapi30.json"):
+            source = ROOT / "test/Soenneker.OpenApi.Fixer.Verification/Fixtures" / filename
+            entries.append({"name": source.stem, "directory": ".", "source": source.relative_to(ROOT).as_posix(),
+                            "sourceKind": "contract", "revision": git(ROOT, "rev-parse", "HEAD"),
+                            "sha256": source_hash(source)})
     else:
         entries = json.loads(args.manifest.read_text(encoding="utf-8"))
         expanded = []
@@ -244,7 +257,7 @@ def main():
     driver = driver_directory / args.driver.name
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        futures = [executor.submit(verify, e, args.workspace.resolve() if args.workspace else None, args.output, driver) for e in entries]
+        futures = [executor.submit(verify, e, args.workspace.resolve() if args.workspace else None, args.output, driver, args.fail_on_warning_category) for e in entries]
         for future in concurrent.futures.as_completed(futures):
             results.append(future.result())
             (args.output / "results.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")

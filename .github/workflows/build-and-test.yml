@@ -40,5 +40,28 @@ jobs:
       - name: Test
         run: dotnet test --project test/Soenneker.OpenApi.Fixer.Tests/Soenneker.OpenApi.Fixer.Tests.csproj --configuration Release --no-build --no-restore --verbosity minimal
 
+      - name: Setup Python for generated-client verification
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Checkout diagnostics
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: soenneker/soenneker.openapi.diagnostics
+          path: .dependencies/diagnostics
+          persist-credentials: false
+
+      - name: Prepare generated-client verification
+        run: |
+          python -m pip install -r tools/requirements.txt
+          dotnet tool restore
+          dotnet build test/Soenneker.OpenApi.Fixer.Verification --verbosity minimal -p:OpenApiDiagnosticsProject="${{ github.workspace }}/.dependencies/diagnostics/src/Soenneker.OpenApi.Diagnostics/Soenneker.OpenApi.Diagnostics.csproj"
+
+      - name: Verify warning reports and generated serialization contracts
+        run: |
+          python -m unittest discover -s tools -p 'test_*.py'
+          python tools/verify_clients.py verify --contracts-only --output artifacts/generated-contracts --fail-on-warning-category unsupported-format complex-form get-body multiple-servers error-type duplicate-parameter missing-server other
+
       - name: Pack
         run: dotnet pack src/Soenneker.OpenApi.Fixer/Soenneker.OpenApi.Fixer.csproj --configuration Release --no-build --no-restore --output . --verbosity minimal

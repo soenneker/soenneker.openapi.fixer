@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Text.Json.Nodes;
+using Soenneker.OpenApi.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,10 +10,31 @@ using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.OpenApi.Fixer.Registrars;
 
 if (args.Length < 2)
-    throw new ArgumentException("Usage: fix <source> <destination> | repair <generated-directory> | audit <specification> <generated-directory>");
-if (args[0] == "audit")
+    throw new ArgumentException("Usage: fix <source> <destination> | repair <generated-directory> | audit <specification> <generated-directory> | runtime <specification> <assembly> | warnings <log> <report>");
+if (args[0] is "audit" or "runtime" or "warnings")
 {
-    await GeneratedCodeAudit.Run(args[1], args[2]);
+    object report;
+    string output;
+    bool passed;
+    if (args[0] == "audit")
+    {
+        var result = await new OpenApiGeneratedCodeDiagnostics().Analyze(args[1], args[2]);
+        report = result; passed = result.Passed;
+        output = Path.Combine(Path.GetDirectoryName(args[1])!, "code-audit.json");
+    }
+    else if (args[0] == "runtime")
+    {
+        var result = await new OpenApiRuntimeDiagnostics().Analyze(JsonNode.Parse(await File.ReadAllTextAsync(args[1]))!, Assembly.LoadFrom(Path.GetFullPath(args[2])));
+        report = result; passed = result.Passed;
+        output = Path.Combine(Path.GetDirectoryName(args[1])!, "runtime-report.json");
+    }
+    else
+    {
+        var result = new KiotaLogDiagnostics().Analyze(await File.ReadAllTextAsync(args[1]));
+        report = result; passed = !result.HasErrors; output = args[2];
+    }
+    await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report, DiagnosticsJsonContext.Default.GetTypeInfo(report.GetType())!));
+    if (!passed) throw new InvalidOperationException("Diagnostics failed; see " + output);
     return;
 }
 var services = new ServiceCollection();

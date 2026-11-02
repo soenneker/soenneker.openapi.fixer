@@ -30,6 +30,7 @@
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.Kiota.Serialization.Json" Version="2.1.2" />
+        <PackageReference Include="Microsoft.Kiota.Serialization.Text" Version="2.1.2" />
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
         <Compile Include="../../src/Soenneker.OpenApi.Fixer/Resources/OpenApiFormSerializer.cs.txt" Link="Generated/OpenApiFormSerializer.cs" />
     </ItemGroup>

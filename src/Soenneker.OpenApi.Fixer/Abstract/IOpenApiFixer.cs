@@ -35,7 +35,7 @@ public interface IOpenApiFixer
     /// <summary>
     /// Reads an OpenAPI JSON file, applies the default normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
-    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Only referenced component schemas are imported; recursive references and example payloads are preserved. Explicit deepObject form encodings with closed, fixed scalar fields are flattened to bracketed wire names before generation. Dynamic or open objects, nested objects, arrays, unions, and unsupported constraints are left unchanged.</remarks>
+    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Recursive references and example payloads are preserved. Explicit deepObject form encodings with closed, fixed scalar fields are flattened to bracketed wire names. Complex forms retain their model structure but use a JSON generation view; original form encodings are preserved in extensions. Run <see cref="RepairGeneratedClient"/> after Kiota to restore form wire serialization and raw error payload handling. Unused schemas and alternative root servers are archived in extensions by default.</remarks>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -45,7 +45,7 @@ public interface IOpenApiFixer
     /// <summary>
     /// Reads an OpenAPI JSON file, applies the selected normalization rules, and replaces the target only after the result parses successfully.
     /// </summary>
-    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Dependency files must contain JSON, including any converted YAML files that retain their original filenames.</remarks>
+    /// <remarks>Available local JSON schema dependencies are bundled before normalization. Dependency files must contain JSON, including any converted YAML files that retain their original filenames. Complex-form and raw-error projections require <see cref="RepairGeneratedClient"/> after Kiota generation. Their options can be disabled when the output is consumed without generated-client repair.</remarks>
     /// <param name="sourceFilePath">The source OpenAPI JSON file.</param>
     /// <param name="targetFilePath">The destination for the normalized JSON. An existing file is replaced after validation succeeds.</param>
     /// <param name="options">Optional normalization and logging settings. Logging includes file paths, major processing stages, completion timing, warnings, and errors by default, with settings captured independently for each call.</param>

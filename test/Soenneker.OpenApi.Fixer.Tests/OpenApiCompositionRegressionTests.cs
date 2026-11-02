@@ -37,7 +37,8 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         await Assert.That(result["$ref"]).IsNull();
         await Assert.That(result["type"]!.GetValue<string>()).IsEqualTo("object");
         await Assert.That(result["nullable"]!.GetValue<bool>()).IsTrue();
-        await Assert.That(result["enum"]!.ToJsonString()).IsEqualTo("[null]");
+        await Assert.That(result["x-client-original-enum"]!.ToJsonString()).IsEqualTo("[null]");
+        await Assert.That(result["not"]!["type"]!.GetValue<string>()).IsEqualTo("object");
     }
 
     [Test]
@@ -161,7 +162,7 @@ public sealed class OpenApiCompositionRegressionTests : HostedUnitTest
         await Assert.That(Resolve(schemas["DefaultAvatar"]!["properties"]!["kind"]!)["enum"]![0]!.GetValue<string>()).IsEqualTo("default");
         await Assert.That(schemas["CustomAvatar"]!["required"]!.AsArray().Count).IsEqualTo(1);
         await Assert.That(schemas["DefaultAvatar"]!["required"]!.AsArray().Count).IsEqualTo(1);
-        await Assert.That(avatar["oneOf"]!.AsArray().Count).IsEqualTo(2);
+        await Assert.That(avatar["x-client-original-tagged-union"]!["oneOf"]!.AsArray().Count).IsEqualTo(2);
         await Assert.That(avatar["x-client-original-discriminator"]!["mapping"]!["custom"]!.GetValue<string>()).IsEqualTo("#/components/schemas/CustomAvatar");
     }
 

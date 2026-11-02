@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json.Nodes;
 using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Tests.HostedUnit;
 
@@ -13,7 +14,9 @@ public sealed class OpenApiGeneratedFormTests : HostedUnitTest
     public OpenApiGeneratedFormTests(Host host) : base(host) => _fixer = Resolve<IOpenApiFixer>(true);
 
     [Test]
-    public async ValueTask Repairs_match_route_and_method_preserve_json_and_are_idempotent(CancellationToken ct)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async ValueTask Repairs_match_route_and_method_preserve_json_and_are_idempotent(bool projected, CancellationToken ct)
     {
         string root = Path.Combine(Path.GetTempPath(), System.Guid.NewGuid().ToString());
         Directory.CreateDirectory(root);
@@ -23,7 +26,7 @@ public sealed class OpenApiGeneratedFormTests : HostedUnitTest
             {"paths":{"/things/{id}":{"post":{"requestBody":{"content":{"application/x-www-form-urlencoded":{"schema":{"type":"object"},"encoding":{"data":{"style":"deepObject","explode":true}}}}}},"patch":{"requestBody":{"content":{"application/json":{"schema":{"type":"object"}}}}}}}}
             """, ct);
             await File.WriteAllTextAsync(Path.Combine(root, "kiota-lock.json"), """{"descriptionLocation":"fixed.json"}""", ct);
-            const string source = """
+            string source = """
             [GeneratedCode("Kiota", "1.0.0")]
             public class ItemRequestBuilder
             {
@@ -40,6 +43,17 @@ public sealed class OpenApiGeneratedFormTests : HostedUnitTest
                 }
             }
             """;
+            if (projected)
+            {
+                string specPath = Path.Combine(root, "fixed.json");
+                JsonNode spec = JsonNode.Parse(await File.ReadAllTextAsync(specPath, ct))!;
+                JsonNode body = spec["paths"]!["/things/{id}"]!["post"]!["requestBody"]!;
+                JsonNode form = body["content"]!["application/x-www-form-urlencoded"]!;
+                body["x-client-original-form-content"] = form.DeepClone();
+                body["content"] = new JsonObject { ["application/json"] = form.DeepClone() };
+                await File.WriteAllTextAsync(specPath, spec.ToJsonString(), ct);
+                source = source.Replace("application/x-www-form-urlencoded", "application/json");
+            }
             string file = Path.Combine(root, "ItemRequestBuilder.cs");
             await File.WriteAllTextAsync(file, source, ct);
             await File.WriteAllTextAsync(Path.Combine(root, "OtherRequestBuilder.cs"), source.Replace("/things/", "/other/"), ct);

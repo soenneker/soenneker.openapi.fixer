@@ -274,7 +274,12 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             json = NormalizeExplicitFormMediaTypes(json);
             json = FlattenFixedDeepObjectForms(json);
             json = NormalizeKiotaQueryParameters(json);
+            if (options.NormalizeIntegerRanges) json = NormalizeIntegerRanges(json);
             json = NormalizeKiotaResponseCompatibility(json, options);
+            json = CorrectKnownProviderOperations(json);
+            json = NormalizeMalformedDiscriminatorTags(json);
+            json = NormalizeNullableEnumValues(json);
+            json = NormalizeUnresolvedServerVariables(json);
             if (options.ProjectDivergentSuccessResponses)
                 json = ProjectDivergentSuccessResponses(json);
 
@@ -285,6 +290,10 @@ public sealed partial class OpenApiFixer : IOpenApiFixer
             json = InlineScalarReferences(json);
             json = InjectKiotaEnumValueNames(json);
             json = ShareEquivalentUnionReferences(json);
+            json = NormalizeNullableObjectUnions(json);
+            if (options.ProjectTaggedObjectUnions) json = ProjectTaggedObjectUnions(json);
+            if (options.ProjectComplexFormRequests) json = ProjectComplexFormRequests(json);
+            json = NormalizeClientSchemaCleanup(json, options);
 
             string fullTargetPath = Path.GetFullPath(targetFilePath);
             string temporaryTargetPath = $"{fullTargetPath}.{Guid.NewGuid()}.tmp";

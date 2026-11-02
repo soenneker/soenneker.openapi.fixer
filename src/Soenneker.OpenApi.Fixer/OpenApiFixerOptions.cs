@@ -9,6 +9,14 @@ namespace Soenneker.OpenApi.Fixer;
 public sealed class OpenApiFixerOptions
 {
     /// <summary>
+    /// Projects unions of objects with distinct required string tags into a discriminated class hierarchy.
+    /// Uses dedicated derived schemas so models shared with other unions retain their original shape.
+    /// This widens base-schema validation; the original union is retained in x-client-original-tagged-union.
+    /// Unknown tags remain available through the base model's additional data. Enabled by default.
+    /// </summary>
+    public bool ProjectTaggedObjectUnions { get; set; } = true;
+
+    /// <summary>
     /// Repairs object examples encoded as strings, JSON Pointer examples, and incompatible inherited
     /// examples when compatible defaults or property examples exist. Original examples are retained
     /// in x-client-original-example. Unconstrained object placeholders with scalar examples become
@@ -42,11 +50,64 @@ public sealed class OpenApiFixerOptions
     public bool ProjectCompatibleErrorResponses { get; set; } = true;
 
     /// <summary>
-    /// Moves known string formats unsupported by Kiota (such as email and uri) to x-client-original-format.
-    /// Disabled by default because validators no longer enforce the moved format. Supported formats such
-    /// as uuid and date-time, unknown formats, and example payloads are preserved.
+    /// Projects scalar, array, unrepresentable union, and unstructured JSON or text error responses to exception placeholders. Generated-client
+    /// repair replaces their factories and serialization with lossless raw-payload handling. Original schemas
+    /// are retained in x-client-raw-error-schema. Enabled by default; requires RepairGeneratedClient.
     /// </summary>
-    public bool NormalizeUnsupportedStringFormats { get; set; }
+    public bool ProjectRawErrorResponses { get; set; } = true;
+
+    /// <summary>
+    /// Moves string formats unsupported by Kiota (including custom formats) to x-client-original-format.
+    /// Enabled by default for client generation; validators no longer enforce the moved format. Supported formats such
+    /// as uuid and date-time, and example payloads are preserved.
+    /// </summary>
+    public bool NormalizeUnsupportedStringFormats { get; set; } = true;
+
+    /// <summary>
+    /// Maps uint32 to int64 and uint64 to decimal so generated clients can represent the full unsigned range.
+    /// Original types and formats are retained in extensions. Enabled by default. Decimal projection retains
+    /// integer semantics by intersecting multipleOf with whole-number steps.
+    /// </summary>
+    public bool NormalizeUnsignedIntegerFormats { get; set; } = true;
+
+    /// <summary>
+    /// Maps unsupported integer formats to int64 (byte to int32) without changing their numeric wire values,
+    /// and archives unsupported number formats without narrowing the number type. Enabled by default.
+    /// </summary>
+    public bool NormalizeUnsupportedNumericFormats { get; set; } = true;
+
+    /// <summary>
+    /// Archives format annotations on object, array, boolean, and null schemas, for which Kiota has no format codecs.
+    /// Preserves schema types and wire values. Enabled by default.
+    /// </summary>
+    public bool NormalizeUnsupportedContainerFormats { get; set; } = true;
+
+    /// <summary>
+    /// Widens integer properties when declared bounds, defaults, examples, or enum values exceed their CLR range.
+    /// Uses int64 or decimal with integer constraints, preserving numeric wire values. Enabled by default.
+    /// </summary>
+    public bool NormalizeIntegerRanges { get; set; } = true;
+
+    /// <summary>
+    /// Moves unreachable component schemas to x-client-unused-schemas so Kiota validates only schemas used by
+    /// the client. Discriminator mappings and references from reusable components are retained. Enabled by default.
+    /// </summary>
+    public bool ArchiveUnusedSchemas { get; set; } = true;
+
+    /// <summary>
+    /// Selects the first root server, as Kiota does, and preserves alternatives in x-client-original-servers.
+    /// When every operation has its own server, supplies a root default without changing those overrides.
+    /// Generated clients can still select another server through the request adapter. Enabled by default.
+    /// </summary>
+    public bool SelectPrimaryServer { get; set; } = true;
+
+    /// <summary>
+    /// Presents complex URL-encoded request bodies as JSON models during generation, retaining their form
+    /// schema and encoding in x-client-original-form-content. RepairGeneratedClient restores URL-encoded
+    /// wire serialization with the generated form serializer. Already-encoded string bodies use a text projection
+    /// and are transmitted unchanged. Enabled by default; requires generated-client repair.
+    /// </summary>
+    public bool ProjectComplexFormRequests { get; set; } = true;
 
     /// <summary>
     /// Projects open object anyOf branches with identical required fields and identical overlapping property schemas

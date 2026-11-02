@@ -1,33 +1,1081 @@
 {
-  "openapi": "3.0.3",
-  "info": { "title": "Generated client contracts", "version": "1" },
-  "servers": [{ "url": "https://example.invalid" }],
-  "paths": {
-    "/models": { "get": { "responses": { "200": { "description": "Model", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContractModel" } }, "text/plain": { "schema": { "type": "string" } } } } } } },
-    "/choices": { "get": { "responses": { "200": { "description": "Choice", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Choice" } } } } } } },
-    "/batch": { "post": { "responses": { "207": { "description": "Multi-status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContractModel" } } } } } } }
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Generated client contracts",
+    "version": "1"
   },
-  "components": { "schemas": {
-    "BaseModel": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } },
-    "ContractModel": {
-      "allOf": [{ "$ref": "#/components/schemas/BaseModel" }, { "type": "object", "properties": {
-        "name": { "type": "string", "nullable": true },
-        "status": { "type": "string", "enum": ["active", "inactive"] },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "count": { "type": "integer", "format": "int32" },
-        "enabled": { "type": "boolean" }
-      } }],
-      "x-verification-payloads": [
-        {},
-        { "name": null },
-        { "id": 9007199254740993, "name": "", "status": "active", "tags": [], "count": 0, "enabled": false },
-        { "status": "future-status", "extra": { "nested": [1, true, null] } }
+  "servers": [
+    {
+      "url": "https://example.invalid"
+    }
+  ],
+  "paths": {
+    "/a-union": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Union first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IgnorePlurals"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractModel"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/choices": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Choice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Choice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/batch": {
+      "post": {
+        "responses": {
+          "207": {
+            "description": "Multi-status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/upstream-regressions": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Upstream serialization regression cases",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamRegressionContract"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/form": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FormChoice"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FormChoice"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "done"
+          }
+        }
+      }
+    },
+    "/raw-form": {
+      "delete": {
+        "operationId": "DeleteRawForm",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/tagged-array": {
+      "get": {
+        "operationId": "GetTaggedArray",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaggedArrayChoice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/a-tagged-list": {
+      "get": {
+        "operationId": "GetTaggedList",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaggedOrText"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BaseModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ContractModel": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BaseModel"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "nullable": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "count": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        ],
+        "x-verification-payloads": [
+          {},
+          {
+            "name": null
+          },
+          {
+            "id": 9007199254740993,
+            "name": "",
+            "status": "active",
+            "tags": [],
+            "count": 0,
+            "enabled": false
+          },
+          {
+            "status": "future-status",
+            "extra": {
+              "nested": [
+                1,
+                true,
+                null
+              ]
+            }
+          }
+        ]
+      },
+      "Choice": {
+        "type": "object",
+        "properties": {
+          "shared": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/NamedChoice"
+          },
+          {
+            "$ref": "#/components/schemas/CountedChoice"
+          }
+        ],
+        "x-verification-payloads": [
+          {
+            "name": "one",
+            "shared": "common"
+          },
+          {
+            "count": 42,
+            "shared": "also common"
+          }
+        ]
+      },
+      "NamedChoice": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CountedChoice": {
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "IssuePrimitiveString": {
+        "type": "string"
+      },
+      "IssuePrimitiveInteger": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "IssuePrimitiveNumber": {
+        "type": "number",
+        "format": "double"
+      },
+      "IssuePrimitiveBoolean": {
+        "type": "boolean"
+      },
+      "IssuePrimitiveArray": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IssuePrimitiveString"
+        }
+      },
+      "IssueInlineAllOf": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "$ref": "#/components/schemas/IssueNestedValue"
+              }
+            }
+          }
+        ]
+      },
+      "IssueNestedValue": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "UpstreamRegressionContract": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IssuePrimitiveString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "integer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IssuePrimitiveInteger"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "number": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IssuePrimitiveNumber"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flag": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IssuePrimitiveBoolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "values": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IssuePrimitiveArray"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nested": {
+            "$ref": "#/components/schemas/IssueInlineAllOf"
+          },
+          "nullableEnum": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "standard",
+              "compact",
+              null
+            ]
+          },
+          "enumLanguages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueSharedEnum"
+            }
+          },
+          "enumChoice": {
+            "$ref": "#/components/schemas/IssueArrayEnumUnion"
+          },
+          "naturalLanguages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportedLanguage"
+            }
+          },
+          "ignorePlurals": {
+            "$ref": "#/components/schemas/IgnorePlurals"
+          },
+          "removeStopWords": {
+            "$ref": "#/components/schemas/RemoveStopWords"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/OrpEndpoint"
+          },
+          "byteNumber": {
+            "type": "integer",
+            "format": "byte",
+            "nullable": true
+          },
+          "numericNullableEnum": {
+            "$ref": "#/components/schemas/NumericNullableEnum"
+          },
+          "uuidFiles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "oneOrMany": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IssueNestedValue"
+                }
+              },
+              {
+                "$ref": "#/components/schemas/IssueNestedValue"
+              }
+            ]
+          },
+          "clock": {
+            "type": "string",
+            "format": "time",
+            "default": "24:00:00"
+          },
+          "boundedArray": {
+            "$ref": "#/components/schemas/ArrayBoundsChoice"
+          },
+          "nullOnly": {
+            "type": "object",
+            "nullable": true,
+            "enum": [
+              null
+            ]
+          },
+          "quantityWide": {
+            "type": "integer",
+            "maximum": 4294967295
+          },
+          "quantityHuge": {
+            "type": "integer",
+            "maximum": 18446744073709551615,
+            "multipleOf": 2.5
+          }
+        },
+        "x-verification-payloads": [
+          {
+            "text": "hello",
+            "integer": 9007199254740993,
+            "number": 1.25,
+            "flag": true,
+            "values": [
+              "a",
+              "b"
+            ],
+            "nested": {
+              "value": {
+                "id": "retained"
+              }
+            },
+            "nullableEnum": "compact"
+          },
+          {
+            "text": null,
+            "integer": null,
+            "number": null,
+            "flag": null,
+            "values": null,
+            "nullableEnum": null
+          },
+          {
+            "enumLanguages": [
+              "af",
+              "en"
+            ],
+            "enumChoice": [
+              "en"
+            ]
+          },
+          {
+            "naturalLanguages": [
+              "af"
+            ],
+            "ignorePlurals": [
+              "en"
+            ],
+            "removeStopWords": [
+              "en"
+            ]
+          },
+          {
+            "byteNumber": 128,
+            "endpoint": {
+              "endpoint": "host.example",
+              "weight": 3,
+              "type": "FQDN"
+            }
+          },
+          {
+            "numericNullableEnum": 1
+          },
+          {
+            "numericNullableEnum": null
+          },
+          {
+            "uuidFiles": [
+              "1dbe8894-181d-4f52-94f4-8da754d53f51"
+            ],
+            "oneOrMany": {
+              "id": "one"
+            },
+            "clock": "13:00:00"
+          },
+          {
+            "uuidFiles": null,
+            "oneOrMany": [
+              {
+                "id": "two"
+              }
+            ]
+          },
+          {
+            "boundedArray": [
+              1,
+              2
+            ]
+          },
+          {
+            "nullOnly": null
+          },
+          {
+            "quantityWide": 4294967295,
+            "quantityHuge": 18446744073709551615
+          }
+        ]
+      },
+      "IssueSharedEnum": {
+        "type": "string",
+        "enum": [
+          "af",
+          "en"
+        ]
+      },
+      "IssueArrayEnumUnion": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueSharedEnum"
+            }
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      },
+      "SupportedLanguage": {
+        "enum": [
+          "af",
+          "en"
+        ],
+        "type": "string"
+      },
+      "IgnorePlurals": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportedLanguage"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/BooleanString"
+          },
+          {
+            "type": "boolean",
+            "default": false
+          }
+        ]
+      },
+      "RemoveStopWords": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportedLanguage"
+            }
+          },
+          {
+            "type": "boolean",
+            "default": false
+          }
+        ]
+      },
+      "BooleanString": {
+        "enum": [
+          "true",
+          "false"
+        ],
+        "type": "string"
+      },
+      "OrpEndpoint": {
+        "required": [
+          "endpoint",
+          "weight",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrpEndpointType"
+            }
+          }
+        },
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "SIP": "#/components/schemas/SipEndpoint",
+            "IP_V4": "#/components/schemas/Ipv4Endpoint",
+            "FQDN": "#/components/schemas/FqdnEndpoint"
+          }
+        }
+      },
+      "OrpEndpointType": {
+        "enum": [
+          "SIP",
+          "IP_V4",
+          "FQDN"
+        ],
+        "type": "string"
+      },
+      "FqdnEndpoint": {
+        "required": [
+          "type"
+        ],
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrpEndpoint"
+          }
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/FqdnType"
+          },
+          "rewriteUser": {
+            "type": "string",
+            "example": "rewrite-user@example.com"
+          }
+        },
+        "example": {
+          "endpoint": "www.example.com",
+          "weight": 3,
+          "type": "FQDN"
+        },
+        "x-verification-payloads": [
+          {
+            "endpoint": "www.example.com",
+            "weight": 3,
+            "type": "FQDN"
+          }
+        ]
+      },
+      "SipEndpoint": {
+        "required": [
+          "type",
+          "endpoint"
+        ],
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrpEndpoint"
+          }
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/SipType"
+          },
+          "endpoint": {
+            "type": "string",
+            "x-client-original-format": "uri"
+          }
+        },
+        "example": {
+          "endpoint": "sip:1-999-123-4567@voip-provider.example.net",
+          "weight": 100,
+          "type": "SIP"
+        },
+        "x-verification-payloads": [
+          {
+            "endpoint": "sip:1-999-123-4567@voip-provider.example.net",
+            "weight": 100,
+            "type": "SIP"
+          }
+        ]
+      },
+      "Ipv4Endpoint": {
+        "required": [
+          "type",
+          "endpoint"
+        ],
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrpEndpoint"
+          }
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/IpV4Type"
+          },
+          "endpoint": {
+            "type": "string",
+            "x-client-original-format": "ipv4"
+          },
+          "rewriteUser": {
+            "type": "string",
+            "example": "rewrite-user@example.com"
+          }
+        },
+        "example": {
+          "endpoint": "192.168.0.1",
+          "weight": 1,
+          "type": "IP_V4",
+          "rewriteUser": "rewriteUser"
+        },
+        "x-verification-payloads": [
+          {
+            "endpoint": "192.168.0.1",
+            "weight": 1,
+            "type": "IP_V4",
+            "rewriteUser": "rewriteUser"
+          }
+        ]
+      },
+      "FqdnType": {
+        "enum": [
+          "FQDN"
+        ],
+        "type": "string"
+      },
+      "SipType": {
+        "enum": [
+          "SIP"
+        ],
+        "type": "string"
+      },
+      "IpV4Type": {
+        "enum": [
+          "IP_V4"
+        ],
+        "type": "string"
+      },
+      "NumericNullableEnum": {
+        "type": [
+          "null",
+          "integer"
+        ],
+        "enum": [
+          1,
+          null
+        ]
+      },
+      "FormChoice": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "grant_type",
+              "code"
+            ],
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "authorization_code"
+                ]
+              },
+              "code": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "grant_type",
+              "refresh_token"
+            ],
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "refresh_token"
+                ]
+              },
+              "refresh_token": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ArrayBoundsChoice": {
+        "anyOf": [
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            }
+          },
+          {
+            "$ref": "#/components/schemas/NamedChoice"
+          }
+        ]
+      },
+      "TaggedChoice": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TaggedCat"
+          },
+          {
+            "$ref": "#/components/schemas/TaggedDog"
+          }
+        ],
+        "x-verification-dispatch": [
+          {
+            "payload": {
+              "kind": "cat",
+              "lives": 9
+            },
+            "type": "TaggedChoiceTaggedCat"
+          },
+          {
+            "payload": {
+              "kind": "dog",
+              "barks": true
+            },
+            "type": "TaggedChoiceTaggedDog"
+          },
+          {
+            "payload": {
+              "kind": "future",
+              "extra": {
+                "x": null
+              }
+            },
+            "type": "TaggedChoice"
+          }
+        ]
+      },
+      "TaggedCat": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cat"
+            ]
+          },
+          "lives": {
+            "type": "integer"
+          }
+        }
+      },
+      "TaggedDog": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "dog"
+            ]
+          },
+          "barks": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TaggedArrayChoice": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaggedCat"
+            }
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaggedDog"
+            }
+          }
+        ],
+        "x-verification-dispatch": [
+          {
+            "payload": [
+              {
+                "kind": "cat",
+                "lives": 9
+              }
+            ],
+            "type": "TaggedArrayChoice.TaggedCat"
+          },
+          {
+            "payload": [
+              {
+                "kind": "dog",
+                "barks": true
+              }
+            ],
+            "type": "TaggedArrayChoice.TaggedDog"
+          },
+          {
+            "payload": [],
+            "type": "TaggedArrayChoice.UnrecognizedValue"
+          },
+          {
+            "payload": [
+              {
+                "kind": "cat"
+              },
+              {
+                "kind": "dog"
+              }
+            ],
+            "type": "TaggedArrayChoice.UnrecognizedValue"
+          }
+        ]
+      },
+      "TaggedOrText": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/TaggedChoice"
+              }
+            }
+          }
+        ],
+        "x-verification-provider-payloads": [
+          [
+            [
+              {
+                "kind": "cat",
+                "lives": 9
+              },
+              {
+                "kind": "future",
+                "extra": null
+              }
+            ]
+          ]
+        ]
+      }
+    }
+  },
+  "x-verification-requests": [
+    {
+      "route": "/form",
+      "method": "Post",
+      "body": {
+        "grant_type": "authorization_code",
+        "code": "a+b & c"
+      },
+      "contentType": "application/x-www-form-urlencoded",
+      "form": {
+        "grant_type": "authorization_code",
+        "code": "a+b & c"
+      }
+    },
+    {
+      "route": "/models",
+      "method": "Get",
+      "query": {
+        "ids": [
+          "one",
+          "two"
+        ]
+      },
+      "queryContains": [
+        "ids=one",
+        "ids=two"
       ]
     },
-    "Choice": { "type": "object", "properties": { "shared": { "type": "string" } },
-      "anyOf": [{ "$ref": "#/components/schemas/NamedChoice" }, { "$ref": "#/components/schemas/CountedChoice" }],
-      "x-verification-payloads": [{ "name": "one", "shared": "common" }, { "count": 42, "shared": "also common" }] },
-    "NamedChoice": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } },
-    "CountedChoice": { "type": "object", "required": ["count"], "properties": { "count": { "type": "integer", "format": "int32" } } }
-  } }
+    {
+      "method": "Delete",
+      "body": "ids%5B0%5D=a%26b&name=hello+world",
+      "contentType": "application/x-www-form-urlencoded",
+      "form": {
+        "ids[0]": "a&b",
+        "name": "hello world"
+      },
+      "route": "/raw-form"
+    }
+  ]
 }

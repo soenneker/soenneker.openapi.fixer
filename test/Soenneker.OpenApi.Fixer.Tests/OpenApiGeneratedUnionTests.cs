@@ -155,7 +155,7 @@ public sealed class OpenApiGeneratedUnionTests
             .Replace("public global::Models.Right Right", "public List<global::Models.Right> Right");
         string repaired = Repair(source, schemas);
         await Assert.That(repaired.Split("var unionPayload =").Length).IsEqualTo(2);
-        await Assert.That(repaired).Contains("result.UnrecognizedValue = ambiguousArray; return result;");
+        await Assert.That(repaired).Contains("result.UnrecognizedValue = unionArrayPayload; return result;");
     }
 
     [Test]

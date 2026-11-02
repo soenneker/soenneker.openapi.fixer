@@ -29,20 +29,26 @@ public sealed partial class OpenApiFixer
         if (!File.Exists(path) || Path.GetExtension(path).Equals(".yaml", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".yml", StringComparison.OrdinalIgnoreCase)) return;
         JsonNode document = JsonNode.Parse(await File.ReadAllTextAsync(path, ct))!;
         if (document["paths"] is not JsonObject paths) return;
-        var operations = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        var operations = new Dictionary<string, Dictionary<string, (string Rules, bool Projected)>>(StringComparer.Ordinal);
+        var scalarForms = new HashSet<string>(StringComparer.Ordinal);
         foreach ((string route, JsonNode? item) in paths)
         {
             if (ResolveFormNode(document, item) is not JsonObject pathItem) continue;
             foreach (string method in new[] { "get", "put", "post", "delete", "options", "head", "patch", "trace" })
             {
-                if (pathItem[method] is not JsonObject operation || ResolveFormNode(document, operation["requestBody"])?["content"]?["application/x-www-form-urlencoded"] is not JsonObject media) continue;
+                if (pathItem[method] is not JsonObject operation) continue;
+                JsonObject? body = ResolveFormNode(document, operation["requestBody"]);
+                bool projected = body?["x-client-original-form-content"] is JsonObject;
+                if ((body?["x-client-original-form-content"] ?? body?["content"]?["application/x-www-form-urlencoded"]) is not JsonObject media) continue;
                 var rules = media["encoding"] as JsonObject ?? new JsonObject();
                 // Only style-based form encodings are handled; other content representations remain on their original path.
                 if (rules.Any(r => r.Value is not JsonObject rule || rule["contentType"] != null || rule["headers"] != null ||
                     rule["style"] != null && rule["style"]!.ToString() is not ("form" or "deepObject" or "spaceDelimited" or "pipeDelimited"))) continue;
                 string signature = FormRouteSignature(route);
-                if (!operations.TryGetValue(signature, out Dictionary<string, string>? methods)) operations[signature] = methods = new(StringComparer.Ordinal);
-                methods[method.ToUpperInvariant()] = rules.ToJsonString();
+                if (ResolveFormNode(document, media["schema"])?["type"]?.ToJsonString() == "\"string\"")
+                    scalarForms.Add(signature + "|" + method.ToUpperInvariant());
+                if (!operations.TryGetValue(signature, out Dictionary<string, (string Rules, bool Projected)>? methods)) operations[signature] = methods = new(StringComparer.Ordinal);
+                methods[method.ToUpperInvariant()] = (rules.ToJsonString(), projected);
             }
         }
         if (operations.Count == 0) return;
@@ -58,12 +64,15 @@ public sealed partial class OpenApiFixer
             string route = template.Groups["path"].Value;
             int query = route.IndexOf("{?", StringComparison.Ordinal);
             if (query >= 0) route = route[..query];
-            if (!operations.TryGetValue(FormRouteSignature(route), out Dictionary<string, string>? methods)) continue;
+            if (!operations.TryGetValue(FormRouteSignature(route), out Dictionary<string, (string Rules, bool Projected)>? methods)) continue;
             string repaired = Regex.Replace(source,
-                @"(?<prefix>var requestInfo = new RequestInformation\(Method\.(?<method>\w+),[^;]+;(?:(?!return requestInfo;)[\s\S])*?)(?:requestInfo\.SetContentFromParsable\(RequestAdapter, ""application/x-www-form-urlencoded"", body\);|global::Soenneker\.OpenApi\.Generated\.OpenApiFormSerializer\.SetContent\(requestInfo, body, ""(?:[^""\\]|\\.)*""\);)",
+                @"(?<prefix>var requestInfo = new RequestInformation\(Method\.(?<method>\w+),[^;]+;(?:(?!return requestInfo;)[\s\S])*?)(?:requestInfo\.SetContentFrom(?<writer>Parsable|Scalar)\(RequestAdapter, ""(?<media>application/(?:x-www-form-urlencoded|json)|text/plain)"", body\);|global::Soenneker\.OpenApi\.Generated\.OpenApiFormSerializer\.SetContent\(requestInfo, body, ""(?:[^""\\]|\\.)*""\);)",
                 match =>
                 {
-                    if (!methods.TryGetValue(match.Groups["method"].Value, out string? rules)) return match.Value;
+                    if (match.Groups["writer"].Value == "Scalar" && !scalarForms.Contains(FormRouteSignature(route) + "|" + match.Groups["method"].Value)) return match.Value;
+                    if (!methods.TryGetValue(match.Groups["method"].Value, out var formConfiguration) ||
+                        match.Groups["media"].Value is "application/json" or "text/plain" && !formConfiguration.Projected) return match.Value;
+                    string rules = formConfiguration.Rules;
                     used = true;
                     string literal = "\"" + rules.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
                     return match.Groups["prefix"].Value + "global::Soenneker.OpenApi.Generated.OpenApiFormSerializer.SetContent(requestInfo, body, " + literal + ");";

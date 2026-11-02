@@ -247,6 +247,7 @@ public sealed partial class OpenApiFixer
             await WriteGeneratedUnionSupport(generatedRoot, cancellationToken);
             await WriteGeneratedErrorSupport(generatedRoot, cancellationToken);
         }
+        await RepairGeneratedTextErrors(generatedRoot, unionSchemas, cancellationToken);
         var emptyEnums = new Dictionary<string, string>(StringComparer.Ordinal);
         // Recover omitted properties before type, factory, enum and null repairs inspect the models.
         // Otherwise those repairs only see recovered members on the next invocation.
@@ -267,6 +268,7 @@ public sealed partial class OpenApiFixer
             sanitized = RepairGeneratedEmptyEnum(sanitized, unionSchemas, emptyEnums);
             sanitized = SanitizeGeneratedErrorMessageForContent(sanitized);
             sanitized = SanitizeGeneratedIndexerNames(sanitized);
+            sanitized = RepairGeneratedRawError(sanitized, unionSchemas);
             sanitized = RepairGeneratedMissingFactories(sanitized, factorySchemas);
             sanitized = RepairGeneratedUntypedCollections(sanitized);
             sanitized = RepairGeneratedPatternProperties(sanitized, unionSchemas);

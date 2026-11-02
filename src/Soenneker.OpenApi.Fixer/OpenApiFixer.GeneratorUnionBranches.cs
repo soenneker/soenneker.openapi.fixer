@@ -12,6 +12,9 @@ public sealed partial class OpenApiFixer
     {
         JsonNode root = JsonNode.Parse(json)!;
         if (root["components"]?["schemas"] is not JsonObject schemas) return json;
+        static bool ReferenceWithAnnotations(JsonObject schema) => schema.ContainsKey("$ref") && schema.All(p =>
+            p.Key is "$ref" or "title" or "description" or "$comment" or "example" or "examples" or "deprecated" or
+                "readOnly" or "writeOnly" or "externalDocs" || p.Key.StartsWith("x-", StringComparison.Ordinal));
         bool changed = OpenApiJsonSchemaWalker.Visit(root, (schema, name) =>
         {
             bool updated = false;
@@ -21,6 +24,20 @@ public sealed partial class OpenApiFixer
                 for (int index = 0; index < branches.Count; index++)
                 {
                     if (branches[index] is not JsonObject branch) continue;
+                    if (branch["type"]?.ToJsonString() == "\"array\"" && branch["items"] is JsonObject itemReference &&
+                        ReferenceWithAnnotations(itemReference) && itemReference["$ref"] is JsonValue itemId &&
+                        itemId.TryGetValue(out string? itemPath) && itemPath.StartsWith("#/components/schemas/", StringComparison.Ordinal) &&
+                        schemas[itemPath[21..].Replace("~1", "/").Replace("~0", "~")] is JsonObject itemSchema &&
+                        itemSchema["type"]?.ToJsonString() is "\"string\"" or "\"integer\"" or "\"number\"" or "\"boolean\"" &&
+                        itemSchema["oneOf"] == null && itemSchema["anyOf"] == null && itemSchema["allOf"] == null)
+                    {
+                        // Kiota can register a union array's referenced scalar item as an empty object,
+                        // poisoning every subsequent direct use of the same component (including enums).
+                        JsonObject inline = itemSchema.DeepClone().AsObject();
+                        foreach ((string key, JsonNode? value) in itemReference.Where(p => p.Key != "$ref")) inline[key] = value?.DeepClone();
+                        branch["items"] = inline;
+                        updated = true;
+                    }
                     if (branch.Count == 1 && branch["$ref"] is JsonValue reference && reference.TryGetValue(out string? id) &&
                         id.StartsWith("#/components/schemas/", StringComparison.Ordinal) &&
                         schemas[id[21..].Replace("~1", "/").Replace("~0", "~")] is JsonObject target &&
@@ -47,7 +64,7 @@ public sealed partial class OpenApiFixer
             {
                 if (node is not JsonObject obj) return false;
                 if (obj["type"] is JsonValue type && type.TryGetValue(out string? kind) && kind == "object" && obj["nullable"]?.GetValue<bool>() != true) return true;
-                if (obj.Count == 1 && obj["$ref"] is JsonValue reference)
+                if (ReferenceWithAnnotations(obj) && obj["$ref"] is JsonValue reference)
                 {
                     string id = reference.GetValue<string>();
                     if (!id.StartsWith("#/components/schemas/", StringComparison.Ordinal) || !seen.Add(id)) return false;
@@ -65,12 +82,12 @@ public sealed partial class OpenApiFixer
                 schema.Remove("type");
                 updated = true;
             }
-            if (schema["discriminator"] == null && schema["x-client-original-discriminator"] == null)
+            if (schema["discriminator"] == null)
             {
                 JsonObject? Resolve(JsonNode? node)
                 {
                     var seen = new HashSet<string>(StringComparer.Ordinal);
-                    while (node is JsonObject obj && obj.Count == 1 && obj["$ref"] is JsonValue reference)
+                    while (node is JsonObject obj && ReferenceWithAnnotations(obj) && obj["$ref"] is JsonValue reference)
                     {
                         string id = reference.GetValue<string>();
                         if (!id.StartsWith("#/components/schemas/", StringComparison.Ordinal) || !seen.Add(id)) return null;
@@ -98,15 +115,21 @@ public sealed partial class OpenApiFixer
                     foreach (string property in targets[0]!["properties"]!.AsObject().Select(p => p.Key))
                     {
                         bool requiredTag = targets.All(target => target!["required"] is JsonArray required && required.Any(n => n?.GetValue<string>() == property));
-                        var labels = new List<string>();
+                        var labels = new List<string[]>();
+                        var usedLabels = new HashSet<string>(StringComparer.Ordinal);
                         bool valid = true;
                         foreach (JsonObject target in targets!)
                         {
                             JsonObject? field = Resolve(target["properties"]?[property]);
-                            if (field?["enum"] is not JsonArray { Count: 1 } values || values[0] is not JsonValue value ||
-                                !value.TryGetValue(out string? label) || string.IsNullOrEmpty(label) || labels.Contains(label))
+                            JsonArray? values = field?["enum"] as JsonArray;
+                            if ((field?["const"] ?? field?["x-client-original-const"]) is JsonValue constant) values = new JsonArray(constant.DeepClone());
+                            if (values is not { Count: > 0 } || values.Any(v => v is not JsonValue value ||
+                                    !value.TryGetValue(out string? label) || string.IsNullOrEmpty(label)))
                             { valid = false; break; }
-                            labels.Add(label);
+                            string[] branchLabels = values.Select(v => v!.GetValue<string>()).Distinct(StringComparer.Ordinal).ToArray();
+                            if (branchLabels.Any(label => !usedLabels.Add(label)))
+                            { valid = false; break; }
+                            labels.Add(branchLabels);
                         }
                         if (!valid || (!requiredTag && (keyword == "anyOf" || !ReferenceEquals(originalAlternatives, alternatives)))) continue;
                         var mapping = new JsonObject();
@@ -115,12 +138,12 @@ public sealed partial class OpenApiFixer
                             string? reference = alternatives[index]?["$ref"]?.GetValue<string>();
                             if (reference == null)
                             {
-                                string key = OpenApiNameNormalizer.ReserveComponentName(schemas.Select(p => p.Key), $"{name ?? "Union"} {labels[index]}", "Variant");
+                                string key = OpenApiNameNormalizer.ReserveComponentName(schemas.Select(p => p.Key), $"{name ?? "Union"} {labels[index][0]}", "Variant");
                                 schemas[key] = targets[index]!.DeepClone();
                                 reference = "#/components/schemas/" + key;
                                 alternatives[index] = new JsonObject { ["$ref"] = reference };
                             }
-                            mapping[labels[index]] = reference;
+                            foreach (string label in labels[index]) mapping[label] = reference;
                         }
                         if (keyword == "anyOf" && schema["oneOf"] == null)
                         {

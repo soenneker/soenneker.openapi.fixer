@@ -45,6 +45,7 @@ public sealed partial class OpenApiFixer
             return first;
         }
         string? rootServer = Server(document["servers"]);
+        _ = Server(document["x-client-original-servers"]);
         result.DefaultServer = rootServer?.Contains('{') == false ? rootServer : null;
         if (document["paths"] is not JsonObject paths) return result;
         foreach ((string route, JsonNode? pathNode) in paths)

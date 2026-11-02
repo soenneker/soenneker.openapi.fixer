@@ -28,6 +28,16 @@ public sealed partial class OpenApiFixer
         {
             string type = property.Groups["type"].Value, name = property.Groups["name"].Value;
             if (!inherited.Contains((type, name))) continue;
+            if (name == "AdditionalData" && type == "IDictionary<string, object>" &&
+                baseSource.Contains("writer.WriteAdditionalData(AdditionalData);", StringComparison.Ordinal))
+            {
+                // A derived model and its base must expose the same extension-data bag.
+                source = source.Replace(property.Value,
+                    "public new IDictionary<string, object> AdditionalData { get => base.AdditionalData; set => base.AdditionalData = value; }", StringComparison.Ordinal);
+                source = Regex.Replace(source, @"(?m)^[ \t]*writer\.WriteAdditionalData\(AdditionalData\);\r?\n", "");
+                source = Regex.Replace(source, @"(?m)^[ \t]*AdditionalData = new Dictionary<string, object>\(\);\r?\n", "");
+                continue;
+            }
             string writePattern = @"(?m)^[ \t]*writer\.(?<method>Write\w+Value(?:<[^\r\n]+>)?)\(""(?<wire>[^""]+)"", " + Regex.Escape(name) + @"\);\r?\n";
             Match write = Regex.Match(source, writePattern);
             if (!write.Success || !baseSource.Contains("writer." + write.Groups["method"].Value + "(\"" + write.Groups["wire"].Value + "\", " + name + ");", StringComparison.Ordinal)) continue;

@@ -38,7 +38,7 @@ public sealed class OpenApiResponseCompatibilityTests
         JsonNode branch = input["components"]!["schemas"]!["Failure"]!["anyOf"]![1]!;
         if (reason == "closed") branch["additionalProperties"] = false;
         if (reason == "scalar") branch.ReplaceWith(new JsonObject { ["type"] = "string" });
-        JsonNode result = Run(input, new OpenApiFixerOptions { ProjectCompatibleErrorResponses = reason != "disabled" });
+        JsonNode result = Run(input, new OpenApiFixerOptions { ProjectCompatibleErrorResponses = reason != "disabled", ProjectRawErrorResponses = false });
         await Assert.That(JsonNode.DeepEquals(input, result)).IsTrue();
     }
 
@@ -59,7 +59,7 @@ public sealed class OpenApiResponseCompatibilityTests
     }
 
     [Test]
-    public async ValueTask Format_cleanup_is_opt_in_and_ignores_payloads()
+    public async ValueTask Format_cleanup_is_default_and_ignores_payloads()
     {
         JsonNode input = Document("422");
         input["components"]!["schemas"]!["Formats"] = JsonNode.Parse("""
@@ -71,16 +71,16 @@ public sealed class OpenApiResponseCompatibilityTests
               "custom":{"type":"string","format":"custom"}},
               "example":{"type":"string","format":"email"}}
             """);
-        JsonNode defaults = Run(input);
+        JsonNode defaults = Run(input, new OpenApiFixerOptions { NormalizeUnsupportedStringFormats = false });
         await Assert.That(defaults["components"]!["schemas"]!["Formats"]!["properties"]!["email"]!["format"]).IsNotNull();
         JsonNode result = Run(input, new OpenApiFixerOptions { NormalizeUnsupportedStringFormats = true });
         JsonNode formats = result["components"]!["schemas"]!["Formats"]!;
-        foreach (string name in new[] { "email", "uri" })
+        foreach (string name in new[] { "email", "uri", "custom" })
         {
             await Assert.That(formats["properties"]![name]!["format"]).IsNull();
             await Assert.That(formats["properties"]![name]!["x-client-original-format"]!.GetValue<string>()).IsEqualTo(name);
         }
-        foreach (string name in new[] { "id", "date", "custom" })
+        foreach (string name in new[] { "id", "date" })
             await Assert.That(formats["properties"]![name]!["format"]).IsNotNull();
         await Assert.That(formats["example"]!["format"]!.GetValue<string>()).IsEqualTo("email");
         await Assert.That(JsonNode.DeepEquals(result, Run(result, new OpenApiFixerOptions { NormalizeUnsupportedStringFormats = true }))).IsTrue();

@@ -1,0 +1,20 @@
+{
+  "soenneker.stripe.openapiclient": [
+    {
+      "route": "/v1/account_links",
+      "method": "Post",
+      "body": {"account": "acct_test", "type": "account_onboarding", "collection_options": {"fields": "eventually_due", "future_requirements": "include"}},
+      "contentType": "application/x-www-form-urlencoded",
+      "form": {"account": "acct_test", "type": "account_onboarding", "collection_options[fields]": "eventually_due", "collection_options[future_requirements]": "include"}
+    }
+  ],
+  "soenneker.canva.openapiclient": [
+    {
+      "route": "/v1/oauth/token",
+      "method": "Post",
+      "body": {"grant_type": "authorization_code", "code": "test+code & value", "code_verifier": "test-verifier"},
+      "contentType": "application/x-www-form-urlencoded",
+      "form": {"grant_type": "authorization_code", "code": "test+code & value", "code_verifier": "test-verifier"}
+    }
+  ]
+}

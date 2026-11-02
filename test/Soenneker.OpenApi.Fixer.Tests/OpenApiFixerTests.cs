@@ -319,7 +319,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         try
         {
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
-            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { ArchiveUnusedSchemas = false }, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode animal = root["components"]!["schemas"]!["Animal"]!;
@@ -787,7 +787,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 """;
 
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
-            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { ArchiveUnusedSchemas = false }, cancellationToken);
 
             JsonNode? root = JsonNode.Parse(await _fileUtil.Read(targetPath, cancellationToken: cancellationToken));
             JsonNode? usage = root?["components"]?["schemas"]?["Usage"];
@@ -2248,7 +2248,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
 
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
 
-            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { ArchiveUnusedSchemas = false }, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode? schemas = root["components"]?["schemas"];
@@ -2526,7 +2526,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
         {
             await _fileUtil.Delete(targetPath, cancellationToken: cancellationToken);
 
-            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { ArchiveUnusedSchemas = false }, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
 
@@ -3796,7 +3796,7 @@ public sealed class OpenApiFixerTests : HostedUnitTest
                                 """;
 
             await _fileUtil.Write(sourcePath, spec, cancellationToken: cancellationToken);
-            await _util.Fix(sourcePath, targetPath, cancellationToken);
+            await _util.Fix(sourcePath, targetPath, new OpenApiFixerOptions { ArchiveUnusedSchemas = false }, cancellationToken);
 
             JsonNode root = await ReadJsonNode(targetPath, cancellationToken: cancellationToken);
             JsonNode operation = root["paths"]!["/values"]!["post"]!;

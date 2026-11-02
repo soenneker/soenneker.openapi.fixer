@@ -185,7 +185,8 @@ public sealed class OpenApiAuditTests : HostedUnitTest
         JsonObject schemas = await Fix("""{"ObjectValue":{"type":"object","enum":[{"name":"x"}]},"NullableValue":{"type":["string","null"],"enum":["x",null]},"MixedValue":{"enum":["x",2]}}""", ct, version:"3.1.0");
         await Assert.That(schemas["ObjectValue"]!["type"]!.GetValue<string>()).IsEqualTo("object");
         await Assert.That(schemas["ObjectValue"]!["enum"]![0]!["name"]!.GetValue<string>()).IsEqualTo("x");
-        await Assert.That(schemas["NullableValue"]!["enum"]!.AsArray().Count).IsEqualTo(2);
+        await Assert.That(schemas["NullableValue"]!["anyOf"]![0]!["enum"]!.ToJsonString()).IsEqualTo("[\"x\"]");
+        await Assert.That(schemas["NullableValue"]!["anyOf"]![1]!["type"]!.GetValue<string>()).IsEqualTo("null");
         await Assert.That(schemas["MixedValue"]!["type"]).IsNull();
         await Assert.That(schemas["MixedValue"]!["anyOf"]).IsNotNull();
     }
@@ -243,7 +244,8 @@ public sealed class OpenApiAuditTests : HostedUnitTest
     public async ValueTask Nullable_enum_keeps_null_as_a_valid_member(CancellationToken ct)
     {
         JsonObject schemas = await Fix("""{"Choice":{"anyOf":[{"type":"string","enum":["x"]},{"type":"null"}]}}""", ct, version:"3.1.0");
-        await Assert.That(schemas["Choice"]!["enum"]!.AsArray().Any(value => value == null)).IsTrue();
+        await Assert.That(schemas["Choice"]!["anyOf"]![0]!["enum"]!.ToJsonString()).IsEqualTo("[\"x\"]");
+        await Assert.That(schemas["Choice"]!["anyOf"]![1]!["type"]!.GetValue<string>()).IsEqualTo("null");
     }
 
     [Test]
@@ -475,10 +477,12 @@ public sealed class OpenApiAuditTests : HostedUnitTest
                 namespace Vendor.Models;
                 public partial class Base
                 {
+                    public IDictionary<string, object> AdditionalData { get; set; }
                     public string Name { get; set; }
                     public void Serialize(ISerializationWriter writer)
                     {
                         writer.WriteStringValue("name", Name);
+                        writer.WriteAdditionalData(AdditionalData);
                     }
                 }
                 """, ct);
@@ -488,11 +492,17 @@ public sealed class OpenApiAuditTests : HostedUnitTest
                 namespace Vendor.Models;
                 public partial class Derived : Vendor.Models.Base
                 {
+                    public IDictionary<string, object> AdditionalData { get; set; }
                     public string Name { get; set; }
+                    public Derived()
+                    {
+                        AdditionalData = new Dictionary<string, object>();
+                    }
                     public void Serialize(ISerializationWriter writer)
                     {
                         base.Serialize(writer);
                         writer.WriteStringValue("name", Name);
+                        writer.WriteAdditionalData(AdditionalData);
                     }
                     public object GetFieldDeserializers() => new Dictionary<string, Action<IParseNode>>(base.GetFieldDeserializers())
                     {
@@ -503,6 +513,9 @@ public sealed class OpenApiAuditTests : HostedUnitTest
             await _fixer.SanitizeGeneratedEnumMembers(directory, ct);
             string result = await File.ReadAllTextAsync(path, ct);
             await Assert.That(result).Contains("get => base.Name; set => base.Name = value;");
+            await Assert.That(result).Contains("get => base.AdditionalData; set => base.AdditionalData = value;");
+            await Assert.That(result.Contains("writer.WriteAdditionalData")).IsFalse();
+            await Assert.That(result.Contains("AdditionalData = new Dictionary")).IsFalse();
             await Assert.That(result.Contains("writer.WriteStringValue")).IsFalse();
             await Assert.That(result.Contains("n.GetStringValue")).IsFalse();
             await _fixer.SanitizeGeneratedEnumMembers(directory, ct);
@@ -520,7 +533,7 @@ public sealed class OpenApiAuditTests : HostedUnitTest
             """, ct);
         JsonNode tagged = schemas["Tagged"]!;
         await Assert.That(tagged["anyOf"]).IsNull();
-        await Assert.That(tagged["oneOf"]!.AsArray().Count).IsEqualTo(2);
+        await Assert.That(tagged["x-client-original-tagged-union"]!["oneOf"]!.AsArray().Count).IsEqualTo(2);
         await Assert.That(tagged["discriminator"]!["propertyName"]!.GetValue<string>()).IsEqualTo("kind");
         foreach (string label in new[] { "first", "second" })
         {
@@ -558,7 +571,7 @@ public sealed class OpenApiAuditTests : HostedUnitTest
               {"oneOf":[{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["c"]}}}]}]}}
             """, ct);
         await Assert.That(schemas["NestedTags"]!["anyOf"]).IsNull();
-        await Assert.That(schemas["NestedTags"]!["oneOf"]!.AsArray().Count).IsEqualTo(3);
+        await Assert.That(schemas["NestedTags"]!["x-client-original-tagged-union"]!["oneOf"]!.AsArray().Count).IsEqualTo(3);
         await Assert.That(schemas["NestedTags"]!["discriminator"]!["mapping"]!.AsObject().Count).IsEqualTo(3);
     }
 
