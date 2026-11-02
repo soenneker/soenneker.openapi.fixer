@@ -7,6 +7,32 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiTaggedUnionTests
 {
     [Test]
+    [Arguments("Choice", "ChoiceCat", "ChoiceCatVariant")]
+    [Arguments("Choice", "Cat", "ChoiceCat2")]
+    public async ValueTask Projected_names_avoid_repeated_parents_and_case_insensitive_collisions(string parent, string branch, string expected)
+    {
+        var names = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "choicecat" };
+        string result = Name(parent, branch, names);
+        await Assert.That(result).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async ValueTask Long_projected_names_are_bounded_deterministic_and_distinct()
+    {
+        string parent = "YamlPaths" + new string('A', 100);
+        string first = Name(parent, parent + "OneOf1", new(System.StringComparer.OrdinalIgnoreCase));
+        string second = Name(parent, parent + "OneOf2", new(System.StringComparer.OrdinalIgnoreCase));
+        await Assert.That(first.Length <= 96).IsTrue();
+        await Assert.That(first.StartsWith("TaggedCatVariant")).IsTrue();
+        await Assert.That(first == second).IsFalse();
+        await Assert.That(Name(parent, parent + "OneOf1", new(System.StringComparer.OrdinalIgnoreCase))).IsEqualTo(first);
+    }
+
+    private static string Name(string parent, string branch, System.Collections.Generic.HashSet<string> names) =>
+        (string)typeof(OpenApiFixer).GetMethod("GetTaggedUnionModelName", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [parent, branch, "cat", names])!;
+
+    [Test]
     public async ValueTask Required_disjoint_tags_produce_an_idempotent_hierarchy_and_preserve_original_union()
     {
         JsonNode input = Document();

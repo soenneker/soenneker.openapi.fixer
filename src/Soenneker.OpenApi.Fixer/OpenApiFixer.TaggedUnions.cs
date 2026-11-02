@@ -13,6 +13,7 @@ public sealed partial class OpenApiFixer
         JsonNode root = JsonNode.Parse(json)!;
         if (root["components"]?["schemas"] is not JsonObject schemas) return json;
         var owned = new HashSet<string>(StringComparer.Ordinal);
+        var modelNames = new HashSet<string>(schemas.Select(p => p.Key), StringComparer.OrdinalIgnoreCase);
         bool changed = false;
         JsonObject? Resolve(JsonNode? node)
         {
@@ -76,9 +77,8 @@ public sealed partial class OpenApiFixer
                 foreach ((string reference, JsonObject branch) in branches)
                 {
                     string branchName = reference[21..].Replace("~1", "/").Replace("~0", "~");
-                    string projectedName = name + branchName;
-                    int suffix = 2;
-                    while (schemas.ContainsKey(projectedName)) projectedName = name + branchName + suffix++;
+                    string wireTag = mapping.Where(p => p.Value?.ToString() == reference).Select(p => p.Key).Order(StringComparer.Ordinal).First();
+                    string projectedName = GetTaggedUnionModelName(name, branchName, wireTag, modelNames);
                     schemas[projectedName] = new JsonObject { ["allOf"] = new JsonArray(new JsonObject { ["$ref"] = parentReference }, branch.DeepClone()) };
                     string projectedReference = "#/components/schemas/" + projectedName.Replace("~", "~0").Replace("/", "~1");
                     foreach (string label in mapping.Where(p => p.Value?.ToString() == reference).Select(p => p.Key).ToArray()) mapping[label] = projectedReference;
