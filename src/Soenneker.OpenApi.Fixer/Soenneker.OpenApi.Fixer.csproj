@@ -47,8 +47,8 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.OpenApi" Version="3.11.0" />
-        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2332" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.972" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2333" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.973" />
     </ItemGroup>
     <ItemGroup>
     </ItemGroup>
