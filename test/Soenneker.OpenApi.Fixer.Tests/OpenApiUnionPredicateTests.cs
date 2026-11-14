@@ -9,7 +9,7 @@ public sealed class OpenApiUnionPredicateTests
     public async ValueTask Reference_siblings_and_numeric_bounds_are_not_discarded()
     {
         var schemas = JsonNode.Parse("""{"Number":{"type":"integer","minimum":1}}""")!.AsObject();
-        var match = GeneratedUnionRuntimeCompiler.Matcher(JsonNode.Parse("""{"$ref":"Number","maximum":5}""")!.AsObject(), schemas);
+        var match = GeneratedUnionRuntimeCompiler.Matcher(JsonNode.Parse("""{"$ref":"#/components/schemas/Number","maximum":5}""")!.AsObject(), schemas);
         await Assert.That(match("3")).IsTrue();
         await Assert.That(match("0")).IsFalse();
         await Assert.That(match("6")).IsFalse();
@@ -59,10 +59,10 @@ public sealed class OpenApiUnionPredicateTests
     public async ValueTask Shared_and_recursive_references_are_evaluated_without_expanding_the_graph()
     {
         JsonObject schemas = JsonNode.Parse("""
-            {"Node":{"type":"object","required":["id"],"properties":{"id":{"type":"string"},"left":{"$ref":"Node"},"right":{"$ref":"Node"}}}}
+            {"Node":{"type":"object","required":["id"],"properties":{"id":{"type":"string"},"left":{"$ref":"#/components/schemas/Node"},"right":{"$ref":"#/components/schemas/Node"}}}}
             """)!.AsObject();
         string generated = GeneratedUnionRuntimeCompiler.Build(schemas["Node"]!.AsObject(), schemas);
-        await Assert.That(generated.Split("bool? MatchSchema").Length).IsEqualTo(3);
+        await Assert.That(generated.Split("private static bool? MatchSchema").Length).IsEqualTo(3);
         var match = GeneratedUnionRuntimeCompiler.Matcher(schemas["Node"]!.AsObject(), schemas);
         await Assert.That(match("""{"id":"root","left":{"id":"left"},"right":{"id":"right"}}""")).IsTrue();
         await Assert.That(match("""{"id":"root","left":{"id":123}}""")).IsFalse();

@@ -53,14 +53,15 @@ public sealed class OpenApiGeneratedUnionRuntimeTests
 
     private static async ValueTask<Type> CompileWrapper(JsonObject schemas)
     {
-        string source = (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedUnionFactories", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [Source, schemas])!;
+        var matchers = new GeneratedUnionMatcherWriter(schemas);
+        string source = (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedUnionFactories", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [Source, schemas, matchers])!;
         string directory = Path.Combine(Path.GetTempPath(), $"union-runtime-{Guid.NewGuid()}");
         Directory.CreateDirectory(directory);
         try
         {
             await (ValueTask)typeof(OpenApiFixer).GetMethod("WriteGeneratedUnionSupport", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [directory, CancellationToken.None])!;
             string[] support = Directory.GetFiles(directory, "*.cs").Select(File.ReadAllText).ToArray();
-            return GeneratedUnionRuntimeCompiler.Compile(support.Append(source).ToArray()).GetType("Models.Choice")!;
+            return GeneratedUnionRuntimeCompiler.Compile(support.Append(source).Append(matchers.BuildSource()).ToArray()).GetType("Models.Choice")!;
         }
         finally { Directory.Delete(directory, true); }
     }

@@ -30,7 +30,7 @@ public sealed partial class OpenApiFixer
         return JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken))?["components"]?["schemas"] as JsonObject ?? new JsonObject();
     }
 
-    private static string RepairGeneratedUnionFactories(string source, JsonObject? schemas)
+    private static string RepairGeneratedUnionFactories(string source, JsonObject? schemas, GeneratedUnionMatcherWriter? matchers)
     {
         const string marker = "// Preserve ambiguous union payloads without inventing a discriminator.";
         if (schemas == null || !source.Contains("IComposedTypeWrapper", StringComparison.Ordinal) || source.Contains(marker, StringComparison.Ordinal))
@@ -118,7 +118,7 @@ public sealed partial class OpenApiFixer
             if (arrayBranches.Count == alternatives.Count && arrayBranches.Count == objectCollections &&
                 arrayBranches.Values.Distinct(ReferenceEqualityComparer.Instance).Count() == arrayBranches.Count)
             {
-                arrayDispatch += "var arrayMatches = " + BuildGeneratedUnionStructuralChecks(arrayBranches.Values.ToArray(), "unionArrayPayload", Resolve) + ";\n";
+                arrayDispatch += "var arrayMatches = " + matchers!.BuildChecks(arrayBranches.Values.ToArray(), "unionArrayPayload") + ";\n";
                 int arrayIndex = 0;
                 foreach (string property in arrayBranches.Keys)
                 {
@@ -143,7 +143,7 @@ public sealed partial class OpenApiFixer
             };
             if (match.Groups["kind"].Value == "Object" && type.LastIndexOf('.') is int dot && dot >= 0 &&
                 Resolve(schemas[type[(dot + 1)..]]) is JsonObject target &&
-                BuildGeneratedUnionStructuralCheck(target, "item", Resolve) is string itemCheck)
+                matchers!.BuildCheck(target, "item") is string itemCheck)
                 return readPayload + " is " + untyped + "UntypedArray && global::System.Linq.Enumerable.All(((" + untyped + "UntypedArray)" + readPayload +
                     ").GetValue(), item => (" + itemCheck + ") == true) && " + match.Value;
             if (shape == null) return match.Value;
@@ -164,7 +164,7 @@ public sealed partial class OpenApiFixer
         string dispatch = "\n            var unionPayload = parseNode.GetObjectValue<" + untyped + "UntypedNode>(" + untyped + "UntypedNode.CreateFromDiscriminatorValue);\n";
         if (objectBranches.Count > 0)
             dispatch += "            var unionBranchMatches = unionPayload is " + untyped + "UntypedObject ? " +
-                BuildGeneratedUnionStructuralChecks(objectBranches.Values.ToArray(), "unionPayload", Resolve) + " : null;\n";
+                matchers!.BuildChecks(objectBranches.Values.ToArray(), "unionPayload") + " : null;\n";
         // Separate booleans avoid duplicate pattern-variable declarations across candidate expressions.
         int index = 0;
         var candidates = new Dictionary<string, string>(StringComparer.Ordinal);

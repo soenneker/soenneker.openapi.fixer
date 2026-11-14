@@ -4,36 +4,96 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace Soenneker.OpenApi.Fixer;
 
-public sealed partial class OpenApiFixer
+internal sealed class GeneratedUnionMatcherWriter
 {
-    private static string BuildGeneratedUnionStructuralCheck(JsonObject schema, string value, Func<JsonNode?, JsonObject?> resolve)
-        => BuildGeneratedUnionStructuralChecks([schema], value, resolve) + "[0]";
+    private const string QualifiedName = "global::Soenneker.OpenApi.Generated.OpenApiUnionMatchers.";
+    private readonly JsonObject _schemas;
+    private readonly Dictionary<JsonObject, int> _ids = new(ReferenceEqualityComparer.Instance);
+    private readonly List<JsonObject> _indexed = new();
+    private readonly HashSet<JsonObject> _registered = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<JsonObject> _roots = new(ReferenceEqualityComparer.Instance);
+    private readonly Queue<JsonObject> _pending = new();
+    private readonly SortedDictionary<int, string> _methods = new();
 
-    private static string BuildGeneratedUnionStructuralChecks(IReadOnlyList<JsonObject> schemas, string value, Func<JsonNode?, JsonObject?> resolve)
+    internal GeneratedUnionMatcherWriter(JsonObject schemas)
+    {
+        _schemas = schemas;
+        // Stable IDs across repair invocations, independent of generated-file enumeration order.
+        Index(schemas);
+    }
+
+    private void Index(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (!_ids.TryAdd(obj, _indexed.Count)) return;
+            _indexed.Add(obj);
+            foreach (var property in obj.OrderBy(p => p.Key, StringComparer.Ordinal)) Index(property.Value);
+        }
+        else if (node is JsonArray array)
+            foreach (JsonNode? item in array) Index(item);
+    }
+
+    private string Name(JsonObject schema)
+    {
+        if (!_ids.ContainsKey(schema)) Index(schema);
+        return "MatchSchema" + _ids[schema].ToString(CultureInfo.InvariantCulture);
+    }
+
+    private string Register(JsonObject schema)
+    {
+        string name = Name(schema);
+        if (_registered.Add(schema)) _pending.Enqueue(schema);
+        return name;
+    }
+
+    internal string BuildCheck(JsonObject schema, string value)
+    {
+        _roots.Add(schema);
+        return QualifiedName + Register(schema) + "(" + value + ")";
+    }
+
+    internal string BuildChecks(IReadOnlyList<JsonObject> schemas, string value)
+        => "new bool?[] { " + string.Join(", ", schemas.Select(schema => BuildCheck(schema, value))) + " }";
+
+    internal void RegisterExistingCalls(string source)
+    {
+        foreach (Match match in Regex.Matches(source, @"global::Soenneker\.OpenApi\.Generated\.OpenApiUnionMatchers\.MatchSchema(\d+)\("))
+        {
+            int id = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (id >= _indexed.Count) throw new InvalidOperationException("Generated union matcher does not belong to the current schema document. Regenerate the client before repairing it.");
+            _roots.Add(_indexed[id]);
+            Register(_indexed[id]);
+        }
+    }
+
+    private JsonObject? Resolve(JsonNode? node)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (node is JsonObject obj && obj["$ref"] is JsonValue reference)
+        {
+            string id = reference.GetValue<string>();
+            if (!id.StartsWith("#/components/schemas/", StringComparison.Ordinal) || !seen.Add(id)) return null;
+            node = _schemas[id[21..].Replace("~1", "/").Replace("~0", "~")];
+        }
+        return node as JsonObject;
+    }
+
+    internal string BuildSource()
     {
         const string ns = "global::Microsoft.Kiota.Abstractions.Serialization.";
-        int maximumSchemas = Math.Min(8192, 512 * schemas.Count);
-        var names = new Dictionary<JsonObject, string>(ReferenceEqualityComparer.Instance);
-        var pending = new Queue<JsonObject>();
-        var methods = new StringBuilder();
         string Quote(string text) => JsonValue.Create(text)!.ToJsonString();
         string Call(JsonNode? candidate, string argument)
         {
             if (candidate is JsonValue boolean && boolean.TryGetValue<bool>(out bool allowed)) return allowed ? "(bool?)true" : "(bool?)false";
             JsonObject? target = candidate is JsonObject { Count: > 1 } withSiblings && withSiblings.ContainsKey("$ref")
-                ? withSiblings : resolve(candidate);
+                ? withSiblings : Resolve(candidate);
             if (target == null) return "(bool?)null";
-            if (!names.TryGetValue(target, out string? name))
-            {
-                if (names.Count >= maximumSchemas) return "(bool?)null";
-                name = "MatchSchema" + names.Count;
-                names.Add(target, name);
-                pending.Enqueue(target);
-            }
-            return name + "(" + argument + ", depth + 1)";
+            return Register(target) + "(" + argument + ", depth + 1, ref remaining)";
         }
         string Type(string type) => type switch
         {
@@ -56,15 +116,14 @@ public sealed partial class OpenApiFixer
             return "(bool?)null";
         }
         // Queue each schema once. References become calls, not recursively expanded expressions.
-        string[] roots = schemas.Select(schema => Call(schema, value).Replace("depth + 1", "0", StringComparison.Ordinal)).ToArray();
-        while (pending.TryDequeue(out JsonObject? current))
+        while (_pending.TryDequeue(out JsonObject? current))
         {
             var code = new StringBuilder();
-            code.Append("bool? ").Append(names[current]).Append('(').Append(ns).Append("UntypedNode? node, int depth) {\n")
+            code.Append("private static bool? ").Append(Name(current)).Append('(').Append(ns).Append("UntypedNode? node, int depth, ref int remaining) {\n")
                 .Append("if (depth > 64 || --remaining < 0) return null;\nbool? result = true;\n");
             if (current.Any(p => p.Value is JsonArray { Count: > 256 } or JsonObject { Count: > 256 }))
             {
-                methods.Append("bool? ").Append(names[current]).Append('(').Append(ns).Append("UntypedNode? node, int depth) => null;\n");
+                _methods.Add(_ids[current], "private static bool? " + Name(current) + "(" + ns + "UntypedNode? node, int depth, ref int remaining) => null;\n");
                 continue;
             }
             void Check(string expression)
@@ -77,7 +136,7 @@ public sealed partial class OpenApiFixer
                 if (keyword is not ("type" or "nullable" or "required" or "properties" or "enum" or "const" or "allOf" or "anyOf" or "oneOf" or "not" or "additionalProperties" or "items" or "minItems" or "maxItems" or "minLength" or "maxLength" or "minimum" or "maximum" or "description" or "title" or "example" or "examples" or "default" or "readOnly" or "writeOnly" or "deprecated" or "discriminator" or "format" or "$schema" or "$id" or "$ref") && !keyword.StartsWith("x-", StringComparison.Ordinal))
                     code.Append("result = null;\n");
             if (current["$ref"] is JsonNode reference)
-                Check(Call(resolve(new JsonObject { ["$ref"] = reference.DeepClone() }), "node"));
+                Check(Call(Resolve(new JsonObject { ["$ref"] = reference.DeepClone() }), "node"));
             if (current["type"] is JsonValue kind) Check(Type(kind.GetValue<string>()));
             else if (current["type"] is JsonArray types)
                 Check("Any(" + string.Join(",", types.Select(t => "(bool?)(" + Type(t!.GetValue<string>()) + ")")) + ")");
@@ -136,15 +195,15 @@ public sealed partial class OpenApiFixer
                     else Check("Number(node) is decimal number ? number " + comparison + " " + number + " : IsNumber(node) ? (bool?)null : true");
                 }
             code.Append("return result;\n}\n");
-            methods.Append(code);
+            _methods.Add(_ids[current], code.ToString());
         }
         const string helpers = """
-            bool IsNumber(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode? node) => node is global::Microsoft.Kiota.Abstractions.Serialization.UntypedInteger or global::Microsoft.Kiota.Abstractions.Serialization.UntypedLong or global::Microsoft.Kiota.Abstractions.Serialization.UntypedFloat or global::Microsoft.Kiota.Abstractions.Serialization.UntypedDouble or global::Microsoft.Kiota.Abstractions.Serialization.UntypedDecimal;
-            int StringLength(string text) { int count = 0; for (int i = 0; i < text.Length; i++, count++) if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++; return count; }
-            bool? All(params bool?[] values) { bool? result = true; foreach (var item in values) result &= item; return result; }
-            bool? Any(params bool?[] values) { bool? result = false; foreach (var item in values) result |= item; return result; }
-            bool? One(params bool?[] values) { int matches = 0; bool unknown = false; foreach (var item in values) { if (item == true) matches++; if (item == null) unknown = true; } return matches > 1 ? false : unknown ? null : matches == 1; }
-            decimal? Number(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode? node) {
+            private static bool IsNumber(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode? node) => node is global::Microsoft.Kiota.Abstractions.Serialization.UntypedInteger or global::Microsoft.Kiota.Abstractions.Serialization.UntypedLong or global::Microsoft.Kiota.Abstractions.Serialization.UntypedFloat or global::Microsoft.Kiota.Abstractions.Serialization.UntypedDouble or global::Microsoft.Kiota.Abstractions.Serialization.UntypedDecimal;
+            private static int StringLength(string text) { int count = 0; for (int i = 0; i < text.Length; i++, count++) if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++; return count; }
+            private static bool? All(params bool?[] values) { bool? result = true; foreach (var item in values) result &= item; return result; }
+            private static bool? Any(params bool?[] values) { bool? result = false; foreach (var item in values) result |= item; return result; }
+            private static bool? One(params bool?[] values) { int matches = 0; bool unknown = false; foreach (var item in values) { if (item == true) matches++; if (item == null) unknown = true; } return matches > 1 ? false : unknown ? null : matches == 1; }
+            private static decimal? Number(global::Microsoft.Kiota.Abstractions.Serialization.UntypedNode? node) {
                 try { return node switch {
                     global::Microsoft.Kiota.Abstractions.Serialization.UntypedInteger n => n.GetValue(),
                     global::Microsoft.Kiota.Abstractions.Serialization.UntypedLong n => n.GetValue(),
@@ -154,18 +213,13 @@ public sealed partial class OpenApiFixer
                 catch (global::System.OverflowException) { return null; }
             }
             """;
-        // Emit only helpers referenced by this graph, avoiding unused local-function warnings.
-        string methodSource = methods.ToString();
-        string[] helperLines = helpers.Split('\n');
-        string[] helperNames = ["IsNumber", "StringLength", "All", "Any", "One"];
-        var usedHelpers = new StringBuilder();
-        for (int i = 0; i < helperNames.Length; i++)
-            if (methodSource.Contains(helperNames[i] + "(", StringComparison.Ordinal)) usedHelpers.AppendLine(helperLines[i]);
-        if (methodSource.Contains("Number(", StringComparison.Ordinal)) usedHelpers.AppendJoin('\n', helperLines.Skip(helperNames.Length));
-        var results = new StringBuilder("var matches = new bool?[").Append(roots.Length).Append("];\n");
-        for (int i = 0; i < roots.Length; i++)
-            results.Append("remaining = 10000; matches[").Append(i).Append("] = ").Append(roots[i]).Append(";\n");
-        // Each candidate retains its own work budget, while shared referenced schemas are emitted once.
-        return "((global::System.Func<bool?[]>)(() => { int remaining = 10000;\n" + usedHelpers + "\n" + methodSource + results + "return matches; }))()";
+        var source = new StringBuilder("// <auto-generated/>\n#nullable enable\nnamespace Soenneker.OpenApi.Generated;\ninternal static class OpenApiUnionMatchers\n{\n");
+        // Each candidate starts with an independent budget; recursive calls share only that budget.
+        foreach (JsonObject root in _roots.OrderBy(schema => _ids[schema]))
+            source.Append("internal static bool? ").Append(Name(root)).Append('(').Append(ns)
+                .Append("UntypedNode? node) { int remaining = 10000; return ").Append(Name(root))
+                .Append("(node, 0, ref remaining); }\n");
+        source.Append(helpers).Append('\n').AppendJoin('\n', _methods.Values).Append("}\n");
+        return source.ToString();
     }
 }

@@ -15,19 +15,9 @@ internal static class GeneratedUnionRuntimeCompiler
 {
     internal static string Build(JsonObject schema, JsonObject? schemas = null)
     {
-        JsonObject? Resolve(JsonNode? node)
-        {
-            var seen = new System.Collections.Generic.HashSet<string>();
-            while (node is JsonObject obj && obj["$ref"] is JsonValue reference)
-            {
-                string id = reference.GetValue<string>();
-                if (!seen.Add(id)) return null;
-                node = schemas?[id.Replace("#/components/schemas/", "", StringComparison.Ordinal)];
-            }
-            return node as JsonObject;
-        }
-        return (string)typeof(OpenApiFixer).GetMethod("BuildGeneratedUnionStructuralCheck", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [schema, "payload", (Func<JsonNode?, JsonObject?>)Resolve])!;
+        var writer = new GeneratedUnionMatcherWriter(schemas ?? new JsonObject());
+        writer.BuildCheck(schema, "payload");
+        return writer.BuildSource();
     }
 
     internal static Assembly Compile(params string[] sources)
@@ -45,8 +35,9 @@ internal static class GeneratedUnionRuntimeCompiler
 
     internal static Func<string, bool?> Matcher(JsonObject schema, JsonObject? schemas = null)
     {
-        string expression = Build(schema, schemas);
-        var method = Compile("public static class Check { public static bool? Match(Microsoft.Kiota.Abstractions.Serialization.UntypedNode payload) => " + expression + "; }")
+        var writer = new GeneratedUnionMatcherWriter(schemas ?? new JsonObject());
+        string expression = writer.BuildCheck(schema, "payload");
+        var method = Compile("public static class Check { public static bool? Match(Microsoft.Kiota.Abstractions.Serialization.UntypedNode payload) => " + expression + "; }", writer.BuildSource())
             .GetType("Check")!.GetMethod("Match")!;
         return json =>
         {

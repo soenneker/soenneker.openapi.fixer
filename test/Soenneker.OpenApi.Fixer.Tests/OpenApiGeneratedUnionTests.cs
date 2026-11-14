@@ -21,10 +21,10 @@ public sealed class OpenApiGeneratedUnionTests
         for (int i = 0; i < 140; i++) fields["field" + i] = new JsonObject { ["type"] = "string" };
         schemas["Left"]!["properties"]!["expanded"] = new JsonObject { ["type"] = "object", ["properties"] = fields };
 
-        string repaired = Repair(Source, schemas);
-        await Assert.That(repaired).Contains("ContainsKey(\"created\")");
-        await Assert.That(repaired).Contains("ContainsKey(\"livemode\")");
-        await Assert.That(repaired).Contains("ContainsKey(\"deleted\")");
+        string repaired = Repair(Source, schemas, out string matchers);
+        await Assert.That(matchers).Contains("ContainsKey(\"created\")");
+        await Assert.That(matchers).Contains("ContainsKey(\"livemode\")");
+        await Assert.That(matchers).Contains("ContainsKey(\"deleted\")");
         await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1) result.Left");
         await Assert.That(repaired).Contains("matchesUnionBranch1 == true && matchingUnionBranches == 1) result.Right");
         await Assert.That(repaired).Contains("result.UnrecognizedValue = unionPayload");
@@ -136,9 +136,9 @@ public sealed class OpenApiGeneratedUnionTests
              "Left":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["left"]}}},
              "Right":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["right"]}}}}
             """)!.AsObject();
-        string repaired = Repair(Source, schemas);
-        await Assert.That(repaired).Contains("\"left\".Equals(");
-        await Assert.That(repaired).Contains("\"right\".Equals(");
+        string repaired = Repair(Source, schemas, out string matchers);
+        await Assert.That(matchers).Contains("\"left\".Equals(");
+        await Assert.That(matchers).Contains("\"right\".Equals(");
         await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1");
         await Assert.That(repaired).Contains("matchesUnionBranch1 == true && matchingUnionBranches == 1");
         await Assert.That(repaired).DoesNotContain("GetChildNode(\"type\")");
@@ -168,16 +168,25 @@ public sealed class OpenApiGeneratedUnionTests
              "LeftBase":{"type":"object","required":["resource_id","kind"],"properties":{"resource_id":{"type":"string"},"kind":{"type":"string","enum":["left"]}}},
              "RightBase":{"type":"object","required":["external_id"],"properties":{"external_id":{"type":"string"}}}}
             """)!.AsObject();
-        string repaired = Repair(Source, schemas);
-        await Assert.That(repaired).Contains("ContainsKey(\"resource_id\")");
-        await Assert.That(repaired).Contains("ContainsKey(\"external_id\")");
-        await Assert.That(repaired).Contains("\"left\".Equals(");
+        string repaired = Repair(Source, schemas, out string matchers);
+        await Assert.That(matchers).Contains("ContainsKey(\"resource_id\")");
+        await Assert.That(matchers).Contains("ContainsKey(\"external_id\")");
+        await Assert.That(matchers).Contains("\"left\".Equals(");
         await Assert.That(repaired).Contains("matchesUnionBranch0 == true && matchingUnionBranches == 1");
         await Assert.That(Repair(repaired, schemas)).IsEqualTo(repaired);
     }
 
-    private static string Repair(string source, JsonObject schemas) => (string)typeof(OpenApiFixer)
-        .GetMethod("RepairGeneratedUnionFactories", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [source, schemas])!;
+    private static string Repair(string source, JsonObject schemas) => Repair(source, schemas, out _);
+
+    private static string Repair(string source, JsonObject schemas, out string support)
+    {
+        var matchers = new GeneratedUnionMatcherWriter(schemas);
+        string result = (string)typeof(OpenApiFixer).GetMethod("RepairGeneratedUnionFactories", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [source, schemas, matchers])!;
+        matchers.RegisterExistingCalls(result);
+        support = matchers.BuildSource();
+        return result;
+    }
 
     private static string RepairShapes(string source) => (string)typeof(OpenApiFixer)
         .GetMethod("RepairGeneratedUnionCollectionChecks", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [source])!;

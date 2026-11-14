@@ -1,0 +1,100 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Kiota.Abstractions.Serialization;
+using Microsoft.Kiota.Serialization.Json;
+using Soenneker.OpenApi.Fixer.Abstract;
+using Soenneker.Tests.HostedUnit;
+
+namespace Soenneker.OpenApi.Fixer.Tests;
+
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public sealed class OpenApiSharedUnionMatcherTests(Host host) : HostedUnitTest(host)
+{
+    [Test]
+    public async ValueTask Repeated_repairs_and_new_wrappers_share_one_graph(CancellationToken ct)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "shared-union-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "fixed.json"), """
+                {"components":{"schemas":{
+                  "First":{"anyOf":[{"$ref":"#/components/schemas/Left"},{"$ref":"#/components/schemas/Right"}]},
+                  "Second":{"anyOf":[{"$ref":"#/components/schemas/Right"},{"$ref":"#/components/schemas/Left"}]},
+                  "Left":{"type":"object","required":["left"],"properties":{"child":{"$ref":"#/components/schemas/Shared"}}},
+                  "Right":{"type":"object","required":["right"],"properties":{"child":{"$ref":"#/components/schemas/Shared"}}},
+                  "Shared":{"type":"object","properties":{"next":{"$ref":"#/components/schemas/Shared"}}}
+                }}}
+                """, ct);
+            await File.WriteAllTextAsync(Path.Combine(root, "kiota-lock.json"), """{"descriptionLocation":"fixed.json"}""", ct);
+            string first = Path.Combine(root, "First.cs");
+            string second = Path.Combine(root, "Second.cs");
+            string helper = Path.Combine(root, "OpenApiUnionMatchers.cs");
+            await File.WriteAllTextAsync(first, Wrapper("First"), ct);
+            IOpenApiFixer fixer = Resolve<IOpenApiFixer>(true);
+            await fixer.SanitizeGeneratedEnumMembers(root, ct);
+            string firstSource = await File.ReadAllTextAsync(first, ct);
+            string firstHelper = await File.ReadAllTextAsync(helper, ct);
+            await Assert.That(firstSource).DoesNotContain("int remaining");
+            await Assert.That(firstSource).Contains("OpenApiUnionMatchers.MatchSchema");
+            await Assert.That(firstHelper.Split("private static bool? MatchSchema").Length - 1).IsEqualTo(3);
+
+            await File.WriteAllTextAsync(second, Wrapper("Second"), ct);
+            await fixer.SanitizeGeneratedEnumMembers(root, ct);
+            string secondSource = await File.ReadAllTextAsync(second, ct);
+            await Assert.That(await File.ReadAllTextAsync(first, ct)).IsEqualTo(firstSource);
+            await Assert.That(await File.ReadAllTextAsync(helper, ct)).IsEqualTo(firstHelper);
+
+            // A missing helper must be reconstructed even if every factory is already repaired.
+            File.Delete(helper);
+            await fixer.SanitizeGeneratedEnumMembers(root, ct);
+            await Assert.That(await File.ReadAllTextAsync(helper, ct)).IsEqualTo(firstHelper);
+            await Assert.That(await File.ReadAllTextAsync(second, ct)).IsEqualTo(secondSource);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Test]
+    public async ValueTask Branch_budgets_are_independent_and_safe_for_concurrent_calls()
+    {
+        JsonObject schemas = JsonNode.Parse("""
+            {"Expensive":{"type":"array","items":{"type":"integer"}},"Simple":{"type":"array"}}
+            """)!.AsObject();
+        var writer = new GeneratedUnionMatcherWriter(schemas);
+        string checks = writer.BuildChecks([schemas["Expensive"]!.AsObject(), schemas["Simple"]!.AsObject()], "payload");
+        var method = GeneratedUnionRuntimeCompiler.Compile(writer.BuildSource(),
+            "public static class Check { public static bool?[] Match(Microsoft.Kiota.Abstractions.Serialization.UntypedNode payload) => " + checks + "; }")
+            .GetType("Check")!.GetMethod("Match")!;
+        using JsonDocument large = JsonDocument.Parse("[" + string.Join(",", Enumerable.Repeat("1", 10001)) + "]");
+        using JsonDocument small = JsonDocument.Parse("[1]");
+        UntypedNode largeNode = new JsonParseNode(large.RootElement).GetObjectValue(UntypedNode.CreateFromDiscriminatorValue)!;
+        UntypedNode smallNode = new JsonParseNode(small.RootElement).GetObjectValue(UntypedNode.CreateFromDiscriminatorValue)!;
+        await Task.WhenAll(Enumerable.Range(0, 16).Select(i => Task.Run(async () =>
+        {
+            var result = (bool?[])method.Invoke(null, [i % 2 == 0 ? largeNode : smallNode])!;
+            await Assert.That(result[0]).IsEqualTo(i % 2 == 0 ? (bool?)null : true);
+            await Assert.That(result[1]).IsTrue();
+        })));
+    }
+
+    private static string Wrapper(string name) => """
+        // <auto-generated/>
+        public partial class NAME : IParsable, IComposedTypeWrapper
+        {
+            public global::Models.Left Left { get; set; }
+            public global::Models.Right Right { get; set; }
+            public static NAME CreateFromDiscriminatorValue(IParseNode parseNode) {
+                var result = new NAME();
+                result.Left = new global::Models.Left();
+                result.Right = new global::Models.Right();
+                return result;
+            }
+            public virtual void Serialize(ISerializationWriter writer) { writer.WriteObjectValue<global::Models.Left>(null, Left, Right); }
+        }
+        """.Replace("NAME", name, StringComparison.Ordinal);
+}

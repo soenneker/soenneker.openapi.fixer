@@ -242,6 +242,7 @@ public sealed partial class OpenApiFixer
         await WriteGeneratedServiceRoutes(generatedRoot, serviceRoutes, cancellationToken);
         HashSet<string> factorySchemas = await ReadGeneratedFactorySchemas(generatedRoot, cancellationToken);
         JsonObject? unionSchemas = await ReadGeneratedUnionSchemas(generatedRoot, cancellationToken);
+        var unionMatchers = unionSchemas == null ? null : new GeneratedUnionMatcherWriter(unionSchemas);
         if (unionSchemas != null)
         {
             await WriteGeneratedUnionSupport(generatedRoot, cancellationToken);
@@ -255,6 +256,7 @@ public sealed partial class OpenApiFixer
         foreach (string filePath in await _directoryUtil.GetFilesByExtension(generatedRoot, ".cs", recursive: true, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (Path.GetFileName(filePath) == "OpenApiUnionMatchers.cs") continue;
 
             string original = await _fileUtil.Read(filePath, cancellationToken: cancellationToken)
                                              .NoSync();
@@ -275,7 +277,8 @@ public sealed partial class OpenApiFixer
             sanitized = RepairGeneratedLossyUnionProperties(sanitized, unionSchemas);
             sanitized = RepairGeneratedMultipartBodies(sanitized);
             if (unionSchemas != null) sanitized = RepairGeneratedErrorFallbacks(sanitized);
-            sanitized = RepairGeneratedUnionFactories(sanitized, unionSchemas);
+            sanitized = RepairGeneratedUnionFactories(sanitized, unionSchemas, unionMatchers);
+            unionMatchers?.RegisterExistingCalls(sanitized);
             sanitized = RepairGeneratedAnonymousObjectCollections(sanitized, unionSchemas);
             sanitized = RepairGeneratedUnionCollectionChecks(sanitized);
             sanitized = RepairGeneratedEmptyUnionSerialization(sanitized);
@@ -289,6 +292,9 @@ public sealed partial class OpenApiFixer
                 await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken)
                                .NoSync();
         }
+
+        if (unionMatchers != null)
+            await File.WriteAllTextAsync(Path.Combine(generatedRoot, "OpenApiUnionMatchers.cs"), unionMatchers.BuildSource(), cancellationToken);
 
         foreach ((string filePath, string contents) in generatedFiles)
         {
