@@ -95,7 +95,7 @@ public sealed partial class OpenApiFixer
         foreach ((string method, (string original, string server)) in methods)
         {
             int index = 0;
-            if (Regex.Matches(original, @"\{[^}]+\}").Count != parameters.Length)
+            if (Regex.Count(original, @"\{[^}]+\}") != parameters.Length)
                 throw new InvalidOperationException("Original route parameter count differs from the generated route: " + original);
             string wirePath = Regex.Replace(original, @"\{[^}]+\}", _ => parameters[index++]);
             bool useConfiguredBase = server.Length == 0 || string.Equals(server, metadata.DefaultServer, StringComparison.Ordinal);

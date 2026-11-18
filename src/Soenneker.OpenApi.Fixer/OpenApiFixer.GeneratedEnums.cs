@@ -304,9 +304,29 @@ public sealed partial class OpenApiFixer
             if (unionSchemas != null) sanitized = RepairGeneratedExplicitNulls(sanitized, generatedClasses);
             sanitized = RepairGeneratedUnknownEnums(sanitized);
             sanitized = RepairGeneratedEmptyEnumReads(sanitized, emptyEnums);
+            sanitized = SizeGeneratedFieldMaps(sanitized);
             if (!string.Equals(contents, sanitized, StringComparison.Ordinal))
                 await _fileUtil.Write(filePath, sanitized, cancellationToken: cancellationToken).NoSync();
         }
+    }
+
+    // Only plain Kiota collection initializers qualify. Inherited maps supply their own constructor arguments.
+    [GeneratedRegex("""(?m)^(?<start>[ \t]*return new Dictionary<string, Action<IParseNode>>)(?:\((?<capacity>[0-9]+)\))?(?=[ \t\r\n]*\{\r?\n(?<entries>(?:[ \t]*\{ "(?:\\.|[^"\\\r\n])*", n => [^\r\n]*\},[ \t]*\r?\n){4,})[ \t]*\};)""")]
+    private static partial Regex GeneratedFieldMapInitializer();
+
+    private static string SizeGeneratedFieldMaps(string source)
+    {
+        if (!source.Contains("return new Dictionary<string, Action<IParseNode>>", StringComparison.Ordinal))
+            return source;
+
+        return GeneratedFieldMapInitializer().Replace(source, static match =>
+        {
+            int count = match.Groups["entries"].ValueSpan.Count('\n');
+            if (int.TryParse(match.Groups["capacity"].ValueSpan, out int capacity) && capacity == count)
+                return match.Value;
+
+            return string.Concat(match.Groups["start"].ValueSpan, "(", count.ToString(System.Globalization.CultureInfo.InvariantCulture), ")");
+        });
     }
 
     private static string SanitizeGeneratedEnumMembersForContent(string fileContents)

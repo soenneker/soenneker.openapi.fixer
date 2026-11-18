@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -101,10 +102,10 @@ public sealed partial class OpenApiFixer
             string labels = string.Join(" || ", values.Select(v => JsonValue.Create(v!.GetValue<string>())!.ToJsonString() + ".Equals(" + variable + ".GetValue(), global::System.StringComparison.OrdinalIgnoreCase)"));
             return readPayload + " is " + untyped + "UntypedString " + variable + " && (" + labels + ") && " + match.Value;
         });
-        string arrayDispatch = "";
+        var arrayDispatch = new StringBuilder();
         if (objectCollections > 1)
         {
-            arrayDispatch = "\n            if (" + readPayload + " is " + untyped + "UntypedArray unionArrayPayload) {\n";
+            arrayDispatch.Append("\n            if (" + readPayload + " is " + untyped + "UntypedArray unionArrayPayload) {\n");
             var arrayBranches = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
             foreach ((string property, string type) in properties.Where(p => p.Value.StartsWith("List<global::", StringComparison.Ordinal)))
             {
@@ -118,18 +119,19 @@ public sealed partial class OpenApiFixer
             if (arrayBranches.Count == alternatives.Count && arrayBranches.Count == objectCollections &&
                 arrayBranches.Values.Distinct(ReferenceEqualityComparer.Instance).Count() == arrayBranches.Count)
             {
-                arrayDispatch += "var arrayMatches = " + matchers!.BuildChecks(arrayBranches.Values.ToArray(), "unionArrayPayload") + ";\n";
+                arrayDispatch.Append("var arrayMatches = " + matchers!.BuildChecks(arrayBranches.Values.ToArray(), "unionArrayPayload") + ";\n");
+                arrayDispatch.Append("int possibleArrayBranches = 0;\nforeach (var candidate in arrayMatches) if (candidate != false) possibleArrayBranches++;\n");
                 int arrayIndex = 0;
                 foreach (string property in arrayBranches.Keys)
                 {
                     string itemType = properties[property][5..^1];
-                    string unique = string.Join(" && ", Enumerable.Range(0, arrayBranches.Count).Where(i => i != arrayIndex).Select(i => "arrayMatches[" + i + "] == false"));
-                    arrayDispatch += "if (arrayMatches[" + arrayIndex++ + "] == true && " + unique + ") { result." + property +
+
+                    arrayDispatch.Append("if (arrayMatches[" + arrayIndex++ + "] == true && possibleArrayBranches == 1) { result." + property +
                         " = global::System.Linq.Enumerable.ToList(parseNode.GetCollectionOfObjectValues<" + itemType + ">(" + itemType +
-                        ".CreateFromDiscriminatorValue)!); return result; }\n";
+                        ".CreateFromDiscriminatorValue)!); return result; }\n");
                 }
             }
-            arrayDispatch += "result.UnrecognizedValue = unionArrayPayload; return result; }\n";
+            arrayDispatch.Append("result.UnrecognizedValue = unionArrayPayload; return result; }\n");
         }
 
         updatedFactory = Regex.Replace(updatedFactory, @"parseNode\.GetCollectionOf(?<kind>Primitive|Object)Values<(?<type>[^>]+)>", match =>
@@ -161,10 +163,11 @@ public sealed partial class OpenApiFixer
         // An unresolved object branch is still a possible competitor, never a rejected branch.
         foreach (string property in classProperties)
             if (!conditions.ContainsKey(property)) conditions[property] = "(bool?)null";
-        string dispatch = "\n            var unionPayload = parseNode.GetObjectValue<" + untyped + "UntypedNode>(" + untyped + "UntypedNode.CreateFromDiscriminatorValue);\n";
+        var dispatch = new StringBuilder();
+        dispatch.Append("\n            var unionPayload = parseNode.GetObjectValue<" + untyped + "UntypedNode>(" + untyped + "UntypedNode.CreateFromDiscriminatorValue);\n");
         if (objectBranches.Count > 0)
-            dispatch += "            var unionBranchMatches = unionPayload is " + untyped + "UntypedObject ? " +
-                matchers!.BuildChecks(objectBranches.Values.ToArray(), "unionPayload") + " : null;\n";
+            dispatch.Append("            var unionBranchMatches = unionPayload is " + untyped + "UntypedObject ? " +
+                matchers!.BuildChecks(objectBranches.Values.ToArray(), "unionPayload") + " : null;\n");
         // Separate booleans avoid duplicate pattern-variable declarations across candidate expressions.
         int index = 0;
         var candidates = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -173,18 +176,18 @@ public sealed partial class OpenApiFixer
             string candidate = "matchesUnionBranch" + index++;
             candidates[property] = candidate;
             // Read independently evaluated candidates from the shared schema graph.
-            dispatch += "            bool? " + candidate + " = unionPayload is " + untyped + "UntypedObject ? " + condition + " : (bool?)false;\n";
+            dispatch.Append("            bool? " + candidate + " = unionPayload is " + untyped + "UntypedObject ? " + condition + " : (bool?)false;\n");
         }
-        if (candidates.Count > 0) dispatch += "            int matchingUnionBranches = 0;\n";
-        foreach (string candidate in candidates.Values) dispatch += "            if (" + candidate + " != false) matchingUnionBranches++;\n";
-        if (candidates.Count > 0) dispatch += "            bool noSelectedUnionBranch = " + none + ";\n";
+        if (candidates.Count > 0) dispatch.Append("            int matchingUnionBranches = 0;\n");
+        foreach (string candidate in candidates.Values) dispatch.Append("            if (" + candidate + " != false) matchingUnionBranches++;\n");
+        if (candidates.Count > 0) dispatch.Append("            bool noSelectedUnionBranch = " + none + ";\n");
         foreach ((string property, string candidate) in candidates)
         {
-            dispatch += "            if (noSelectedUnionBranch && " + candidate + " == true && matchingUnionBranches == 1) result." + property + " = global::Soenneker.OpenApi.Generated.OpenApiNullTracking.Capture(new " + properties[property] + "(), parseNode);\n";
+            dispatch.Append("            if (noSelectedUnionBranch && " + candidate + " == true && matchingUnionBranches == 1) result." + property + " = global::Soenneker.OpenApi.Generated.OpenApiNullTracking.Capture(new " + properties[property] + "(), parseNode);\n");
         }
-        dispatch += "            if (" + none + ") result.UnrecognizedValue = unionPayload;\n";
+        dispatch.Append("            if (" + none + ") result.UnrecognizedValue = unionPayload;\n");
         int returnIndex = updatedFactory.LastIndexOf("return result;", StringComparison.Ordinal);
-        updatedFactory = updatedFactory.Insert(returnIndex, dispatch);
+        updatedFactory = updatedFactory.Insert(returnIndex, dispatch.ToString());
         if (arrayDispatch.Length > 0)
             updatedFactory = Regex.Replace(updatedFactory, @"(var result = new [\w:.]+\(\);)", match => match.Value + arrayDispatch);
         source = source.Remove(factory.Index, factory.Length).Insert(factory.Index, updatedFactory);
@@ -210,13 +213,18 @@ public sealed partial class OpenApiFixer
         source = Regex.Replace(source, @"(public virtual IDictionary<string, Action<IParseNode>> GetFieldDeserializers\(\)\s*\{)",
             "$1\n            if (UnrecognizedValue is " + untyped + "UntypedObject rawFields) { var fields = new global::System.Collections.Generic.Dictionary<string, global::System.Action<IParseNode>>(); foreach (var entry in rawFields.GetValue()) fields[entry.Key] = _ => { }; return fields; }\n");
         source = source.Replace("writer.WriteAdditionalData(AdditionalData);", "", StringComparison.Ordinal);
-        string serializePrefix = "\n            if (global::System.Object.ReferenceEquals(writer, null)) throw new global::System.ArgumentNullException(nameof(writer));\n            if (" + instanceNone + ") { if (UnrecognizedValue is " + untyped + "UntypedObject rawObject) writer.WriteObjectValue(null, new global::Soenneker.OpenApi.Generated.OpenApiUnionAdditionalData(AdditionalData, rawObject)); else if (UnrecognizedValue != null) writer.WriteObjectValue(null, UnrecognizedValue); else if (AdditionalData.Count > 0) writer.WriteObjectValue(null, new global::Soenneker.OpenApi.Generated.OpenApiUnionAdditionalData(AdditionalData)); else writer.WriteNullValue(null); return; }\n";
-        if (classProperties.Length > 0) serializePrefix += "            int selectedUnionBranches = 0;\n";
-        foreach (string property in properties.Keys.Where(_ => classProperties.Length > 0)) serializePrefix += "            if (" + property + " != null) selectedUnionBranches++;\n";
+        var serializePrefix = new StringBuilder();
+        serializePrefix.Append("\n            if (global::System.Object.ReferenceEquals(writer, null)) throw new global::System.ArgumentNullException(nameof(writer));\n            if (" + instanceNone + ") { if (UnrecognizedValue is " + untyped + "UntypedObject rawObject) writer.WriteObjectValue(null, new global::Soenneker.OpenApi.Generated.OpenApiUnionAdditionalData(AdditionalData, rawObject)); else if (UnrecognizedValue != null) writer.WriteObjectValue(null, UnrecognizedValue); else if (AdditionalData.Count > 0) writer.WriteObjectValue(null, new global::Soenneker.OpenApi.Generated.OpenApiUnionAdditionalData(AdditionalData)); else writer.WriteNullValue(null); return; }\n");
+        if (classProperties.Length > 0)
+        {
+            serializePrefix.Append("            int selectedUnionBranches = 0;\n");
+            foreach (string property in properties.Keys)
+                serializePrefix.Append("            if (" + property + " != null) selectedUnionBranches++;\n");
+        }
         foreach (string property in classProperties)
         {
-            serializePrefix += "            if (" + property + " != null && selectedUnionBranches == 1) { if (" + property + " is " + untyped +
-                "IAdditionalDataHolder selectedData) foreach (var entry in AdditionalData) selectedData.AdditionalData[entry.Key] = entry.Value; writer.WriteObjectValue(null, " + property + "); return; }\n";
+            serializePrefix.Append("            if (" + property + " != null && selectedUnionBranches == 1) { if (" + property + " is " + untyped +
+                "IAdditionalDataHolder selectedData) foreach (var entry in AdditionalData) selectedData.AdditionalData[entry.Key] = entry.Value; writer.WriteObjectValue(null, " + property + "); return; }\n");
         }
         source = Regex.Replace(source, @"(public virtual void Serialize\(ISerializationWriter writer\)\s*\{)", "$1" + serializePrefix);
         return source;

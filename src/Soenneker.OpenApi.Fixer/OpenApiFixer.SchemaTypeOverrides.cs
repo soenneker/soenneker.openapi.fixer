@@ -26,7 +26,7 @@ public sealed partial class OpenApiFixer
                 throw new ArgumentException($"Schema type override '{pointer}' must specify a supported JSON Schema type.", nameof(options));
 
             JsonNode? node = root;
-            if (!pointer.StartsWith("/", StringComparison.Ordinal))
+            if (!pointer.StartsWith('/'))
                 throw new ArgumentException($"Schema type override '{pointer}' must be an absolute JSON Pointer.", nameof(options));
 
             foreach (string segment in pointer.Substring(1).Split('/'))

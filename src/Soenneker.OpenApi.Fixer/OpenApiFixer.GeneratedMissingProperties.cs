@@ -12,7 +12,7 @@ public sealed partial class OpenApiFixer
 {
     private static string RepairGeneratedMissingProperties(string source, JsonObject? schemas, Dictionary<string, string> classes, Dictionary<string, string> newEnums)
     {
-        const string dictionary = @"return new Dictionary<string, Action<IParseNode>>\s*\{";
+        const string dictionary = @"return new Dictionary<string, Action<IParseNode>>(?:\([0-9]+\))?\s*\{";
         Match declaration = Regex.Match(source, @"public partial class (?<name>\w+)[^{]+\{");
         Match ns = Regex.Match(source, @"(?m)^namespace\s+(?<name>[\w.]+)");
         if (schemas == null || !declaration.Success || !ns.Success || declaration.Value.Contains("IComposedTypeWrapper", StringComparison.Ordinal) ||

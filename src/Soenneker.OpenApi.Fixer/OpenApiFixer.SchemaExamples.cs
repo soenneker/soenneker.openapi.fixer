@@ -110,7 +110,7 @@ public sealed partial class OpenApiFixer
                     if (parsed is JsonObject && Matches(schema, parsed)) { replacement = parsed; repair = "decoded-json-object"; }
                 }
                 catch (JsonException) { }
-                if (replacement == null && text.StartsWith("/", StringComparison.Ordinal) && schema["properties"] is JsonObject { Count: 1 } pointerFields &&
+                if (replacement == null && text.StartsWith('/') && schema["properties"] is JsonObject { Count: 1 } pointerFields &&
                     Resolve(pointerFields["pointer"])?["type"]?.ToJsonString() == "\"string\"")
                 {
                     var pointer = new JsonObject { ["pointer"] = text };

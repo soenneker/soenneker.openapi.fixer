@@ -8,6 +8,30 @@ namespace Soenneker.OpenApi.Fixer.Tests;
 public sealed class OpenApiGeneratedMissingPropertyTests
 {
     [Test]
+    public async ValueTask Field_map_capacity_matches_generated_entries_and_preserves_other_constructors()
+    {
+        const string constructor = "return new Dictionary<string, Action<IParseNode>>";
+        const string source = """
+            return new Dictionary<string, Action<IParseNode>>
+            {
+                { "a", n => { A = n.GetStringValue(); } },
+                { "b", n => { B = n.GetStringValue(); } },
+                { "c", n => { C = n.GetStringValue(); } },
+                { "d", n => { D = n.GetStringValue(); } },
+            };
+            """;
+
+        MethodInfo size = typeof(OpenApiFixer).GetMethod("SizeGeneratedFieldMaps", BindingFlags.NonPublic | BindingFlags.Static)!;
+        string Apply(string text) => (string)size.Invoke(null, [text])!;
+        string sized = source.Replace(constructor, constructor + "(4)");
+        await Assert.That(Apply(source)).IsEqualTo(sized);
+        await Assert.That(Apply(sized)).IsEqualTo(sized);
+        await Assert.That(Apply(source.Replace(constructor, constructor + "(3)"))).IsEqualTo(sized);
+        string inherited = source.Replace(constructor, constructor + "(base.GetFieldDeserializers())");
+        await Assert.That(Apply(inherited)).IsEqualTo(inherited);
+    }
+
+    [Test]
     public async ValueTask Partially_generated_intersections_recover_inherited_fields_without_duplicates()
     {
         const string source = """
@@ -38,7 +62,9 @@ public sealed class OpenApiGeneratedMissingPropertyTests
     }
 
     [Test]
-    public async ValueTask Depth_limited_empty_models_regain_typed_fields_and_recursive_collections()
+    [Arguments("")]
+    [Arguments("(4)")]
+    public async ValueTask Depth_limited_empty_models_regain_typed_fields_and_recursive_collections(string capacity)
     {
         const string source = """
             namespace Models
@@ -58,7 +84,8 @@ public sealed class OpenApiGeneratedMissingPropertyTests
         var enums = new Dictionary<string, string>();
         var classes = new Dictionary<string, string> { ["Models.Node"] = source };
         MethodInfo repair = typeof(OpenApiFixer).GetMethod("RepairGeneratedMissingProperties", BindingFlags.NonPublic | BindingFlags.Static)!;
-        string result = (string)repair.Invoke(null, [source, schemas, classes, enums])!;
+        string input = source.Replace("IParseNode>> { };", "IParseNode>>" + capacity + " { };");
+        string result = (string)repair.Invoke(null, [input, schemas, classes, enums])!;
         await Assert.That(result).Contains("public string? Label");
         await Assert.That(result).Contains("List<global::Models.Node>? Children");
         await Assert.That(result).Contains("GetCollectionOfObjectValues<global::Models.Node>");
