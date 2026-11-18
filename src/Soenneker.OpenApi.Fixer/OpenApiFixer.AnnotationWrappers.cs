@@ -74,6 +74,32 @@ public sealed partial class OpenApiFixer
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             bool collapsed = false;
+            // A union intersected with a wider anyOf still accepts exactly the narrower union.
+            // Kiota otherwise tries to use the referenced union as a base model.
+            if (schema["allOf"] is JsonArray { Count: 2 } pair)
+            {
+                foreach (JsonObject candidate in pair.OfType<JsonObject>().ToArray())
+                {
+                    if (candidate["anyOf"] is not JsonArray wider ||
+                        candidate.Any(p => p.Key is not ("anyOf" or "description" or "title")))
+                        continue;
+
+                    JsonNode? other = ReferenceEquals(pair[0], candidate) ? pair[1] : pair[0];
+                    const string prefix = "#/components/schemas/";
+                    if (other is not JsonObject { Count: 1 } reference || reference["$ref"]?.GetValue<string>() is not string id ||
+                        !id.StartsWith(prefix, StringComparison.Ordinal) ||
+                        components?[id[prefix.Length..].Replace("~1", "/").Replace("~0", "~")] is not JsonObject target ||
+                        target["nullable"]?.ToJsonString() == "true" || target["anyOf"] is not JsonArray { Count: > 0 } narrower ||
+                        !narrower.All(branch => wider.Any(alternative => JsonNode.DeepEquals(branch, alternative))))
+                        continue;
+
+                    pair.Remove(candidate);
+                    foreach ((string key, JsonNode? value) in candidate)
+                        if (key != "anyOf" && !schema.ContainsKey(key)) schema[key] = value?.DeepClone();
+                    collapsed = true;
+                    break;
+                }
+            }
             while (schema["allOf"] is JsonArray { Count: 1 } branches && branches[0] is JsonObject branch)
             {
                 if (!schema.All(p => p.Key is "allOf" or "unevaluatedProperties" or "type" or "title" or "description" or "default" or "example" or "examples" or
